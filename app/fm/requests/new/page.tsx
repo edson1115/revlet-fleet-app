@@ -1,8 +1,9 @@
 // app/fm/requests/new/page.tsx
 'use client';
 
+import AddVehicleInline from './AddVehicleInline';
 import { useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 
 // Types (allow nullable fields coming from DB)
 type Vehicle = {
@@ -19,8 +20,6 @@ type Location = { id: string; name: string };
 
 export default function NewRequestPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const isSuccess = searchParams.get('success') === 'true';
 
   const [loading, setLoading] = useState(false);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -38,21 +37,31 @@ export default function NewRequestPage() {
     preferred_date_2: '',
     preferred_date_3: '',
     is_emergency: false,
-    odometer_miles: '' as number | '', // ← mileage (optional)
+    odometer_miles: '' as number | '', // optional mileage
   });
 
   // Initial loads
   useEffect(() => {
     (async () => {
-      const vr = await fetch('/api/vehicles');
-      const vj = await vr.json().catch(() => ({}));
-      if (vr.ok) setVehicles(vj.vehicles ?? []);
-      else console.error('Vehicle load error:', vj.error);
+      try {
+        const vr = await fetch('/api/vehicles');
+        const vct = vr.headers.get('content-type') || '';
+        const vj = vct.includes('application/json') ? await vr.json() : null;
+        if (!vr.ok) throw new Error(vj?.error || `Vehicles HTTP ${vr.status}`);
+        setVehicles(vj?.vehicles ?? []);
+      } catch (e) {
+        console.error('Vehicle load error:', e);
+      }
 
-      const lr = await fetch('/api/lookups');
-      const lj = await lr.json().catch(() => ({}));
-      if (lr.ok) setLocations(lj.locations ?? []);
-      else console.error('Location load error:', lj.error);
+      try {
+        const lr = await fetch('/api/lookups');
+        const lct = lr.headers.get('content-type') || '';
+        const lj = lct.includes('application/json') ? await lr.json() : null;
+        if (!lr.ok) throw new Error(lj?.error || `Lookups HTTP ${lr.status}`);
+        setLocations(lj?.locations ?? []);
+      } catch (e) {
+        console.error('Location load error:', e);
+      }
     })();
   }, []);
 
@@ -60,7 +69,8 @@ export default function NewRequestPage() {
   async function reloadVehicles() {
     try {
       const r = await fetch('/api/vehicles');
-      const j = await r.json().catch(() => ({}));
+      const ct = r.headers.get('content-type') || '';
+      const j = ct.includes('application/json') ? await r.json() : null;
       if (!r.ok) {
         setError(j?.error || `Failed to load vehicles (HTTP ${r.status})`);
         return;
@@ -73,33 +83,34 @@ export default function NewRequestPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
     setError('');
 
+    // 🔒 client-side guard against empty vehicle_id
+    const chosen = (formData.vehicle_id || '').trim();
+    if (!chosen) {
+      setError('Please select a vehicle before creating the request.');
+      return;
+    }
+
+    setLoading(true);
     try {
       const res = await fetch('/api/requests', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({ ...formData, vehicle_id: chosen }),
       });
 
-      // Be tolerant of empty bodies
-      let result: any = null;
-      try {
-        const ct = res.headers.get('content-type') || '';
-        result = ct.includes('application/json') ? await res.json() : null;
-      } catch {
-        result = null;
-      }
+      const ct = res.headers.get('content-type') || '';
+      const body = ct.includes('application/json') ? await res.json() : null;
+      if (!res.ok) throw new Error(body?.error || `Request failed (HTTP ${res.status})`);
 
-      if (!res.ok) {
-        throw new Error(result?.error || `Request failed (HTTP ${res.status})`);
-      }
+      const newId = body?.id as string | undefined;
 
-      // Success — stay on this page and show banner
-      router.replace('/fm/requests/new?success=true');
+      // Go straight to Office Queue (NEW requests)
+      router.push(newId ? `/office/queue?created=${newId}` : '/office/queue');
     } catch (err: any) {
-      setError(err.message || 'Failed to create request');
+      setError(err?.message || 'Failed to create request');
+    } finally {
       setLoading(false);
     }
   }
@@ -117,28 +128,27 @@ export default function NewRequestPage() {
             </div>
           )}
 
+          {/* Quick add vehicle (outside the main form to avoid nested forms) */}
+          <AddVehicleInline
+            onCreated={async (newId) => {
+              await reloadVehicles();
+              setFormData((prev) => ({ ...prev, vehicle_id: newId }));
+            }}
+          />
+
           {/* Helpful banner if no vehicles */}
           {vehicles.length === 0 && (
-            <p className="mb-4 text-sm text-amber-700 bg-amber-50 p-3 rounded">
-              No vehicles found.{' '}
-              <a className="underline text-blue-600" href="/fm/vehicles/new" target="_blank" rel="noreferrer">
-                Add a vehicle
-              </a>{' '}
-              first, then click Refresh.
+            <p className="mt-3 mb-4 text-sm text-amber-700 bg-amber-50 p-3 rounded">
+              No vehicles found. Add one above, then click Refresh.
             </p>
           )}
 
-          {/* Success banner */}
-          {isSuccess && (
-            <div className="mb-4 p-3 rounded border border-green-200 bg-green-50 text-green-800">
-              Service request created.
-            </div>
-          )}
-
+          {/* MAIN FORM */}
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Vehicle */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Vehicle *</label>
+
               <div className="flex gap-2">
                 <select
                   required
@@ -155,16 +165,6 @@ export default function NewRequestPage() {
                     </option>
                   ))}
                 </select>
-
-                <a
-                  href="/fm/vehicles/new"
-                  className="px-3 py-2 rounded border bg-white hover:bg-gray-50"
-                  title="Add a vehicle"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  + Add
-                </a>
 
                 <button
                   type="button"

@@ -1,113 +1,114 @@
+// app/dispatch/scheduled/page.tsx
 'use client';
-import { useEffect, useState } from 'react';
 
-type Req = {
+import React, { useCallback, useEffect, useState } from 'react';
+import { vehicleLabel, type Vehicle } from '@/lib/vehicleLabel';
+
+type ReqRow = {
   id: string;
-  created_at: string;
   vehicle_id: string | null;
-  service_type: string;
-  priority: string;
-  preferred_date_1: string | null;
+  scheduled_at: string | null;
+  service_type?: string | null;
+  priority?: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT' | null;
 };
 
-type Vehicle = {
-  id: string;
-  unit_number?: string | null;
-  year?: number | null;
-  make?: string | null;
-  model?: string | null;
-  plate?: string | null;
-};
-
-export default function DispatchScheduledPage() {
-  const [rows, setRows] = useState<Req[]>([]);
+const ScheduledPage: React.FC = () => {
+  const [rows, setRows] = useState<ReqRow[]>([]);
   const [vehiclesById, setVehiclesById] = useState<Record<string, Vehicle>>({});
-  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
 
-  async function load() {
-    setError("");
-    const res = await fetch('/api/requests?status=SCHEDULED&limit=50', { cache: 'no-store' });
-    const j = await res.json().catch(() => ({}));
-    if (!res.ok) { setError(j?.error || 'Failed to load'); return; }
-    setRows(j.requests ?? []);
-    setVehiclesById(j.vehiclesById ?? {});
-  }
-
-  useEffect(() => { load(); }, []);
-
-  const vehicleLabel = (r: Req) => {
-    const v = r.vehicle_id ? vehiclesById[r.vehicle_id] : undefined;
-    if (!v) return "(No vehicle)";
-    const parts: string[] = [];
-    if (v.unit_number) parts.push(v.unit_number);
-    const meta = [v.year, v.make, v.model].filter(Boolean).join(" ");
-    if (meta) parts.push(meta);
-    if (v.plate) parts.push(`(${v.plate})`);
-    return parts.join(" — ") || "(Vehicle)";
-  };
-
-  async function markInProgress(id: string) {
-    const res = await fetch(`/api/requests/${id}/start`, { method: 'PATCH' });
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      setError(j?.error || 'Failed to start');
-      return;
+  const load = useCallback(async () => {
+    setLoading(true);
+    setErr(null);
+    try {
+      const res = await fetch('/api/requests?status=SCHEDULED&limit=100', { cache: 'no-store' });
+      const ct = res.headers.get('content-type') || '';
+      const body = ct.includes('application/json') ? await res.json() : null;
+      if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
+      setRows(body?.rows ?? []);
+      setVehiclesById(body?.vehiclesById ?? {});
+    } catch (e: any) {
+      setErr(e?.message || 'Failed to load scheduled');
+    } finally {
+      setLoading(false);
     }
-    await load(); // remove from list
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function startNow(id: string) {
+    setBusy(id);
+    setErr(null);
+    try {
+      const res = await fetch(`/api/requests/${id}/start`, { method: 'PATCH' });
+      const ct = res.headers.get('content-type') || '';
+      const body = ct.includes('application/json') ? await res.json() : null;
+      if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
+      // remove from SCHEDULED
+      setRows(prev => prev.filter(r => r.id !== id));
+    } catch (e: any) {
+      setErr(e?.message || 'Failed to start request');
+    } finally {
+      setBusy(null);
+    }
   }
 
   return (
-    <main className="max-w-5xl mx-auto px-4 py-6">
-      <div className="mb-3 flex items-center gap-2">
-        <h1 className="text-xl font-semibold">Dispatch — Scheduled</h1>
-        <button onClick={load} className="ml-auto px-4 py-2 rounded border bg-white hover:bg-gray-50">
-          Refresh
-        </button>
-      </div>
+    <main className="min-h-screen bg-gray-50 p-6">
+      <div className="mx-auto max-w-5xl">
+        <div className="mb-3 flex items-center gap-2">
+          <h1 className="text-2xl font-semibold">Dispatch - Scheduled</h1>
+          <button
+            onClick={load}
+            disabled={loading}
+            className="ml-auto rounded border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
+          >
+            {loading ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
 
-      <div className="mb-3 flex items-center gap-2">
-  <h1 className="text-xl font-semibold">Office Queue — NEW Requests</h1>
-  <button onClick={load} className="ml-auto px-4 py-2 rounded border bg-white hover:bg-gray-50">
-    Refresh
-  </button>
-</div>
+        {err && (
+          <div className="mb-4 rounded border border-red-200 bg-red-50 p-3 text-red-700">
+            {err}
+          </div>
+        )}
 
-
-      {error && <div className="mb-3 p-3 rounded bg-red-50 border border-red-200 text-red-700">{error}</div>}
-
-      <table className="w-full border rounded">
-        <thead>
-          <tr className="bg-gray-50 text-left">
-            <th className="p-3">Created</th>
-            <th className="p-3">Vehicle</th>
-            <th className="p-3">Service</th>
-            <th className="p-3">Priority</th>
-            <th className="p-3">Preferred</th>
-            <th className="p-3">Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 ? (
-            <tr><td colSpan={6} className="p-4 text-center text-gray-500">No scheduled requests.</td></tr>
-          ) : rows.map(r => (
-            <tr key={r.id} className="border-t">
-              <td className="p-3">{new Date(r.created_at).toLocaleString()}</td>
-              <td className="p-3">{vehicleLabel(r)}</td>
-              <td className="p-3">{r.service_type}</td>
-              <td className="p-3">{r.priority}</td>
-              <td className="p-3">{r.preferred_date_1 ? new Date(r.preferred_date_1).toLocaleDateString() : '-'}</td>
-              <td className="p-3">
+        <ul className="divide-y rounded-xl border bg-white">
+          {rows.map((r) => {
+            const v = r.vehicle_id ? vehiclesById[r.vehicle_id] : undefined;
+            return (
+              <li key={r.id} className="flex items-center justify-between gap-4 p-4">
+                <div className="min-w-0">
+                  <div className="truncate font-medium">{vehicleLabel(v)}</div>
+                  <div className="mt-0.5 text-xs text-gray-500">
+                    Req #{r.id}
+                    {r.service_type ? ` • ${r.service_type}` : ''}
+                    {r.priority ? ` • ${r.priority}` : ''}
+                    {r.scheduled_at ? ` • ${new Date(r.scheduled_at).toLocaleString()}` : ''}
+                  </div>
+                </div>
                 <button
-                  onClick={() => markInProgress(r.id)}
-                  className="px-3 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
+                  onClick={() => startNow(r.id)}
+                  disabled={busy === r.id}
+                  className="rounded bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
                 >
-                  Mark In Progress
+                  {busy === r.id ? 'Starting…' : 'Mark In Progress'}
                 </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+              </li>
+            );
+          })}
+          {rows.length === 0 && (
+            <li className="p-4 text-sm text-gray-600">Nothing scheduled.</li>
+          )}
+        </ul>
+      </div>
     </main>
   );
-}
+};
+
+export default ScheduledPage;
+

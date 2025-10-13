@@ -1,71 +1,66 @@
 // app/api/vehicles/route.ts
-import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { NextResponse } from 'next/server';
+import { createServerSupabase } from '@/lib/supabase/server';
 
-// Server-only client using the service role key (never expose in the browser)
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+export async function GET(_req: Request) {
+  try {
+    const supabase = createServerSupabase();
 
-/**
- * GET /api/vehicles
- * Optional query: ?company_id=<uuid>
- * Returns a list of vehicles (defaults to ABC Motors from seed if not provided).
- */
-export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const company_id =
-    searchParams.get("company_id") ?? "00000000-0000-0000-0000-000000000002";
+    const { data, error } = await supabase
+      .from('vehicles')
+      .select('id, year, make, model, vin, unit_number, plate') // only known-good columns
+      .order('unit_number', { ascending: true, nullsFirst: true })
+      .order('year', { ascending: false });
 
-  const { data, error } = await supabaseAdmin
-    .from("vehicles")
-    .select("id, year, make, model, vin, unit_number, plate, company_id, location_id")
-    .eq("company_id", company_id)
-    .order("unit_number", { ascending: true });
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
-  }
-
-  return NextResponse.json({ vehicles: data });
-}
-
-/**
- * POST /api/vehicles
- * Body: { year, make, model, vin, unit_number?, plate?, company_id?, location_id? }
- * Creates a single vehicle row.
- */
-export async function POST(req: Request) {
-  const b = await req.json();
-
-  const {
-    company_id = "00000000-0000-0000-0000-000000000002", // ABC Motors (seed)
-    location_id = null,
-    year,
-    make,
-    model,
-    vin,
-    unit_number = null,
-    plate = null,
-  } = b ?? {};
-
-  if (!year || !make || !model || !vin) {
+    return NextResponse.json({ vehicles: data ?? [] });
+  } catch (err: any) {
     return NextResponse.json(
-      { error: "year, make, model, vin are required" },
-      { status: 400 }
+      { error: err?.message ?? 'Vehicles fetch failed' },
+      { status: 500 },
     );
   }
+}
 
-  const { data, error } = await supabaseAdmin
-    .from("vehicles")
-    .insert([{ company_id, location_id, year, make, model, vin, unit_number, plate }])
-    .select()
-    .single();
+// app/api/vehicles/route.ts (POST only)
+export async function POST(req: Request) {
+  try {
+    const supabase = createServerSupabase();
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    let body: any = null;
+    try {
+      const ct = req.headers.get('content-type') || '';
+      body = ct.includes('application/json') ? await req.json() : null;
+    } catch { body = null; }
+
+    const p = body || {};
+    const ABC_COMPANY_ID = '00000000-0000-0000-0000-000000000002';
+
+    const insertRow = {
+      company_id: p.company_id ?? ABC_COMPANY_ID,   // ✅ ensure NOT NULL
+      year: p.year ?? null,
+      make: p.make ?? null,
+      model: p.model ?? null,
+      vin: p.vin ?? null,
+      unit_number: p.unit_number ?? null,
+      plate: p.plate ?? null,
+      // location: p.location ?? null, // include only if column exists
+    };
+
+    const { data, error } = await supabase
+      .from('vehicles')
+      .insert(insertRow)
+      .select('id')
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: error.message ?? 'Vehicle create failed' }, { status: 400 });
+    }
+    return NextResponse.json({ id: data.id });
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message ?? 'Vehicles create failed' }, { status: 500 });
   }
-
-  return NextResponse.json({ ok: true, vehicle: data }, { status: 201 });
 }

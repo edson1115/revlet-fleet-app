@@ -1,3 +1,17 @@
+# Revlet Fleet
+
+Local dev: `pnpm dev` → http://localhost:3000
+
+- New request: `/fm/requests/new`
+- Office (NEW): `/office/queue`
+- Dispatch (SCHEDULED): `/dispatch/scheduled`
+- Tech (IN_PROGRESS): `/tech/queue`
+
+📄 Project brief: [docs/PROJECT_BRIEF.md](./docs/PROJECT_BRIEF.md)
+
+
+
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started

@@ -1,144 +1,129 @@
+// app/office/queue/page.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { vehicleLabel, type Vehicle as VehicleType } from '@/lib/vehicleLabel';
 
 type RequestRow = {
   id: string;
-  vehicle_id: string;
-  service_type: string;
-  priority: string;
+  vehicle_id: string | null;
+  service_type: string | null;
+  priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT' | null;
   fmc: string | null;
-  status: string;
+  status: 'NEW' | 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED';
   preferred_date_1: string | null;
-  created_at: string;
-};
-
-type Vehicle = {
-  id: string;
-  year: number;
-  make: string;
-  model: string;
-  unit_number?: string | null;
-  plate?: string | null;
+  created_at: string; // ISO string
 };
 
 export default function OfficeQueuePage() {
+  const router = useRouter();
+
   const [rows, setRows] = useState<RequestRow[]>([]);
-  const [vehicles, setVehicles] = useState<Record<string, Vehicle>>({});
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState<string | null>(null);
+  const [vehiclesById, setVehiclesById] = useState<Record<string, VehicleType>>({});
   const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
 
-  // Fetch NEW requests + vehicle labels
-  async function load() {
+  const load = useCallback(async () => {
+    setLoading(true);
+    setErr(null);
     try {
-      setLoading(true);
-      setError('');
-
-      // NEW requests
-      const rr = await fetch('/api/requests?status=NEW&limit=50', { cache: 'no-store' });
-      const rj = await rr.json().catch(() => ({}));
-      if (!rr.ok) throw new Error(rj?.error || 'Failed to load requests');
-      setRows(rj.requests ?? []);
-
-      // Vehicles
-      const vr = await fetch('/api/vehicles', { cache: 'no-store' });
-      const vj = await vr.json().catch(() => ({}));
-      if (vr.ok) {
-        const map: Record<string, Vehicle> = {};
-        (vj.vehicles ?? []).forEach((v: Vehicle) => {
-          map[v.id] = v;
-        });
-        setVehicles(map);
-      }
+      const res = await fetch('/api/requests?status=NEW&limit=100', { cache: 'no-store' });
+      const ct = res.headers.get('content-type') || '';
+      const body = ct.includes('application/json') ? await res.json() : null;
+      if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
+      setRows(body?.rows ?? []);
+      setVehiclesById(body?.vehiclesById ?? {});
     } catch (e: any) {
-      setError(e.message || 'Failed to load data');
+      setErr(e?.message ?? 'Failed to load');
     } finally {
       setLoading(false);
     }
-  }
-
-  useEffect(() => {
-    load();
   }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   async function scheduleNow(id: string) {
     setBusy(id);
-    setError('');
+    setErr(null);
+    try {
+      const res = await fetch(`/api/requests/${id}/schedule`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scheduled_at: new Date().toISOString(),
+          note: 'Scheduled from Office queue',
+        }),
+      });
+      const ct = res.headers.get('content-type') || '';
+      const j = ct.includes('application/json') ? await res.json() : null;
+      if (!res.ok) throw new Error(j?.error || `HTTP ${res.status}`);
 
-    const res = await fetch(`/api/requests/${id}/schedule`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        scheduled_at: new Date().toISOString(),
-        note: 'Scheduled from Office queue',
-      }),
-    });
-    const j = await res.json().catch(() => ({}));
-    setBusy(null);
+      // Remove from NEW list immediately
+      setRows(prev => prev.filter(r => r.id !== id));
 
-    if (!res.ok) {
-      setError(j?.error || `Failed to schedule (HTTP ${res.status})`);
-      return;
+      // Navigate to Dispatch — Scheduled
+      router.push('/dispatch/scheduled');
+    } catch (e: any) {
+      setErr(e?.message || 'Failed to schedule request');
+    } finally {
+      setBusy(null);
     }
-
-    // Remove from NEW queue immediately
-    setRows(prev => prev.filter(r => r.id !== id));
   }
 
   return (
     <main className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-5xl mx-auto">
+      <div className="mx-auto max-w-5xl">
         <div className="mb-3 flex items-center gap-2">
           <h1 className="text-2xl font-bold">Office Queue — NEW Requests</h1>
           <button
             onClick={load}
             disabled={loading}
-            className="ml-auto px-4 py-2 rounded border bg-white hover:bg-gray-50 disabled:opacity-50"
+            className="ml-auto rounded border bg-white px-4 py-2 hover:bg-gray-50 disabled:opacity-50"
           >
             {loading ? 'Refreshing…' : 'Refresh'}
           </button>
         </div>
 
-        {error && (
-          <div className="mb-4 p-3 rounded border border-red-200 bg-red-50 text-red-700">
-            {error}
+        {err && (
+          <div className="mb-4 rounded border border-red-200 bg-red-50 p-3 text-red-700">
+            {err}
           </div>
         )}
 
-        <div className="overflow-x-auto border rounded bg-white">
+        <div className="overflow-x-auto rounded border bg-white">
           <table className="w-full text-sm">
             <thead className="bg-gray-50">
               <tr>
-                <th className="text-left p-2">Created</th>
-                <th className="text-left p-2">Vehicle</th>
-                <th className="text-left p-2">Service</th>
-                <th className="text-left p-2">Priority</th>
-                <th className="text-left p-2">Preferred</th>
-                <th className="text-left p-2 w-40">Action</th>
+                <th className="p-2 text-left">Created</th>
+                <th className="p-2 text-left">Vehicle</th>
+                <th className="p-2 text-left">Service</th>
+                <th className="p-2 text-left">Priority</th>
+                <th className="p-2 text-left">Preferred</th>
+                <th className="w-40 p-2 text-left">Action</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r) => {
-                const v = vehicles[r.vehicle_id];
-                const vLabel = v
-                  ? `${v.unit_number ? v.unit_number + ' — ' : ''}${v.year} ${v.make} ${v.model}${v.plate ? ' (' + v.plate + ')' : ''}`
-                  : r.vehicle_id.slice(0, 8) + '…';
-
+                const v = r.vehicle_id ? vehiclesById[r.vehicle_id] : undefined;
+                const fallback = r.vehicle_id ? `${r.vehicle_id.slice(0, 8)}…` : '—';
                 return (
                   <tr key={r.id} className="border-t">
                     <td className="p-2">{new Date(r.created_at).toLocaleString()}</td>
-                    <td className="p-2">{vLabel}</td>
-                    <td className="p-2">{r.service_type}</td>
-                    <td className="p-2">{r.priority}</td>
+                    <td className="p-2">{vehicleLabel(v) || fallback}</td>
+                    <td className="p-2">{r.service_type ?? '—'}</td>
+                    <td className="p-2">{r.priority ?? 'NORMAL'}</td>
                     <td className="p-2">
-                      {r.preferred_date_1 ? new Date(r.preferred_date_1).toLocaleDateString() : '—'}
+                      {r.preferred_date_1
+                        ? new Date(r.preferred_date_1).toLocaleDateString()
+                        : '—'}
                     </td>
                     <td className="p-2">
                       <button
                         disabled={busy === r.id}
                         onClick={() => scheduleNow(r.id)}
-                        className="px-3 py-1 rounded bg-blue-600 text-white disabled:opacity-50"
+                        className="rounded bg-blue-600 px-3 py-1 text-white hover:bg-blue-700 disabled:opacity-50"
                       >
                         {busy === r.id ? 'Scheduling…' : 'Schedule now'}
                       </button>
@@ -148,7 +133,7 @@ export default function OfficeQueuePage() {
               })}
               {rows.length === 0 && (
                 <tr>
-                  <td className="p-4 text-gray-500" colSpan={6}>
+                  <td colSpan={6} className="p-4 text-gray-500">
                     No NEW requests.
                   </td>
                 </tr>
