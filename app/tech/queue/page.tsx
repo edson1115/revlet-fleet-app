@@ -1,120 +1,333 @@
 // app/tech/queue/page.tsx
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
-import { vehicleLabel, type Vehicle } from '@/lib/vehicleLabel';
+import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useToast } from '@/app/components/Toast';
+import { useSuccessQueryToast } from '@/app/components/useSuccessQueryToast';
 
-type ReqRow = {
+type RequestRow = {
   id: string;
   vehicle_id: string | null;
-  started_at: string | null;
+  customer_id: string | null;
+  status: string;
   service_type?: string | null;
-  priority?: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT' | null;
+  started_at?: string | null;
+  odometer_miles?: number | null;
 };
 
-const TechQueue: React.FC = () => {
-  const [rows, setRows] = useState<ReqRow[]>([]);
-  const [vehiclesById, setVehiclesById] = useState<Record<string, Vehicle>>({});
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
+type VehicleLite = { id: string; year: number; make: string; model: string; unit_number?: string | null };
+type CustomerLite = { id: string; name: string };
 
-  const load = useCallback(async () => {
+type RequestsResponse = {
+  rows: RequestRow[];
+  vehiclesById: Record<string, VehicleLite | undefined>;
+  customersById: Record<string, CustomerLite | undefined>;
+};
+
+function formatVehicle(v?: VehicleLite | null) {
+  if (!v) return '—';
+  const unit = v.unit_number ? ` (${v.unit_number})` : '';
+  return `${v.year} ${v.make} ${v.model}${unit}`;
+}
+
+async function safeJson(res: Response) {
+  const ct = res.headers.get('content-type') || '';
+  if (!ct.includes('application/json')) return null;
+  try { return await res.json(); } catch { return null; }
+}
+
+export default function TechQueuePage() {
+  const router = useRouter();
+  const { show, Toast } = useToast();
+  useSuccessQueryToast(show);
+
+  const [rows, setRows] = useState<RequestRow[]>([]);
+  const [vehiclesById, setVehiclesById] = useState<Record<string, VehicleLite | undefined>>({});
+  const [customersById, setCustomersById] = useState<Record<string, CustomerLite | undefined>>({});
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // modal state (complete)
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalId, setModalId] = useState<string | null>(null);
+  const [odo, setOdo] = useState<string>('');
+  // recommendations
+  const [reco, setReco] = useState({
+    tires_tread_32: '',
+    wipers: '',
+    brakes_mm: '',
+    lights: '',
+    cabin_air: '',
+    tire_rotation: '',
+    notes: '',
+  });
+
+  async function load() {
     setLoading(true);
-    setErr(null);
+    setError(null);
     try {
-      const res = await fetch('/api/requests?status=IN_PROGRESS&limit=100', { cache: 'no-store' });
-      const ct = res.headers.get('content-type') || '';
-      const body = ct.includes('application/json') ? await res.json() : null;
-      if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
-      setRows(body?.rows ?? []);
-      setVehiclesById(body?.vehiclesById ?? {});
+      // Load both SCHEDULED and IN_PROGRESS so tech can mark Arrived on scheduled jobs
+      const [schedRes, progRes] = await Promise.all([
+        fetch('/api/requests?status=SCHEDULED', { cache: 'no-store' }),
+        fetch('/api/requests?status=IN_PROGRESS', { cache: 'no-store' }),
+      ]);
+      const s = (await safeJson(schedRes)) as RequestsResponse | null;
+      const p = (await safeJson(progRes)) as RequestsResponse | null;
+
+      const rowsCombined = [
+        ...(s?.rows || []),
+        ...(p?.rows || []),
+      ];
+      const vmap = { ...(s?.vehiclesById || {}), ...(p?.vehiclesById || {}) };
+      const cmap = { ...(s?.customersById || {}), ...(p?.customersById || {}) };
+
+      setRows(rowsCombined);
+      setVehiclesById(vmap);
+      setCustomersById(cmap);
     } catch (e: any) {
-      setErr(e?.message || 'Failed to load queue');
+      setError(e?.message || 'Network error while loading tech queue');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, []);
 
-  async function complete(id: string, odo?: number) {
-    setBusy(id);
-    setErr(null);
-    try {
-      const res = await fetch(`/api/requests/${id}/complete`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ odometer_miles: odo ?? null }),
-      });
-      const ct = res.headers.get('content-type') || '';
-      const body = ct.includes('application/json') ? await res.json() : null;
-      if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
-      setRows(prev => prev.filter(r => r.id !== id)); // remove from IN_PROGRESS
-    } catch (e: any) {
-      setErr(e?.message || 'Failed to complete request');
-    } finally {
-      setBusy(null);
+  const view = useMemo(
+    () =>
+      rows.map((r) => ({
+        ...r,
+        vehicleLabel: r.vehicle_id ? formatVehicle(vehiclesById[r.vehicle_id]) : '—',
+        customerLabel: r.customer_id ? (customersById[r.customer_id]?.name ?? '—') : '—',
+        startedWhen: r.started_at ? new Date(r.started_at).toLocaleString() : '—',
+      })),
+    [rows, vehiclesById, customersById]
+  );
+
+  async function onArrived(id: string) {
+    setBusyId(id);
+    setError(null);
+    const res = await fetch(`/api/requests/${id}/start`, { method: 'PATCH' });
+    if (res.ok) {
+      router.replace('/tech/queue?started=1');
+      setTimeout(load, 80);
+    } else {
+      const b = await safeJson(res);
+      setError(b?.error || `Failed to start request (${res.status})`);
+      setBusyId(null);
+    }
+  }
+
+  function openCompleteModal(id: string, current?: number | null) {
+    setModalId(id);
+    setOdo(current != null ? String(current) : '');
+    setReco({
+      tires_tread_32: '',
+      wipers: '',
+      brakes_mm: '',
+      lights: '',
+      cabin_air: '',
+      tire_rotation: '',
+      notes: '',
+    });
+    setModalOpen(true);
+  }
+
+  async function submitComplete() {
+    if (!modalId) return;
+    setBusyId(modalId);
+    setError(null);
+
+    const parsed = odo.trim() === '' ? null : Number(odo);
+    if (parsed != null && (!Number.isFinite(parsed) || parsed < 0)) {
+      setError('Please enter a valid odometer value (non-negative number) or leave blank.');
+      setBusyId(null);
+      return;
+    }
+
+    const res = await fetch(`/api/requests/${modalId}/complete`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        odometer_miles: parsed,
+        recommendations: reco, // ← NEW
+      }),
+    });
+
+    setModalOpen(false);
+    setModalId(null);
+
+    if (res.ok) {
+      router.replace('/tech/queue?completed=1');
+      setTimeout(load, 80);
+    } else {
+      const body = await safeJson(res);
+      setError(body?.error || `Failed to complete request (${res.status})`);
+      setBusyId(null);
     }
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
-      <div className="mx-auto max-w-5xl">
-        <div className="mb-3 flex items-center gap-2">
-          <h1 className="text-2xl font-semibold">Tech — In Progress</h1>
-          <button
-            onClick={load}
-            disabled={loading}
-            className="ml-auto rounded border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
-          >
-            {loading ? 'Refreshing…' : 'Refresh'}
-          </button>
-        </div>
-
-        {err && <div className="mb-4 rounded border border-red-200 bg-red-50 p-3 text-red-700">{err}</div>}
-
-        <ul className="divide-y rounded-xl border bg-white">
-          {rows.map((r) => {
-            const v = r.vehicle_id ? vehiclesById[r.vehicle_id] : undefined;
-            return (
-              <li key={r.id} className="flex items-center justify-between gap-4 p-4">
-                <div className="min-w-0">
-                  <div className="truncate font-medium">{vehicleLabel(v)}</div>
-                  <div className="mt-0.5 text-xs text-gray-500">
-                    Req #{r.id}
-                    {r.service_type ? ` • ${r.service_type}` : ''}
-                    {r.started_at ? ` • Started ${new Date(r.started_at).toLocaleString()}` : ''}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min={0}
-                    placeholder="Odo"
-                    className="w-24 rounded border px-2 py-1"
-                    id={`odo-${r.id}`}
-                  />
-                  <button
-                    onClick={() => {
-                      const el = document.getElementById(`odo-${r.id}`) as HTMLInputElement | null;
-                      const n = el?.value ? Number(el.value) : undefined;
-                      complete(r.id, Number.isFinite(n as number) ? (n as number) : undefined);
-                    }}
-                    disabled={busy === r.id}
-                    className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {busy === r.id ? 'Completing…' : 'Complete'}
-                  </button>
-                </div>
-              </li>
-            );
-          })}
-          {rows.length === 0 && <li className="p-4 text-sm text-gray-600">No in-progress requests.</li>}
-        </ul>
+    <div className="p-6 space-y-4">
+      <Toast />
+      <div className="flex items-baseline justify-between">
+        <h1 className="text-2xl font-semibold">Tech Queue</h1>
+        <span className="text-sm text-gray-500">{loading ? 'Loading…' : `${rows.length} items`}</span>
       </div>
-    </main>
-  );
-};
 
-export default TechQueue;
+      {error && <div className="rounded bg-red-50 text-red-700 px-3 py-2 text-sm">{error}</div>}
+
+      {loading ? (
+        <div className="text-sm text-gray-600">Fetching jobs…</div>
+      ) : rows.length === 0 ? (
+        <div className="text-sm text-gray-600">No jobs.</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-[1200px] w-full text-sm">
+            <thead>
+              <tr className="text-left border-b">
+                <th className="py-2 pr-4">Vehicle</th>
+                <th className="pr-4">Customer</th>
+                <th className="pr-4">Service</th>
+                <th className="pr-4">Status</th>
+                <th className="pr-4">Started</th>
+                <th className="pr-4">Odometer</th>
+                <th className="w-[1%]"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {view.map((r) => (
+                <tr key={r.id} className="border-b">
+                  <td className="py-2 pr-4">{r.vehicleLabel}</td>
+                  <td className="pr-4">{r.customerLabel}</td>
+                  <td className="pr-4">{r.service_type ?? '—'}</td>
+                  <td className="pr-4">{r.status}</td>
+                  <td className="pr-4">{r.startedWhen}</td>
+                  <td className="pr-4">{r.odometer_miles ?? '—'}</td>
+                  <td className="py-2">
+                    {r.status === 'SCHEDULED' ? (
+                      <button
+                        onClick={() => onArrived(r.id)}
+                        disabled={busyId === r.id}
+                        className="px-3 py-1 rounded border disabled:opacity-50"
+                      >
+                        {busyId === r.id ? 'Arriving…' : 'Arrived'}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => openCompleteModal(r.id, r.odometer_miles)}
+                        disabled={busyId === r.id}
+                        className="px-3 py-1 rounded bg-black text-white disabled:opacity-50"
+                      >
+                        {busyId === r.id ? 'Completing…' : 'Complete'}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Complete modal with recommendations */}
+      {modalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-full max-w-lg rounded-xl bg-white p-5 shadow-2xl">
+            <h2 className="text-lg font-semibold mb-3">Complete — Add Details</h2>
+
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-sm">
+                Odometer (mi)
+                <input
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  className="w-full border rounded px-3 py-2 mt-1"
+                  placeholder="e.g. 123456"
+                  value={odo}
+                  onChange={(e) => setOdo(e.target.value)}
+                />
+              </label>
+
+              <label className="text-sm">
+                Tire tread (32nds)
+                <input
+                  className="w-full border rounded px-3 py-2 mt-1"
+                  value={reco.tires_tread_32}
+                  onChange={(e) => setReco({ ...reco, tires_tread_32: e.target.value })}
+                />
+              </label>
+
+              <label className="text-sm">
+                Wipers
+                <input
+                  className="w-full border rounded px-3 py-2 mt-1"
+                  placeholder="ok / replace"
+                  value={reco.wipers}
+                  onChange={(e) => setReco({ ...reco, wipers: e.target.value })}
+                />
+              </label>
+
+              <label className="text-sm">
+                Brakes (mm)
+                <input
+                  className="w-full border rounded px-3 py-2 mt-1"
+                  value={reco.brakes_mm}
+                  onChange={(e) => setReco({ ...reco, brakes_mm: e.target.value })}
+                />
+              </label>
+
+              <label className="text-sm">
+                Lights
+                <input
+                  className="w-full border rounded px-3 py-2 mt-1"
+                  value={reco.lights}
+                  onChange={(e) => setReco({ ...reco, lights: e.target.value })}
+                />
+              </label>
+
+              <label className="text-sm">
+                Cabin air
+                <input
+                  className="w-full border rounded px-3 py-2 mt-1"
+                  value={reco.cabin_air}
+                  onChange={(e) => setReco({ ...reco, cabin_air: e.target.value })}
+                />
+              </label>
+
+              <label className="text-sm">
+                Tire rotation
+                <input
+                  className="w-full border rounded px-3 py-2 mt-1"
+                  value={reco.tire_rotation}
+                  onChange={(e) => setReco({ ...reco, tire_rotation: e.target.value })}
+                />
+              </label>
+            </div>
+
+            <label className="text-sm block mt-3">
+              Notes
+              <textarea
+                rows={3}
+                className="w-full border rounded px-3 py-2 mt-1"
+                value={reco.notes}
+                onChange={(e) => setReco({ ...reco, notes: e.target.value })}
+              />
+            </label>
+
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => { setModalOpen(false); setModalId(null); }} className="px-3 py-1 rounded border">
+                Cancel
+              </button>
+              <button onClick={submitComplete} className="px-3 py-1 rounded bg-black text-white">
+                Save & Complete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,27 +1,102 @@
+/* app/globals.css — Tailwind v4 style */
 @import "tailwindcss";
+/* Lets @apply resolve utilities even in global CSS on some setups */
+@reference "tailwindcss";
 
-
+/* ---- Design tokens (CSS vars, used by our small components) ---- */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+  --brand: 0 0% 0%;
+  --brand-contrast: 0 0% 100%;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --bg: 210 20% 98%;
+  --surface: 0 0% 100%;
+  --border: 220 13% 91%;
+
+  --text: 220 9% 20%;
+  --muted: 220 10% 46%;
+
+  --success: 142 71% 45%;
+  --warn: 38 92% 50%;
+  --error: 0 84% 60%;
+
+  --r: 0.75rem; /* 12px */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.06);
+  --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.08);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --brand: 0 0% 100%;
+    --brand-contrast: 0 0% 0%;
+
+    --bg: 220 15% 9%;
+    --surface: 220 15% 12%;
+    --border: 220 10% 22%;
+
+    --text: 0 0% 98%;
+    --muted: 220 9% 65%;
   }
 }
 
+/* Base page look */
+html, body { height: 100%; }
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  @apply antialiased;
+  background-color: hsl(var(--bg));
+  color: hsl(var(--text));
 }
+
+/* Accessible focus */
+*:focus-visible {
+  outline: 2px solid hsl(var(--brand) / 0.9);
+  outline-offset: 2px;
+  border-radius: calc(var(--r) / 2);
+}
+
+/* Scrollbars */
+* { scrollbar-width: thin; scrollbar-color: hsl(var(--border)) transparent; }
+*::-webkit-scrollbar { height: 10px; width: 10px; }
+*::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 999px; }
+
+/* ------- Tiny primitives using @utility (Tailwind v4) ------- */
+@utility card {
+  @apply rounded-2xl border p-4 bg-white;
+  box-shadow: var(--shadow-sm);
+  border-color: hsl(var(--border));
+}
+
+@utility btn {
+  @apply inline-flex items-center justify-center px-3 py-1.5 rounded-md text-sm font-medium transition;
+}
+@utility btn-primary {
+  @apply bg-black text-white;
+}
+@utility btn-ghost {
+  @apply border;
+  border-color: hsl(var(--border));
+  color: hsl(var(--text));
+}
+@utility input {
+  @apply w-full border rounded-md px-3 py-2 text-sm;
+  background-color: hsl(var(--surface));
+  border-color: hsl(var(--border));
+}
+@utility select {
+  @apply w-full border rounded-md px-3 py-2 text-sm;
+  background-color: hsl(var(--surface));
+  border-color: hsl(var(--border));
+}
+@utility textarea {
+  @apply w-full border rounded-md px-3 py-2 text-sm;
+  background-color: hsl(var(--surface));
+  border-color: hsl(var(--border));
+}
+@utility badge {
+  @apply inline-flex items-center px-2 py-0.5 rounded text-xs text-gray-600 bg-gray-200;
+}
+
+/* Tables */
+table { border-collapse: separate; border-spacing: 0; background: hsl(var(--surface)); }
+thead th { @apply text-xs font-semibold uppercase tracking-wide text-gray-500; }
+tbody tr:not(:last-child) td { border-bottom: 1px solid hsl(var(--border)); }
+th, td { padding-block: 0.5rem; }

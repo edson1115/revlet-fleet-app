@@ -1,147 +1,226 @@
 // app/office/queue/page.tsx
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { vehicleLabel, type Vehicle as VehicleType } from '@/lib/vehicleLabel';
 
 type RequestRow = {
   id: string;
+  created_at?: string | null;
+  service_type?: string | null;
   vehicle_id: string | null;
-  service_type: string | null;
-  priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT' | null;
-  fmc: string | null;
-  status: 'NEW' | 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED';
-  preferred_date_1: string | null;
-  created_at: string; // ISO string
+  customer_id: string | null;
+  status?: string | null;
 };
+
+type VehicleLite = { id: string; year: number; make: string; model: string; unit_number?: string | null };
+type CustomerLite = { id: string; name: string };
+
+type RequestsResponse = {
+  rows: RequestRow[];
+  vehiclesById: Record<string, VehicleLite | undefined>;
+  customersById: Record<string, CustomerLite | undefined>;
+};
+
+function formatVehicle(v?: VehicleLite | null) {
+  if (!v) return '—';
+  const unit = v.unit_number ? ` (${v.unit_number})` : '';
+  return `${v.year} ${v.make} ${v.model}${unit}`;
+}
+
+async function safeJson(res: Response) {
+  const ct = res.headers.get('content-type') || '';
+  if (!ct.includes('application/json')) return null;
+  try { return await res.json(); } catch { return null; }
+}
 
 export default function OfficeQueuePage() {
   const router = useRouter();
 
   const [rows, setRows] = useState<RequestRow[]>([]);
-  const [vehiclesById, setVehiclesById] = useState<Record<string, VehicleType>>({});
-  const [loading, setLoading] = useState(false);
+  const [vehiclesById, setVehiclesById] = useState<Record<string, VehicleLite | undefined>>({});
+  const [customersById, setCustomersById] = useState<Record<string, CustomerLite | undefined>>({});
+  const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  // per-row inputs
+  const [po, setPo] = useState<Record<string, string>>({});
+  const [st, setSt] = useState<Record<string, string>>({});
+  const [bypass, setBypass] = useState<Record<string, boolean>>({});
+
+  async function load() {
     setLoading(true);
     setErr(null);
     try {
-      const res = await fetch('/api/requests?status=NEW&limit=100', { cache: 'no-store' });
-      const ct = res.headers.get('content-type') || '';
-      const body = ct.includes('application/json') ? await res.json() : null;
-      if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
-      setRows(body?.rows ?? []);
-      setVehiclesById(body?.vehiclesById ?? {});
+      const res = await fetch('/api/requests?status=NEW', { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const j = (await safeJson(res)) as RequestsResponse | null;
+      if (!j) throw new Error('Invalid response from /api/requests');
+      setRows(j.rows || []);
+      setVehiclesById(j.vehiclesById || {});
+      setCustomersById(j.customersById || {});
     } catch (e: any) {
-      setErr(e?.message ?? 'Failed to load');
+      setErr(e?.message || 'Failed to load');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, []);
 
-  async function scheduleNow(id: string) {
-    setBusy(id);
+  const view = useMemo(
+    () =>
+      rows.map((r) => ({
+        ...r,
+        createdWhen: r.created_at ? new Date(r.created_at).toLocaleString() : '—',
+        vehicleLabel: r.vehicle_id ? formatVehicle(vehiclesById[r.vehicle_id]) : '—',
+        customerLabel: r.customer_id ? (customersById[r.customer_id]?.name ?? '—') : '—',
+        currentStatus: r.status ?? 'NEW',
+      })),
+    [rows, vehiclesById, customersById]
+  );
+
+  function setField(id: string, key: 'po' | 'st' | 'bypass', val: string | boolean) {
+    if (key === 'po') setPo((m) => ({ ...m, [id]: String(val) }));
+    if (key === 'st') setSt((m) => ({ ...m, [id]: String(val) }));
+    if (key === 'bypass') setBypass((m) => ({ ...m, [id]: Boolean(val) }));
+  }
+
+  // Save changes + route flow
+  async function saveOffice(id: string) {
+    setBusyId(id);
     setErr(null);
-    try {
-      const res = await fetch(`/api/requests/${id}/schedule`, {
+
+    // 1) Update PO + status
+    const upd = await fetch(`/api/requests/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ status: st[id] || 'NEW', po_number: po[id] || null }),
+    });
+    if (!upd.ok) {
+      const b = await safeJson(upd);
+      setErr(b?.error || `Failed to update (${upd.status})`);
+      setBusyId(null);
+      return;
+    }
+
+    // 2) Route: bypass dispatch -> start; else schedule
+    if (bypass[id]) {
+      const startRes = await fetch(`/api/requests/${id}/start`, { method: 'PATCH' });
+      if (!startRes.ok) {
+        const b = await safeJson(startRes);
+        setErr(b?.error || `Failed to start (${startRes.status})`);
+        setBusyId(null);
+        return;
+      }
+      router.replace('/tech/queue?started=1');
+    } else {
+      const sch = await fetch(`/api/requests/${id}/schedule`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          scheduled_at: new Date().toISOString(),
-          note: 'Scheduled from Office queue',
-        }),
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ scheduled_at: new Date().toISOString() }),
       });
-      const ct = res.headers.get('content-type') || '';
-      const j = ct.includes('application/json') ? await res.json() : null;
-      if (!res.ok) throw new Error(j?.error || `HTTP ${res.status}`);
-
-      // Remove from NEW list immediately
-      setRows(prev => prev.filter(r => r.id !== id));
-
-      // Navigate to Dispatch — Scheduled
-      router.push('/dispatch/scheduled');
-    } catch (e: any) {
-      setErr(e?.message || 'Failed to schedule request');
-    } finally {
-      setBusy(null);
+      if (!sch.ok) {
+        const b = await safeJson(sch);
+        setErr(b?.error || `Failed to schedule (${sch.status})`);
+        setBusyId(null);
+        return;
+      }
+      router.replace('/dispatch/scheduled?scheduled=1');
     }
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
-      <div className="mx-auto max-w-5xl">
-        <div className="mb-3 flex items-center gap-2">
-          <h1 className="text-2xl font-bold">Office Queue — NEW Requests</h1>
-          <button
-            onClick={load}
-            disabled={loading}
-            className="ml-auto rounded border bg-white px-4 py-2 hover:bg-gray-50 disabled:opacity-50"
-          >
-            {loading ? 'Refreshing…' : 'Refresh'}
-          </button>
-        </div>
+    <div className="p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-2xl font-semibold">Office Queue — NEW Requests</h1>
+        <button onClick={load} className="px-3 py-1 rounded border hover:bg-gray-50" disabled={loading}>
+          {loading ? 'Refreshing…' : 'Refresh'}
+        </button>
+      </div>
 
-        {err && (
-          <div className="mb-4 rounded border border-red-200 bg-red-50 p-3 text-red-700">
-            {err}
-          </div>
-        )}
+      {err && <div className="rounded bg-red-50 text-red-700 px-3 py-2 text-sm mb-3">{err}</div>}
 
-        <div className="overflow-x-auto rounded border bg-white">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="p-2 text-left">Created</th>
-                <th className="p-2 text-left">Vehicle</th>
-                <th className="p-2 text-left">Service</th>
-                <th className="p-2 text-left">Priority</th>
-                <th className="p-2 text-left">Preferred</th>
-                <th className="w-40 p-2 text-left">Action</th>
+      {loading ? (
+        <div className="text-sm text-gray-600">Loading…</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-[1200px] w-full text-sm">
+            <thead>
+              <tr className="text-left border-b">
+                <th className="py-2 pr-4">Created</th>
+                <th className="pr-4">Vehicle</th>
+                <th className="pr-4">Customer</th>
+                <th className="pr-4">Service</th>
+                <th className="pr-4">PO</th>
+                <th className="pr-4">Status</th>
+                <th className="pr-4">Bypass</th>
+                <th className="w-[1%]"></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => {
-                const v = r.vehicle_id ? vehiclesById[r.vehicle_id] : undefined;
-                const fallback = r.vehicle_id ? `${r.vehicle_id.slice(0, 8)}…` : '—';
-                return (
-                  <tr key={r.id} className="border-t">
-                    <td className="p-2">{new Date(r.created_at).toLocaleString()}</td>
-                    <td className="p-2">{vehicleLabel(v) || fallback}</td>
-                    <td className="p-2">{r.service_type ?? '—'}</td>
-                    <td className="p-2">{r.priority ?? 'NORMAL'}</td>
-                    <td className="p-2">
-                      {r.preferred_date_1
-                        ? new Date(r.preferred_date_1).toLocaleDateString()
-                        : '—'}
+              {view.length === 0 ? (
+                <tr>
+                  <td className="py-6 text-gray-600" colSpan={8}>No NEW requests.</td>
+                </tr>
+              ) : (
+                view.map((r) => (
+                  <tr key={r.id} className="border-b">
+                    <td className="py-2 pr-4">{r.createdWhen}</td>
+                    <td className="pr-4">{r.vehicleLabel}</td>
+                    <td className="pr-4">{r.customerLabel}</td>
+                    <td className="pr-4">{r.service_type ?? '—'}</td>
+
+                    <td className="pr-4">
+                      <input
+                        value={po[r.id] ?? ''}
+                        onChange={(e) => setField(r.id, 'po', e.target.value)}
+                        placeholder="PO #"
+                        className="w-28 border rounded px-2 py-1"
+                      />
                     </td>
-                    <td className="p-2">
-                      <button
-                        disabled={busy === r.id}
-                        onClick={() => scheduleNow(r.id)}
-                        className="rounded bg-blue-600 px-3 py-1 text-white hover:bg-blue-700 disabled:opacity-50"
+
+                    <td className="pr-4">
+                      <select
+                        value={st[r.id] ?? r.currentStatus}
+                        onChange={(e) => setField(r.id, 'st', e.target.value)}
+                        className="border rounded px-2 py-1"
                       >
-                        {busy === r.id ? 'Scheduling…' : 'Schedule now'}
+                        <option value="NEW">NEW</option>
+                        <option value="WAITING_APPROVAL">WAITING_APPROVAL</option>
+                        <option value="WAITING_PARTS">WAITING_PARTS</option>
+                        <option value="CANCELED">CANCELED</option>
+                      </select>
+                    </td>
+
+                    <td className="pr-4">
+                      <label className="text-sm flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={!!bypass[r.id]}
+                          onChange={(e) => setField(r.id, 'bypass', e.target.checked)}
+                        />
+                        Bypass Dispatch
+                      </label>
+                    </td>
+
+                    <td className="py-2">
+                      <button
+                        onClick={() => saveOffice(r.id)}
+                        disabled={busyId === r.id}
+                        className="px-3 py-1 rounded bg-black text-white disabled:opacity-50"
+                      >
+                        {busyId === r.id ? 'Saving…' : 'Save'}
                       </button>
                     </td>
                   </tr>
-                );
-              })}
-              {rows.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="p-4 text-gray-500">
-                    No NEW requests.
-                  </td>
-                </tr>
+                ))
               )}
             </tbody>
           </table>
         </div>
-      </div>
-    </main>
+      )}
+    </div>
   );
 }

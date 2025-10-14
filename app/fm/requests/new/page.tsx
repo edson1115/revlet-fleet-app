@@ -1,351 +1,245 @@
 // app/fm/requests/new/page.tsx
 'use client';
 
-import AddVehicleInline from './AddVehicleInline';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-// Types (allow nullable fields coming from DB)
 type Vehicle = {
   id: string;
   year: number;
   make: string;
   model: string;
-  vin?: string | null;
   unit_number?: string | null;
-  plate?: string | null;
+  // if your vehicles table has this, we use it to filter for CUSTOMER role
+  customer_id?: string | null;
+};
+type Location = { id: string; name: string };
+type Customer = { id: string; name: string };
+type Mini = {
+  id: string;
+  status: string;
+  vehicle_id: string | null;
+  service_type?: string | null;
+  created_at?: string | null;
+};
+type Me = {
+  authenticated: boolean;
+  role: 'CUSTOMER' | 'OFFICE' | 'DISPATCH' | 'TECH';
+  customer_id: string | null;
 };
 
-type Location = { id: string; name: string };
+async function safeJson<T = any>(res: Response): Promise<T | null> {
+  const ct = res.headers.get('content-type') || '';
+  if (!ct.includes('application/json')) return null;
+  try {
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}
 
 export default function NewRequestPage() {
   const router = useRouter();
 
-  const [loading, setLoading] = useState(false);
+  const [me, setMe] = useState<Me | null>(null);
+
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
-  const [error, setError] = useState('');
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [recent, setRecent] = useState<Mini[]>([]);
+  const [vehiclesById, setVehiclesById] = useState<Record<string, Vehicle>>({});
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
-  const [formData, setFormData] = useState({
+  const [form, setForm] = useState({
     vehicle_id: '',
-    service_type: 'Oil Change',
-    fmc: 'Enterprise Fleet',
-    priority: 'NORMAL',
     location_id: '',
-    customer_notes: '',
-    preferred_date_1: '',
-    preferred_date_2: '',
-    preferred_date_3: '',
-    is_emergency: false,
-    odometer_miles: '' as number | '', // optional mileage
+    customer_id: '',
+    service_type: 'Oil Change',
   });
 
-  // Initial loads
+  // Who am I?
   useEffect(() => {
     (async () => {
-      try {
-        const vr = await fetch('/api/vehicles');
-        const vct = vr.headers.get('content-type') || '';
-        const vj = vct.includes('application/json') ? await vr.json() : null;
-        if (!vr.ok) throw new Error(vj?.error || `Vehicles HTTP ${vr.status}`);
-        setVehicles(vj?.vehicles ?? []);
-      } catch (e) {
-        console.error('Vehicle load error:', e);
-      }
-
-      try {
-        const lr = await fetch('/api/lookups');
-        const lct = lr.headers.get('content-type') || '';
-        const lj = lct.includes('application/json') ? await lr.json() : null;
-        if (!lr.ok) throw new Error(lj?.error || `Lookups HTTP ${lr.status}`);
-        setLocations(lj?.locations ?? []);
-      } catch (e) {
-        console.error('Location load error:', e);
+      const res = await fetch('/api/me', { cache: 'no-store' });
+      const j = await safeJson<Me>(res);
+      if (j) {
+        setMe(j);
+        // lock customer for CUSTOMER role
+        if (j.role === 'CUSTOMER' && j.customer_id) {
+          setForm((f) => ({ ...f, customer_id: j.customer_id! }));
+        }
+      } else {
+        setMe({ authenticated: false, role: 'OFFICE', customer_id: null });
       }
     })();
   }, []);
 
-  // Manual reload for the “Refresh” button
-  async function reloadVehicles() {
-    try {
-      const r = await fetch('/api/vehicles');
-      const ct = r.headers.get('content-type') || '';
-      const j = ct.includes('application/json') ? await r.json() : null;
-      if (!r.ok) {
-        setError(j?.error || `Failed to load vehicles (HTTP ${r.status})`);
-        return;
-      }
-      setVehicles(j.vehicles ?? []);
-    } catch (e: any) {
-      setError(e?.message || 'Failed to load vehicles');
-    }
-  }
+  // Lookups (after we know who the user is, to filter vehicles if needed)
+  useEffect(() => {
+    if (!me) return;
+    (async () => {
+      const res = await fetch('/api/lookups', { cache: 'no-store' });
+      const j = await safeJson<{ vehicles: Vehicle[]; locations: Location[]; customers: Customer[] }>(res);
+      if (!j) return;
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError('');
+      const allV = j.vehicles || [];
+      const filtered =
+        me.role === 'CUSTOMER' && me.customer_id
+          ? allV.filter((v) => (v.customer_id ?? null) === me.customer_id)
+          : allV;
 
-    // 🔒 client-side guard against empty vehicle_id
-    const chosen = (formData.vehicle_id || '').trim();
-    if (!chosen) {
-      setError('Please select a vehicle before creating the request.');
+      setVehicles(filtered);
+      setLocations(j.locations || []);
+      setCustomers(j.customers || []);
+    })();
+  }, [me]);
+
+  // Recent list when a customer is selected
+  useEffect(() => {
+    if (!form.customer_id) {
+      setRecent([]);
+      setVehiclesById({});
       return;
     }
+    (async () => {
+      const res = await fetch(`/api/requests?customer_id=${form.customer_id}&limit=10`, { cache: 'no-store' });
+      const j = await safeJson<{ rows: Mini[]; vehiclesById: Record<string, Vehicle> }>(res);
+      setRecent(j?.rows || []);
+      setVehiclesById(j?.vehiclesById || {});
+    })();
+  }, [form.customer_id]);
 
-    setLoading(true);
-    try {
-      const res = await fetch('/api/requests', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...formData, vehicle_id: chosen }),
-      });
+  const canSubmit = useMemo(
+    () => !!form.vehicle_id && !!form.customer_id && !!form.service_type,
+    [form.vehicle_id, form.customer_id, form.service_type]
+  );
 
-      const ct = res.headers.get('content-type') || '';
-      const body = ct.includes('application/json') ? await res.json() : null;
-      if (!res.ok) throw new Error(body?.error || `Request failed (HTTP ${res.status})`);
+  function vlabel(v?: Vehicle) {
+    if (!v) return '—';
+    return `${v.year} ${v.make} ${v.model}${v.unit_number ? ` (${v.unit_number})` : ''}`;
+  }
 
-      const newId = body?.id as string | undefined;
-
-      // Go straight to Office Queue (NEW requests)
-      router.push(newId ? `/office/queue?created=${newId}` : '/office/queue');
-    } catch (err: any) {
-      setError(err?.message || 'Failed to create request');
-    } finally {
-      setLoading(false);
+  async function submit() {
+    if (!canSubmit) {
+      setErr('Please select a vehicle and a customer before creating the request.');
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    const res = await fetch('/api/requests', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(form),
+    });
+    if (res.ok) {
+      router.replace('/office/queue?created=1');
+    } else {
+      const j = await safeJson<any>(res);
+      setErr(j?.error || `Failed to create request (HTTP ${res.status})`);
+      setBusy(false);
     }
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-3xl mx-auto px-4">
-        <div className="bg-white rounded-lg shadow p-6">
-          <h1 className="text-2xl font-bold text-gray-900 mb-6">Create Service Request</h1>
+    <div className="grid gap-6 md:grid-cols-2 p-6">
+      <div>
+        <h1 className="text-2xl font-semibold mb-4">New Service Request</h1>
+        {err && <div className="mb-3 rounded bg-red-50 text-red-700 px-3 py-2 text-sm">{err}</div>}
 
-          {/* Errors */}
-          {error && (
-            <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
-              <p className="text-sm text-red-600">{error}</p>
-            </div>
-          )}
+        {/* Vehicle */}
+        <label className="block text-sm font-medium mb-1">Vehicle</label>
+        <select
+          required
+          className="w-full border rounded px-3 py-2 mb-3"
+          value={form.vehicle_id}
+          onChange={(e) => setForm({ ...form, vehicle_id: e.target.value })}
+        >
+          <option value="">Select vehicle…</option>
+          {vehicles.map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.year} {v.make} {v.model}
+              {v.unit_number ? ` (${v.unit_number})` : ''}
+            </option>
+          ))}
+        </select>
+        {!form.vehicle_id && <p className="text-xs text-red-600 -mt-2 mb-2">Vehicle is required.</p>}
 
-          {/* Quick add vehicle (outside the main form to avoid nested forms) */}
-          <AddVehicleInline
-            onCreated={async (newId) => {
-              await reloadVehicles();
-              setFormData((prev) => ({ ...prev, vehicle_id: newId }));
-            }}
-          />
+        {/* Location */}
+        <label className="block text-sm font-medium mb-1">Location</label>
+        <select
+          className="w-full border rounded px-3 py-2 mb-3"
+          value={form.location_id}
+          onChange={(e) => setForm({ ...form, location_id: e.target.value })}
+        >
+          <option value="">Select location…</option>
+          {locations.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.name}
+            </option>
+          ))}
+        </select>
 
-          {/* Helpful banner if no vehicles */}
-          {vehicles.length === 0 && (
-            <p className="mt-3 mb-4 text-sm text-amber-700 bg-amber-50 p-3 rounded">
-              No vehicles found. Add one above, then click Refresh.
-            </p>
-          )}
+        {/* Customer (hidden/locked for CUSTOMER role) */}
+        {me?.role === 'CUSTOMER' ? (
+          <input type="hidden" value={form.customer_id} />
+        ) : (
+          <>
+            <label className="block text-sm font-medium mb-1">Customer</label>
+            <select
+              required
+              className="w-full border rounded px-3 py-2 mb-3"
+              value={form.customer_id}
+              onChange={(e) => setForm({ ...form, customer_id: e.target.value })}
+            >
+              <option value="">Select customer…</option>
+              {customers.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            {!form.customer_id && <p className="text-xs text-red-600 -mt-2 mb-2">Customer is required.</p>}
+          </>
+        )}
 
-          {/* MAIN FORM */}
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Vehicle */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Vehicle *</label>
+        {/* Service type */}
+        <label className="block text-sm font-medium mb-1">Service</label>
+        <input
+          className="w-full border rounded px-3 py-2 mb-4"
+          value={form.service_type}
+          onChange={(e) => setForm({ ...form, service_type: e.target.value })}
+        />
 
-              <div className="flex gap-2">
-                <select
-                  required
-                  value={formData.vehicle_id}
-                  onChange={(e) => setFormData({ ...formData, vehicle_id: e.target.value })}
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Select a vehicle</option>
-                  {vehicles.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.unit_number ? `${v.unit_number} — ` : ''}
-                      {v.year} {v.make} {v.model}
-                      {v.plate ? ` (${v.plate})` : ''}
-                    </option>
-                  ))}
-                </select>
+        <button
+          onClick={submit}
+          disabled={busy || !canSubmit}
+          className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
+        >
+          {busy ? 'Saving…' : 'Create Request'}
+        </button>
+      </div>
 
-                <button
-                  type="button"
-                  onClick={reloadVehicles}
-                  className="px-3 py-2 rounded border bg-white hover:bg-gray-50"
-                  title="Reload vehicles"
-                >
-                  Refresh
-                </button>
-              </div>
-            </div>
-
-            {/* Mileage (optional) */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Mileage (odometer)</label>
-              <input
-                type="number"
-                min={0}
-                inputMode="numeric"
-                value={formData.odometer_miles as any}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setFormData({
-                    ...formData,
-                    odometer_miles: val === '' ? '' : Number(val),
-                  });
-                }}
-                placeholder="e.g., 45231"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            {/* Service Type */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Service Type *</label>
-              <select
-                required
-                value={formData.service_type}
-                onChange={(e) => setFormData({ ...formData, service_type: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="Oil Change">Oil Change</option>
-                <option value="Brake Service">Brake Service</option>
-                <option value="Tire Service">Tire Service</option>
-                <option value="Battery Replacement">Battery Replacement</option>
-                <option value="Inspection">Inspection</option>
-                <option value="Preventive Maintenance">Preventive Maintenance</option>
-                <option value="Diagnostics">Diagnostics</option>
-                <option value="Repair">Repair</option>
-                <option value="Other">Other</option>
-              </select>
-            </div>
-
-            {/* FMC */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">FMC *</label>
-              <select
-                required
-                value={formData.fmc}
-                onChange={(e) => setFormData({ ...formData, fmc: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="LMR">LMR</option>
-                <option value="Element">Element</option>
-                <option value="Enterprise Fleet">Enterprise Fleet</option>
-                <option value="Merchant">Merchant</option>
-                <option value="Holman">Holman</option>
-                <option value="EAN">EAN</option>
-                <option value="Hertz">Hertz</option>
-                <option value="Fleetio">Fleetio</option>
-                <option value="Other">Other</option>
-              </select>
-            </div>
-
-            {/* Priority */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
-              <select
-                value={formData.priority}
-                onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="LOW">Low</option>
-                <option value="NORMAL">Normal</option>
-                <option value="HIGH">High</option>
-                <option value="URGENT">Urgent</option>
-              </select>
-            </div>
-
-            {/* Location */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
-              <select
-                value={formData.location_id}
-                onChange={(e) => setFormData({ ...formData, location_id: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">Select a location</option>
-                {locations.map((loc) => (
-                  <option key={loc.id} value={loc.id}>
-                    {loc.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Notes */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Service Notes</label>
-              <textarea
-                value={formData.customer_notes}
-                onChange={(e) => setFormData({ ...formData, customer_notes: e.target.value })}
-                rows={4}
-                placeholder="Describe the service needed or any specific concerns..."
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            {/* Dates */}
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Preferred Date 1</label>
-                <input
-                  type="date"
-                  value={formData.preferred_date_1}
-                  onChange={(e) => setFormData({ ...formData, preferred_date_1: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Preferred Date 2</label>
-                <input
-                  type="date"
-                  value={formData.preferred_date_2}
-                  onChange={(e) => setFormData({ ...formData, preferred_date_2: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Preferred Date 3</label>
-                <input
-                  type="date"
-                  value={formData.preferred_date_3}
-                  onChange={(e) => setFormData({ ...formData, preferred_date_3: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-
-            {/* Emergency */}
-            <div className="flex items-center">
-              <input
-                type="checkbox"
-                checked={formData.is_emergency}
-                onChange={(e) => setFormData({ ...formData, is_emergency: e.target.checked })}
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-              />
-              <label className="ml-2 text-sm text-gray-700">
-                Mark as emergency (requires immediate attention)
-              </label>
-            </div>
-
-            {/* Actions */}
-            <div className="flex gap-4">
-              <button
-                type="submit"
-                disabled={loading || vehicles.length === 0}
-                className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-              >
-                {loading ? 'Creating...' : 'Create Service Request'}
-              </button>
-              <button
-                type="button"
-                onClick={() => router.back()}
-                className="px-6 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        </div>
+      {/* Recent for this customer */}
+      <div className="bg-white border rounded-lg p-4">
+        <div className="font-semibold mb-2">Recent for this customer</div>
+        {(!form.customer_id || recent.length === 0) ? (
+          <div className="text-sm text-gray-600">Pick a customer to see the last 10 requests.</div>
+        ) : (
+          <ul className="space-y-2">
+            {recent.map((r) => (
+              <li key={r.id} className="flex items-center justify-between text-sm">
+                <div>
+                  <div className="font-medium">{r.service_type ?? 'Service'}</div>
+                  <div className="text-gray-600">
+                    {vlabel(r.vehicle_id ? vehiclesById[r.vehicle_id] : undefined)}
+                  </div>
+                </div>
+                <span className="px-2 py-0.5 rounded bg-gray-100">{r.status}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );
