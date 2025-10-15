@@ -1,22 +1,29 @@
 // app/api/me/route.ts
-import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
+import { getSupabase, json, onError } from '@/lib/auth/requireRole';
 
 export async function GET() {
-  const ck = await cookies(); // ← async in Next 15
+  try {
+    const supabase = await getSupabase();
+    const { data: auth } = await supabase.auth.getUser();
 
-  const authenticated = Boolean(ck.get("sb-access-token") || ck.get("sb:token"));
-  const email = ck.get("appEmail")?.value ?? null;
-  const role = ck.get("appRole")?.value ?? null;
-  const company_id = ck.get("appCompanyId")?.value ?? null;
-  const linked = ck.get("appLinked")?.value === "1";
+    if (!auth?.user) {
+      // Not logged in -> guest
+      return json({ authenticated: false, role: null });
+    }
 
-  return NextResponse.json({
-    authenticated,
-    email,
-    role,
-    company_id,
-    customer_id: null,
-    linked,
-  });
+    const { data: me } = await supabase
+      .from('users')
+      .select('role, company_id, auth_user_id')
+      .eq('auth_user_id', auth.user.id)
+      .maybeSingle();
+
+    return json({
+      authenticated: true,
+      email: auth.user.email ?? null,
+      role: me?.role ?? null,
+      company_id: me?.company_id ?? null,
+    });
+  } catch (e) {
+    return onError(e);
+  }
 }
