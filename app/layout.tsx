@@ -1,23 +1,17 @@
 // app/layout.tsx
-import './globals.css';
-import type { ReactNode } from 'react';
-import Linker from './Linker';
-import NavShell from './NavShell';
+import "./globals.css";
+import { MeProvider } from "@/app/providers/UserContext";
 
 export const metadata = {
-  title: 'Revlet Fleet',
-  description: 'Fleet service management',
+  title: "Revlet Fleet",
+  description: "Fleet service orchestration",
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body>
-        {/* Maps auth user -> app_users on first login (no-op if already linked) */}
-        <Linker />
-
-        {/* Provides header for app pages, hides it on /login (and /activate) */}
-        <NavShell>{children}</NavShell>
+        <MeProvider>{children}</MeProvider>
       </body>
     </html>
   );

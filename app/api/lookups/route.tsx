@@ -1,38 +1,62 @@
 // app/api/lookups/route.ts
 import { NextResponse } from 'next/server';
-import { createServerSupabase } from '@/lib/supabase/server';
+import { cookies } from 'next/headers';
+import { createClient } from '@supabase/supabase-js';
+
+// Use service role on the server so RLS won't block lookups
+function admin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE ??
+    process.env.SUPABASE_SERVICE_ROLE_KEY!; // support either env name
+  return createClient(url, key, { auth: { persistSession: false } });
+}
 
 export async function GET() {
-  const supabase = createServerSupabase();
+  const ck = await cookies();
+  const companyId = ck.get('appCompanyId')?.value;
+  if (!companyId) {
+    return NextResponse.json(
+      { ok: false, error: 'Missing appCompanyId cookie. Log in via /login first.' },
+      { status: 400 }
+    );
+  }
+
+  const supabase = admin();
 
   const [
     { data: locations, error: locErr },
-    { data: vehicles,  error: vehErr },
+    { data: vehicles, error: vehErr },
     { data: customers, error: custErr },
-    { data: techs,     error: techErr },
   ] = await Promise.all([
-    supabase.from('company_locations').select('id,name').order('name', { ascending: true }),
-    supabase.from('vehicles')
+    supabase
+      .from('company_locations')
+      .select('id,name')
+      .eq('company_id', companyId)
+      .order('name', { ascending: true }),
+    supabase
+      .from('vehicles')
       .select('id,year,make,model,unit_number')
-      .order('unit_number', { ascending: true, nullsFirst: true })
-      .order('year', { ascending: false }),
-    supabase.from('customers').select('id,name').order('name', { ascending: true }),
-    // TECH users to assign jobs
-    supabase.from('app_users').select('id,name,role').eq('role', 'TECH').order('name', { ascending: true }),
+      .eq('company_id', companyId)
+      .order('unit_number', { ascending: true, nullsFirst: true }),
+    supabase
+      .from('customers')
+      .select('id,name')
+      .eq('company_id', companyId)
+      .order('name', { ascending: true }),
   ]);
 
-  if (locErr || vehErr || custErr || techErr) {
+  if (locErr || vehErr || custErr) {
     return NextResponse.json(
-      { success: false, error: locErr?.message || vehErr?.message || custErr?.message || techErr?.message || 'Lookup query failed' },
+      { ok: false, where: 'lookups', error: (locErr ?? vehErr ?? custErr)?.message },
       { status: 500 }
     );
   }
 
   return NextResponse.json({
-    success: true,
+    ok: true,
     locations: locations ?? [],
     vehicles: vehicles ?? [],
     customers: customers ?? [],
-    techs: techs ?? [], // ← new
   });
 }

@@ -1,29 +1,22 @@
-import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+// app/api/auth/dev-login/route.ts
+import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 
+// This is ONLY for local dev convenience.
 export async function GET(req: Request) {
-  if (process.env.NODE_ENV === 'production') {
-    return NextResponse.json({ error: 'Not available in production' }, { status: 403 });
-  }
-
   const url = new URL(req.url);
-  const email = url.searchParams.get('email');
-  const next = url.searchParams.get('next') || '/';
-  if (!email) return NextResponse.json({ error: 'email required' }, { status: 400 });
+  const email = url.searchParams.get("email") || "demo@revlet.test";
+  const role = url.searchParams.get("role") || "ADMIN"; // ADMIN | OFFICE | DISPATCH | TECH | CUSTOMER
+  const company_id = "00000000-0000-0000-0000-000000000002";
+  const next = url.searchParams.get("next") || "/";
 
-  const supabaseUrl = process.env.SUPABASE_URL!;
-  const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
+  const ck = await cookies(); // ← await in Next 15
+  const maxAge = 60 * 60 * 8;
 
-  const { data, error } = await admin.auth.admin.generateLink({
-    type: 'magiclink',
-    email,
-    options: { emailRedirectTo: `${url.origin}/auth/callback?next=${encodeURIComponent(next)}` },
-  });
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  ck.set("appEmail", email, { httpOnly: false, sameSite: "lax", path: "/", maxAge });
+  ck.set("appRole", role, { httpOnly: false, sameSite: "lax", path: "/", maxAge });
+  ck.set("appCompanyId", company_id, { httpOnly: false, sameSite: "lax", path: "/", maxAge });
+  ck.set("appLinked", "1", { httpOnly: false, sameSite: "lax", path: "/", maxAge });
 
-  const link = (data as any)?.properties?.action_link as string | undefined;
-  if (!link) return NextResponse.json({ error: 'no action_link returned' }, { status: 500 });
-
-  return NextResponse.redirect(link);
+  return NextResponse.redirect(new URL(next, url.origin));
 }

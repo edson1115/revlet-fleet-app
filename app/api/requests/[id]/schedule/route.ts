@@ -1,49 +1,22 @@
-// app/api/requests/[id]/schedule/route.ts
-import { NextResponse } from 'next/server';
-import { createServerSupabase } from '@/lib/supabase/server';
+// app/api/requests/[id]/start/route.ts
+import { NextResponse } from "next/server";
+import { requireRole } from "@/lib/authz";
+// import { db } from "@/lib/db";
 
-export async function PATCH(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const { id } = await ctx.params;
-  const supabase = createServerSupabase();
-
-  // Robust body parsing (ok with empty/invalid JSON)
-  let body: any = null;
+export async function PATCH(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const ct = _req.headers.get('content-type') || '';
-    body = ct.includes('application/json') ? await _req.json() : null;
-  } catch {
-    body = null;
+    const { companyId } = requireRole(["ADMIN", "DISPATCH"]);
+    const { id } = await params;
+
+    // const { error } = await db.from("requests")
+    //   .update({ status: "IN_PROGRESS", started_at: new Date().toISOString() })
+    //   .eq("id", id)
+    //   .eq("company_id", companyId);
+    // if (error) throw Object.assign(new Error(error.message), { status: 400 });
+
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    const status = e?.status ?? 500;
+    return NextResponse.json({ error: e?.message ?? "Server error" }, { status });
   }
-
-  // Build update payload
-  const update: Record<string, any> = { status: 'SCHEDULED' };
-  if (body?.scheduled_at) update.scheduled_at = body.scheduled_at;
-  if (body?.assigned_tech_id) update.assigned_tech_id = body.assigned_tech_id;
-
-  // Update the request
-  const { data, error } = await supabase
-    .from('service_requests')
-    .update(update)
-    .eq('id', id)
-    .select('id')
-    .single();
-
-  if (error) {
-    return NextResponse.json({ error: error.message ?? 'Schedule update failed' }, { status: 400 });
-  }
-
-  // Optional service_event (ignore errors)
-  try {
-    await supabase
-      .from('service_events')
-      .insert({
-        request_id: id,
-        event_type: 'SCHEDULED',
-        notes: body?.note ?? null,
-      });
-  } catch {
-    // intentionally ignore
-  }
-
-  return NextResponse.json({ ok: true, id: data.id });
 }
