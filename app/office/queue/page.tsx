@@ -1,6 +1,7 @@
 // app/office/queue/page.tsx
 import { supabaseServer } from "@/lib/supabaseServer";
 import { revalidatePath } from "next/cache";
+import SaveButton from "./SaveButton";
 
 export const dynamic = "force-dynamic";
 
@@ -87,31 +88,54 @@ async function updateStatus(id: string, status: string) {
   revalidatePath("/office/queue");
 }
 
-export async function scheduleAction(fd: FormData) { "use server"; return updateStatus(String(fd.get("id")||""), "SCHEDULED"); }
-export async function waitApprovalAction(fd: FormData) { "use server"; return updateStatus(String(fd.get("id")||""), "WAITING_APPROVAL"); }
-export async function declinedAction(fd: FormData) { "use server"; return updateStatus(String(fd.get("id")||""), "DECLINED"); }
-export async function waitingPartsAction(fd: FormData) { "use server"; return updateStatus(String(fd.get("id")||""), "WAITING_PARTS"); }
-export async function completeAction(fd: FormData) { "use server"; return updateStatus(String(fd.get("id")||""), "COMPLETED"); }
+// NOTE: we no longer use scheduleAction here; "Schedule now" links to /dispatch/assign
+export async function waitApprovalAction(fd: FormData) {
+  "use server";
+  return updateStatus(String(fd.get("id") || ""), "WAITING_APPROVAL");
+}
+export async function declinedAction(fd: FormData) {
+  "use server";
+  return updateStatus(String(fd.get("id") || ""), "DECLINED");
+}
+export async function waitingPartsAction(fd: FormData) {
+  "use server";
+  return updateStatus(String(fd.get("id") || ""), "WAITING_PARTS");
+}
+export async function completeAction(fd: FormData) {
+  "use server";
+  return updateStatus(String(fd.get("id") || ""), "COMPLETED");
+}
 
-/** NEW: update PO & Notes server action */
+/** Robust server action for PO & Notes (trim/null, return value) */
 export async function updateFieldsAction(fd: FormData) {
   "use server";
   const id = String(fd.get("id") || "");
   const po = (fd.get("po") || "") as string;
   const notes = (fd.get("notes") || "") as string;
 
+  if (!id) throw new Error("Missing request id.");
+
   const supabase = await supabaseServer();
   const company_id = await resolveCompanyId();
   if (!company_id) throw new Error("Missing company.");
 
+  const poClean = po.trim();
+  const notesClean = notes.trim();
+  const patch: Record<string, any> = {
+    po: poClean ? poClean : null,
+    notes: notesClean ? notesClean : null,
+  };
+
   const { error } = await supabase
     .from("service_requests")
-    .update({ po: po.trim() || null, notes: notes.trim() || null })
+    .update(patch)
     .eq("id", id)
     .eq("company_id", company_id);
 
   if (error) throw new Error(error.message);
+
   revalidatePath("/office/queue");
+  return { ok: true, id, patch };
 }
 
 export default async function OfficeQueuePage() {
@@ -127,7 +151,7 @@ export default async function OfficeQueuePage() {
       customer:customer_id ( name )
     `)
     .eq("company_id", company_id)
-    .in("status", ["NEW","WAITING_APPROVAL","DECLINED","WAITING_PARTS"])
+    .in("status", ["NEW", "WAITING_APPROVAL", "DECLINED", "WAITING_PARTS"])
     .order("created_at", { ascending: false });
 
   if (error) return <div className="p-6">Failed to load queue.</div>;
@@ -154,7 +178,9 @@ export default async function OfficeQueuePage() {
           <tbody>
             {(rows ?? []).map((r: any) => {
               const v = r.vehicle || {};
-              const vehicleLabel = [v.year, v.make, v.model, v.plate || v.unit_number].filter(Boolean).join(" ");
+              const vehicleLabel = [v.year, v.make, v.model, v.plate || v.unit_number]
+                .filter(Boolean)
+                .join(" ");
               return (
                 <tr key={r.id} className="border-t">
                   <td className="p-3">{new Date(r.created_at).toLocaleString()}</td>
@@ -179,7 +205,7 @@ export default async function OfficeQueuePage() {
                         placeholder="Notes…"
                         className="w-full border rounded px-2 py-1"
                       />
-                      <button className="px-2 py-1 rounded border text-xs">Save</button>
+                      <SaveButton />
                     </form>
                   </td>
 
@@ -190,29 +216,48 @@ export default async function OfficeQueuePage() {
                       {r.status}
                     </span>
                   </td>
+
+                  {/* Actions */}
                   <td className="p-3 space-y-2">
-                    <form action={scheduleAction}>
-                      <input type="hidden" name="id" value={r.id} />
-                      <button className="px-3 py-1 rounded bg-black text-white hover:opacity-80 w-full">Schedule now</button>
-                    </form>
+                    {/* Handoff to Dispatch */}
+                    <a
+                      href={`/dispatch/assign?id=${encodeURIComponent(r.id)}`}
+                      className="px-3 py-1 rounded bg-black text-white hover:opacity-80 w-full block text-center"
+                    >
+                      Schedule now
+                    </a>
+
                     <div className="flex gap-2">
-                      <form action={waitApprovalAction}><input type="hidden" name="id" value={r.id} />
-                        <button className="px-2 py-1 rounded border w-full">Waiting Approval</button></form>
-                      <form action={waitingPartsAction}><input type="hidden" name="id" value={r.id} />
-                        <button className="px-2 py-1 rounded border w-full">Waiting Parts</button></form>
+                      <form action={waitApprovalAction}>
+                        <input type="hidden" name="id" value={r.id} />
+                        <button className="px-2 py-1 rounded border w-full">Waiting Approval</button>
+                      </form>
+                      <form action={waitingPartsAction}>
+                        <input type="hidden" name="id" value={r.id} />
+                        <button className="px-2 py-1 rounded border w-full">Waiting Parts</button>
+                      </form>
                     </div>
+
                     <div className="flex gap-2">
-                      <form action={declinedAction}><input type="hidden" name="id" value={r.id} />
-                        <button className="px-2 py-1 rounded border w-full">Declined</button></form>
-                      <form action={completeAction}><input type="hidden" name="id" value={r.id} />
-                        <button className="px-2 py-1 rounded border w-full">Completed</button></form>
+                      <form action={declinedAction}>
+                        <input type="hidden" name="id" value={r.id} />
+                        <button className="px-2 py-1 rounded border w-full">Declined</button>
+                      </form>
+                      <form action={completeAction}>
+                        <input type="hidden" name="id" value={r.id} />
+                        <button className="px-2 py-1 rounded border w-full">Completed</button>
+                      </form>
                     </div>
                   </td>
                 </tr>
               );
             })}
             {(rows ?? []).length === 0 && (
-              <tr><td colSpan={9} className="p-6 text-center text-gray-500">No items.</td></tr>
+              <tr>
+                <td colSpan={9} className="p-6 text-center text-gray-500">
+                  No items.
+                </td>
+              </tr>
             )}
           </tbody>
         </table>

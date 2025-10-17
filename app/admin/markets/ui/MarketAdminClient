@@ -1,0 +1,351 @@
+// app/admin/markets/ui/MarketsAdminClient.tsx
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+
+type Id = string;
+type Market = { id: Id; name: string; order_index: number };
+type Customer = { id: Id; name: string; market: string | null };
+
+async function getJSON<T>(url: string) {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(await res.text());
+  return (await res.json()) as T;
+}
+
+export default function MarketsAdminClient() {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string>("");
+  const [me, setMe] = useState<{ company_id: string | null } | null>(null);
+
+  const [markets, setMarkets] = useState<Market[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [newMarketName, setNewMarketName] = useState("");
+
+  const sortedMarkets = useMemo(
+    () => [...markets].sort((a, b) => a.order_index - b.order_index || a.name.localeCompare(b.name)),
+    [markets]
+  );
+
+  async function loadAll() {
+    setLoading(true);
+    setError("");
+    try {
+      const me = await getJSON<{ authenticated: boolean; company_id: string | null }>(`/api/me`);
+      setMe({ company_id: me.company_id });
+
+      // Markets via lookups (scope=locations returns MARKETS first)
+      const lookups = await getJSON<{ markets: Market[]; sites?: any[] }>(`/api/lookups?scope=locations`);
+      const markets: Market[] = (lookups.markets || []).map((m: any, idx: number) => ({
+        id: m.id,
+        name: m.name,
+        order_index: m.order_index ?? idx,
+      }));
+      setMarkets(markets);
+
+      // Pull all customers once (unfiltered) so we can assign per market in the UI
+      const allCustomers = await getJSON<{ customers: Customer[] }>(`/api/lookups?scope=customers`);
+      setCustomers(allCustomers.customers || []);
+    } catch (e: any) {
+      setError(e?.message || "Failed to load data.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadAll();
+  }, []);
+
+  async function createMarket() {
+    if (!newMarketName.trim()) return;
+    if (!me?.company_id) return alert("Missing company_id; are you logged in?");
+    setSaving(true);
+    setError("");
+    try {
+      const body = {
+        name: newMarketName.trim(),
+        order_index: markets.length, // append
+        company_id: me.company_id,
+      };
+      const res = await fetch(`/api/admin/markets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setNewMarketName("");
+      await loadAll();
+    } catch (e: any) {
+      setError(e?.message || "Failed to create market.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function renameMarket(m: Market, name: string) {
+    if (!name.trim() || name.trim() === m.name) return;
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/admin/markets/${m.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim() }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      await loadAll();
+    } catch (e: any) {
+      setError(e?.message || "Failed to rename market.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteMarket(id: Id) {
+    if (!confirm("Delete this market? Customers will have market cleared.")) return;
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/admin/markets/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(await res.text());
+      await loadAll();
+    } catch (e: any) {
+      setError(e?.message || "Failed to delete market.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function move(m: Market, dir: -1 | 1) {
+    const ordered = sortedMarkets;
+    const idx = ordered.findIndex((x) => x.id === m.id);
+    const swapIdx = idx + dir;
+    if (swapIdx < 0 || swapIdx >= ordered.length) return;
+
+    // optimistic reorder in UI
+    const clone = ordered.map((x) => ({ ...x }));
+    const temp = clone[idx];
+    clone[idx] = { ...clone[swapIdx], order_index: temp.order_index };
+    clone[swapIdx] = { ...temp, order_index: clone[swapIdx].order_index };
+    setMarkets(clone);
+
+    // persist new order_index for the two items
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/admin/markets/${m.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reorder: true,
+          // send the entire list with id+order_index to avoid drift
+          newOrder: clone.map(({ id, order_index }) => ({ id, order_index })),
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      await loadAll();
+    } catch (e: any) {
+      setError(e?.message || "Failed to reorder.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function assignCustomers(market: Market, customerIds: Id[], assign: boolean) {
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/admin/markets/${market.id}/customers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          assign,
+          customer_ids: customerIds,
+          market_name: market.name,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      await loadAll();
+    } catch (e: any) {
+      setError(e?.message || "Failed to update assignments.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const unassigned = customers.filter((c) => !c.market);
+  const byMarket: Record<string, Customer[]> = useMemo(() => {
+    const map: Record<string, Customer[]> = {};
+    for (const m of sortedMarkets) map[m.name] = [];
+    for (const c of customers) {
+      if (c.market && map[c.market]) map[c.market].push(c);
+    }
+    // sort names for consistent UI
+    Object.values(map).forEach((arr) => arr.sort((a, b) => a.name.localeCompare(b.name)));
+    return map;
+  }, [customers, sortedMarkets]);
+
+  if (loading) return <div className="text-sm text-gray-500 p-4">Loading…</div>;
+
+  return (
+    <div className="space-y-8">
+      {error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
+      ) : null}
+
+      {/* Create market */}
+      <div className="rounded-2xl border p-4 space-y-3">
+        <h2 className="font-medium">Create a new Market</h2>
+        <div className="flex gap-2">
+          <input
+            value={newMarketName}
+            onChange={(e) => setNewMarketName(e.target.value)}
+            placeholder="e.g., San Antonio"
+            className="flex-1 rounded-xl border px-3 py-2"
+          />
+          <button
+            onClick={createMarket}
+            disabled={saving || !newMarketName.trim()}
+            className="rounded-xl px-4 py-2 border shadow-sm disabled:opacity-50"
+          >
+            Add
+          </button>
+        </div>
+        <p className="text-xs text-gray-500">Markets power the customer filter on the FM Create Request page.</p>
+      </div>
+
+      {/* Reorder + rename + assign */}
+      <div className="grid md:grid-cols-2 gap-6">
+        <div className="rounded-2xl border p-4">
+          <h2 className="font-medium mb-3">Markets (order controls the dropdown)</h2>
+          <ul className="space-y-3">
+            {sortedMarkets.map((m) => (
+              <li key={m.id} className="rounded-xl border p-3">
+                <div className="flex items-center gap-2">
+                  <input
+                    defaultValue={m.name}
+                    onBlur={(e) => renameMarket(m, e.target.value)}
+                    className="flex-1 rounded-lg border px-2 py-1"
+                  />
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => move(m, -1)}
+                      className="text-xs rounded-lg border px-2 py-1"
+                      title="Move up"
+                    >
+                      ↑
+                    </button>
+                    <button
+                      onClick={() => move(m, +1)}
+                      className="text-xs rounded-lg border px-2 py-1"
+                      title="Move down"
+                    >
+                      ↓
+                    </button>
+                    <button
+                      onClick={() => deleteMarket(m.id)}
+                      className="text-xs rounded-lg border px-2 py-1"
+                      title="Delete market"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-3">
+                  <h4 className="text-sm font-medium mb-2">Assigned customers</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {byMarket[m.name]?.length ? (
+                      byMarket[m.name].map((c) => (
+                        <span
+                          key={c.id}
+                          className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs"
+                        >
+                          {c.name}
+                          <button
+                            onClick={() => assignCustomers(m, [c.id], false)}
+                            className="text-[10px] opacity-60 hover:opacity-100"
+                            title="Unassign"
+                          >
+                            ✕
+                          </button>
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-xs text-gray-500">None</span>
+                    )}
+                  </div>
+
+                  {/* Quick assign from unassigned list */}
+                  {unassigned.length > 0 && (
+                    <div className="mt-3">
+                      <label className="text-xs text-gray-600">Assign unassigned customers:</label>
+                      <div className="flex gap-2 mt-1">
+                        <select
+                          id={`assign-${m.id}`}
+                          className="flex-1 rounded-lg border px-2 py-1"
+                          defaultValue=""
+                        >
+                          <option value="" disabled>
+                            Select customer…
+                          </option>
+                          {unassigned.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => {
+                            const el = document.getElementById(`assign-${m.id}`) as HTMLSelectElement | null;
+                            const v = el?.value;
+                            if (v) assignCustomers(m, [v], true);
+                          }}
+                          className="rounded-lg border px-3 py-1 text-sm"
+                        >
+                          Assign
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="rounded-2xl border p-4">
+          <h2 className="font-medium mb-3">Unassigned Customers</h2>
+          {unassigned.length === 0 ? (
+            <p className="text-sm text-gray-500">All customers are assigned to a market 🎉</p>
+          ) : (
+            <ul className="space-y-2">
+              {unassigned.map((c) => (
+                <li key={c.id} className="flex items-center justify-between rounded-lg border px-3 py-2">
+                  <span className="text-sm">{c.name}</span>
+                  <span className="text-xs text-gray-500">No market</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="text-xs text-gray-500 mt-3">
+            You can assign unassigned customers from the left panel under each market.
+          </p>
+
+          <div className="mt-6 rounded-xl border p-3 bg-gray-50">
+            <h3 className="text-sm font-medium mb-1">Tips</h3>
+            <ul className="text-xs list-disc pl-4 space-y-1 text-gray-600">
+              <li>Use ↑/↓ to reorder; this controls dropdown order elsewhere.</li>
+              <li>Blur the name field to save a rename.</li>
+              <li>Assigning/unassigning updates the customer’s <code>market</code> field.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      {saving && <div className="text-xs text-gray-500">Saving…</div>}
+    </div>
+  );
+}

@@ -1,6 +1,7 @@
 // app/fm/requests/new/page.tsx
 "use client";
 
+import RequestsViewer from "./RequestsViewer";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -187,171 +188,183 @@ export default function NewServiceRequestPage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto p-6 space-y-6">
-      <h1 className="text-2xl font-semibold">Create Service Request</h1>
+    <div className="p-6">
+      <div className="max-w-7xl mx-auto grid md:grid-cols-12 gap-6">
+        {/* LEFT: your current form, unchanged */}
+        <div className="md:col-span-7 lg:col-span-8">
+          <div className="space-y-6">
+            <h1 className="text-2xl font-semibold">Create Service Request</h1>
 
-      {(success || addedVehicle) && (
-        <div className="rounded border border-emerald-200 bg-emerald-50 text-emerald-800 px-3 py-2 text-sm">
-          {addedVehicle ? "Vehicle saved. It’s now available in the list." : "Request created successfully."}
-        </div>
-      )}
+            {(success || addedVehicle) && (
+              <div className="rounded border border-emerald-200 bg-emerald-50 text-emerald-800 px-3 py-2 text-sm">
+                {addedVehicle ? "Vehicle saved. It’s now available in the list." : "Request created successfully."}
+              </div>
+            )}
 
-      {error && (
-        <div className="rounded border border-red-200 bg-red-50 text-red-800 px-3 py-2 text-sm">
-          {error}
-        </div>
-      )}
+            {error && (
+              <div className="rounded border border-red-200 bg-red-50 text-red-800 px-3 py-2 text-sm">
+                {error}
+              </div>
+            )}
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Vehicle */}
-        <div className="flex gap-2 items-end">
-          <div className="flex-1">
-            <label className="block text-sm mb-1">Vehicle *</label>
-            <select
-              className="w-full border rounded px-3 py-2"
-              value={form.vehicle_id}
-              onChange={(e) => setForm((s) => ({ ...s, vehicle_id: e.target.value as Id }))}
-              required
-            >
-              <option value="">Select vehicle…</option>
-              {vehicles.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {vehicleLabel(v)}
-                </option>
-              ))}
-            </select>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Vehicle */}
+              <div className="flex gap-2 items-end">
+                <div className="flex-1">
+                  <label className="block text-sm mb-1">Vehicle *</label>
+                  <select
+                    className="w-full border rounded px-3 py-2"
+                    value={form.vehicle_id}
+                    onChange={(e) => setForm((s) => ({ ...s, vehicle_id: e.target.value as Id }))}
+                    required
+                  >
+                    <option value="">Select vehicle…</option>
+                    {vehicles.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {vehicleLabel(v)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <a
+                  href={`/vehicles/new?return=${encodeURIComponent("/fm/requests/new")}`}
+                  className="px-3 py-2 rounded border whitespace-nowrap"
+                >
+                  + Add vehicle
+                </a>
+              </div>
+
+              {/* Location = Market */}
+              <div>
+                <label className="block text-sm mb-1">Location (Market) *</label>
+                <select
+                  className="w-full border rounded px-3 py-2"
+                  value={form.location_id}
+                  onChange={(e) => setForm((s) => ({ ...s, location_id: e.target.value as Id }))}
+                  required
+                >
+                  <option value="">Select location…</option>
+                  {locations.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="text-xs text-gray-500 mt-1">Selected market: {selectedMarket || "—"}</div>
+              </div>
+
+              {/* Customer (filtered by Market) */}
+              <div>
+                <label className="block text-sm mb-1">Customer *</label>
+                <select
+                  className="w-full border rounded px-3 py-2"
+                  value={form.customer_id}
+                  onChange={(e) => setForm((s) => ({ ...s, customer_id: e.target.value as Id }))}
+                  required
+                  disabled={!selectedMarket}
+                >
+                  <option value="">{selectedMarket ? "Select customer…" : "Choose a market first…"}</option>
+                  {customers.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="text-xs text-gray-500 mt-1">
+                  Loaded {customers.length} customer{customers.length === 1 ? "" : "s"} for {selectedMarket || "—"}
+                </div>
+              </div>
+
+              {/* Service */}
+              <div>
+                <label className="block text-sm mb-1">Service *</label>
+                <input
+                  className="w-full border rounded px-3 py-2"
+                  placeholder="Oil Change, A/C Diagnostic, etc."
+                  value={form.service}
+                  onChange={(e) => setForm((s) => ({ ...s, service: e.target.value }))}
+                  required
+                />
+              </div>
+
+              {/* FMC */}
+              <div>
+                <label className="block text-sm mb-1">Fleet Management Company (optional)</label>
+                <select
+                  className="w-full border rounded px-3 py-2"
+                  value={form.fmc}
+                  onChange={(e) => setForm((s) => ({ ...s, fmc: e.target.value }))}
+                >
+                  <option value="">Select FMC…</option>
+                  {fmcOptions.map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Mileage */}
+              <div>
+                <label className="block text-sm mb-1">Mileage (optional)</label>
+                <input
+                  type="number"
+                  className="w-full border rounded px-3 py-2"
+                  placeholder="72345"
+                  value={form.mileage}
+                  onChange={(e) =>
+                    setForm((s) => ({
+                      ...s,
+                      mileage: e.target.value === "" ? "" : Number(e.target.value),
+                    }))
+                  }
+                />
+              </div>
+
+              {/* PO */}
+              <div>
+                <label className="block text-sm mb-1">PO (optional)</label>
+                <input
+                  className="w-full border rounded px-3 py-2"
+                  placeholder="PO12345"
+                  value={form.po}
+                  onChange={(e) => setForm((s) => ({ ...s, po: e.target.value }))}
+                />
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block text-sm mb-1">Notes (optional)</label>
+                <textarea
+                  className="w-full border rounded px-3 py-2"
+                  rows={4}
+                  placeholder="Any additional context for the technician or office..."
+                  value={form.notes}
+                  onChange={(e) => setForm((s) => ({ ...s, notes: e.target.value }))}
+                />
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="submit"
+                  disabled={isPending}
+                  className="px-4 py-2 rounded bg-black text-white hover:opacity-80 disabled:opacity-60"
+                >
+                  {isPending ? "Saving…" : "Create request"}
+                </button>
+                <a href="/" className="px-4 py-2 rounded border">
+                  Cancel
+                </a>
+              </div>
+            </form>
           </div>
-          <a
-            href={`/vehicles/new?return=${encodeURIComponent("/fm/requests/new")}`}
-            className="px-3 py-2 rounded border whitespace-nowrap"
-          >
-            + Add vehicle
-          </a>
         </div>
 
-        {/* Location = Market */}
-        <div>
-          <label className="block text-sm mb-1">Location (Market) *</label>
-          <select
-            className="w-full border rounded px-3 py-2"
-            value={form.location_id}
-            onChange={(e) => setForm((s) => ({ ...s, location_id: e.target.value as Id }))}
-            required
-          >
-            <option value="">Select location…</option>
-            {locations.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
-          <div className="text-xs text-gray-500 mt-1">Selected market: {selectedMarket || "—"}</div>
+        {/* RIGHT: Live viewer */}
+        <div className="md:col-span-5 lg:col-span-4">
+          <RequestsViewer />
         </div>
-
-        {/* Customer (filtered by Market) */}
-        <div>
-          <label className="block text-sm mb-1">Customer *</label>
-          <select
-            className="w-full border rounded px-3 py-2"
-            value={form.customer_id}
-            onChange={(e) => setForm((s) => ({ ...s, customer_id: e.target.value as Id }))}
-            required
-            disabled={!selectedMarket}
-          >
-            <option value="">{selectedMarket ? "Select customer…" : "Choose a market first…"}</option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-          <div className="text-xs text-gray-500 mt-1">
-            Loaded {customers.length} customer{customers.length === 1 ? "" : "s"} for {selectedMarket || "—"}
-          </div>
-        </div>
-
-        {/* Service */}
-        <div>
-          <label className="block text-sm mb-1">Service *</label>
-          <input
-            className="w-full border rounded px-3 py-2"
-            placeholder="Oil Change, A/C Diagnostic, etc."
-            value={form.service}
-            onChange={(e) => setForm((s) => ({ ...s, service: e.target.value }))}
-            required
-          />
-        </div>
-
-        {/* FMC */}
-        <div>
-          <label className="block text-sm mb-1">Fleet Management Company (optional)</label>
-          <select
-            className="w-full border rounded px-3 py-2"
-            value={form.fmc}
-            onChange={(e) => setForm((s) => ({ ...s, fmc: e.target.value }))}
-          >
-            <option value="">Select FMC…</option>
-            {fmcOptions.map((f) => (
-              <option key={f} value={f}>
-                {f}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Mileage */}
-        <div>
-          <label className="block text-sm mb-1">Mileage (optional)</label>
-          <input
-            type="number"
-            className="w-full border rounded px-3 py-2"
-            placeholder="72345"
-            value={form.mileage}
-            onChange={(e) =>
-              setForm((s) => ({
-                ...s,
-                mileage: e.target.value === "" ? "" : Number(e.target.value),
-              }))
-            }
-          />
-        </div>
-
-        {/* PO */}
-        <div>
-          <label className="block text-sm mb-1">PO (optional)</label>
-          <input
-            className="w-full border rounded px-3 py-2"
-            placeholder="PO12345"
-            value={form.po}
-            onChange={(e) => setForm((s) => ({ ...s, po: e.target.value }))}
-          />
-        </div>
-
-        {/* Notes */}
-        <div>
-          <label className="block text-sm mb-1">Notes (optional)</label>
-          <textarea
-            className="w-full border rounded px-3 py-2"
-            rows={4}
-            placeholder="Any additional context for the technician or office..."
-            value={form.notes}
-            onChange={(e) => setForm((s) => ({ ...s, notes: e.target.value }))}
-          />
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            type="submit"
-            disabled={isPending}
-            className="px-4 py-2 rounded bg-black text-white hover:opacity-80 disabled:opacity-60"
-          >
-            {isPending ? "Saving…" : "Create request"}
-          </button>
-          <a href="/" className="px-4 py-2 rounded border">
-            Cancel
-          </a>
-        </div>
-      </form>
+      </div>
     </div>
   );
 }
