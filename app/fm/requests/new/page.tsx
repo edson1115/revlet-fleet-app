@@ -1,145 +1,356 @@
 // app/fm/requests/new/page.tsx
-import Link from 'next/link';
-import { redirect } from 'next/navigation';
-import { supabaseServer } from '@/lib/supabaseServer';
+"use client";
 
-/* ----------------------------- Server Action ----------------------------- */
-export async function createRequestAction(formData: FormData) {
-  'use server';
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
-  const sb = await supabaseServer();
+type Id = string;
 
-  const customer_id = String(formData.get('customer_id') || '');
-  const location_id = String(formData.get('location_id') || '');
-  const vehicle_id = String(formData.get('vehicle_id') || '');
-  const service = String(formData.get('service') || '').trim();
-  const fmc = (formData.get('fmc') ? String(formData.get('fmc')) : null) as string | null;
+type Vehicle = {
+  id: Id;
+  year: number | null;
+  make: string;
+  model: string;
+  plate?: string | null;
+  unit_number?: string | null;
+};
 
-  const mileageRaw = formData.get('mileage');
-  const mileage =
-    typeof mileageRaw === 'string' && mileageRaw.length ? Number(mileageRaw) : null;
+type Location = { id: Id; name: string }; // name = Market (San Antonio, Dallas, etc.)
+type Customer = { id: Id; name: string; market?: string | null };
 
-  const payload = {
-    customer_id,
-    location_id,
-    vehicle_id,
-    service, // enum: service_type
-    fmc,     // enum: fmc
-    mileage, // integer or null
-  };
+type FormState = {
+  vehicle_id: Id | "";
+  location_id: Id | ""; // we store the market row id, but use its name to filter customers
+  customer_id: Id | "";
+  service: string;
+  fmc: string | "";
+  mileage: number | "";
+  po: string;
+  notes: string;
+};
 
-  const { error } = await sb.from('service_requests').insert(payload);
-  if (error) throw new Error(error.message || 'Failed to create request');
+export default function NewServiceRequestPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
-  redirect('/office/queue');
-}
+  const vehicleFromUrl = searchParams.get("vehicle_id") || "";
+  const addedVehicle = searchParams.get("added_vehicle") === "1";
+  const success = searchParams.get("success") === "1";
 
-/* ------------------------------ Page (RSC) ------------------------------- */
-export default async function NewServiceRequestPage() {
-  const sb = await supabaseServer();
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [fmcOptions, setFmcOptions] = useState<string[]>([]);
+  const [error, setError] = useState("");
 
-  // Fetch each list, then coalesce to [] so map/length are safe.
-  const customersRes = await sb.from('customers').select('id,name').order('name');
-  const locationsRes = await sb.from('locations').select('id,name').order('name');
-  const vehiclesRes  = await sb.from('vehicles').select('id,display_name').order('display_name');
+  const [form, setForm] = useState<FormState>({
+    vehicle_id: "",
+    location_id: "",
+    customer_id: "",
+    service: "",
+    fmc: "",
+    mileage: "",
+    po: "",
+    notes: "",
+  });
 
-  const customers = customersRes.data ?? [];
-  const locations = locationsRes.data ?? [];
-  const vehicles  = vehiclesRes.data  ?? [];
+  const [isPending, startTransition] = useTransition();
 
-  // (Optional) If you want to surface fetch errors during development:
-  // if (customersRes.error) console.error('customers error', customersRes.error);
-  // if (locationsRes.error) console.error('locations error', locationsRes.error);
-  // if (vehiclesRes.error)  console.error('vehicles error', vehiclesRes.error);
+  // Resolve selected market label from selected location_id
+  const selectedMarket = useMemo(() => {
+    const loc = locations.find((l) => l.id === form.location_id);
+    return loc?.name || "";
+  }, [locations, form.location_id]);
+
+  // Initial loads
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const [vRes, lRes, fmcRes] = await Promise.all([
+          fetch("/api/vehicles", { cache: "no-store" }),
+          fetch("/api/lookups?scope=locations", { cache: "no-store" }),
+          fetch("/api/lookups?scope=fmc", { cache: "no-store" }),
+        ]);
+        const [v, l, fmc] = await Promise.all([vRes.json(), lRes.json(), fmcRes.json()]);
+        if (!mounted) return;
+
+        const vRows: Vehicle[] =
+          v?.rows?.map((x: any) => ({
+            id: x.id,
+            year: x.year ?? null,
+            make: x.make ?? "",
+            model: x.model ?? "",
+            plate: x.plate ?? null,
+            unit_number: x.unit_number ?? null,
+          })) ?? [];
+
+        setVehicles(vRows);
+        setLocations(l?.rows ?? []);
+        setFmcOptions((fmc?.rows ?? []).map((r: any) => r.label as string));
+
+        // Preselect vehicle if returning from Add Vehicle
+        if (vehicleFromUrl && vRows.some((x) => x.id === vehicleFromUrl)) {
+          setForm((s) => ({ ...s, vehicle_id: vehicleFromUrl as Id }));
+        }
+
+        // If there is only one market, preselect it
+        if ((l?.rows ?? []).length === 1) {
+          const only = l.rows[0] as Location;
+          setForm((s) => ({ ...s, location_id: only.id as Id }));
+        }
+      } catch (e) {
+        console.error(e);
+        setError("Failed to load vehicles/locations.");
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [vehicleFromUrl]);
+
+  // Load customers when market selection changes
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        if (!selectedMarket) {
+          setCustomers([]);
+          setForm((s) => ({ ...s, customer_id: "" }));
+          return;
+        }
+        const res = await fetch(
+          `/api/lookups?scope=customers&market=${encodeURIComponent(selectedMarket)}`,
+          { cache: "no-store" }
+        );
+        const json = await res.json();
+        if (!active) return;
+
+        setCustomers(json?.rows ?? []);
+
+        if ((json?.rows ?? []).length === 1) {
+          setForm((s) => ({ ...s, customer_id: json.rows[0].id as Id }));
+        } else {
+          const stillValid = (json?.rows ?? []).some((c: Customer) => c.id === form.customer_id);
+          if (!stillValid) setForm((s) => ({ ...s, customer_id: "" }));
+        }
+      } catch (e) {
+        console.error(e);
+        setCustomers([]);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMarket]);
+
+  function vehicleLabel(v: Vehicle) {
+    return [v.year || "", v.make, v.model, v.plate || v.unit_number].filter(Boolean).join(" ");
+  }
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError("");
+
+    if (!form.vehicle_id || !form.location_id || !form.customer_id || !form.service) {
+      setError("Please fill in all required fields.");
+      return;
+    }
+
+    const payload = {
+      vehicle_id: form.vehicle_id,
+      location_id: form.location_id,
+      customer_id: form.customer_id,
+      service: form.service.trim(),
+      fmc: form.fmc || null,
+      mileage: form.mileage === "" ? null : Number(form.mileage),
+      po: form.po.trim() || null,
+      notes: form.notes.trim() || null,
+      status: "NEW",
+    };
+
+    startTransition(async () => {
+      try {
+        const res = await fetch("/api/requests", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        router.replace("/office/queue?success=1");
+      } catch (err: any) {
+        console.error(err);
+        setError(typeof err?.message === "string" ? err.message : "Failed to create request.");
+      }
+    });
+  }
 
   return (
-    <div className="mx-auto max-w-5xl px-4 md:px-6 py-8">
-      <h1 className="text-2xl font-semibold mb-6">Create Service Request</h1>
+    <div className="max-w-2xl mx-auto p-6 space-y-6">
+      <h1 className="text-2xl font-semibold">Create Service Request</h1>
 
-      <form action={createRequestAction} className="space-y-4 rounded-xl border p-5 bg-white">
-        {/* Customer */}
-        <div>
-          <label className="block mb-1 font-medium">Customer</label>
-          <select name="customer_id" className="w-full rounded-md border p-2" required defaultValue="">
-            <option value="" disabled>Select customer...</option>
-            {customers.map((c: any) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
+      {(success || addedVehicle) && (
+        <div className="rounded border border-emerald-200 bg-emerald-50 text-emerald-800 px-3 py-2 text-sm">
+          {addedVehicle ? "Vehicle saved. It’s now available in the list." : "Request created successfully."}
         </div>
+      )}
 
-        {/* Location */}
-        <div>
-          <label className="block mb-1 font-medium">Location</label>
-          <select name="location_id" className="w-full rounded-md border p-2" required defaultValue="">
-            <option value="" disabled>Select location...</option>
-            {locations.map((l: any) => (
-              <option key={l.id} value={l.id}>{l.name}</option>
-            ))}
-          </select>
+      {error && (
+        <div className="rounded border border-red-200 bg-red-50 text-red-800 px-3 py-2 text-sm">
+          {error}
         </div>
+      )}
 
-        {/* Vehicle + Add link */}
-        <div>
-          <div className="mb-1 flex items-center justify-between">
-            <label className="font-medium">Vehicle</label>
-            <Link href="/vehicles/new" className="text-sm underline">+ Add vehicle</Link>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Vehicle */}
+        <div className="flex gap-2 items-end">
+          <div className="flex-1">
+            <label className="block text-sm mb-1">Vehicle *</label>
+            <select
+              className="w-full border rounded px-3 py-2"
+              value={form.vehicle_id}
+              onChange={(e) => setForm((s) => ({ ...s, vehicle_id: e.target.value as Id }))}
+              required
+            >
+              <option value="">Select vehicle…</option>
+              {vehicles.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {vehicleLabel(v)}
+                </option>
+              ))}
+            </select>
           </div>
-          <select name="vehicle_id" className="w-full rounded-md border p-2" required defaultValue="">
-            <option value="" disabled>Select vehicle...</option>
-            {vehicles.length > 0 ? (
-              vehicles.map((v: any) => (
-                <option key={v.id} value={v.id}>{v.display_name}</option>
-              ))
-            ) : (
-              <option disabled value="">
-                No vehicles found — use “+ Add vehicle”
-              </option>
-            )}
-          </select>
+          <a
+            href={`/vehicles/new?return=${encodeURIComponent("/fm/requests/new")}`}
+            className="px-3 py-2 rounded border whitespace-nowrap"
+          >
+            + Add vehicle
+          </a>
         </div>
 
-        {/* Service Type (enum) */}
+        {/* Location = Market */}
         <div>
-          <label className="block mb-1 font-medium">Service Type (enum)</label>
+          <label className="block text-sm mb-1">Location (Market) *</label>
+          <select
+            className="w-full border rounded px-3 py-2"
+            value={form.location_id}
+            onChange={(e) => setForm((s) => ({ ...s, location_id: e.target.value as Id }))}
+            required
+          >
+            <option value="">Select location…</option>
+            {locations.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+          <div className="text-xs text-gray-500 mt-1">Selected market: {selectedMarket || "—"}</div>
+        </div>
+
+        {/* Customer (filtered by Market) */}
+        <div>
+          <label className="block text-sm mb-1">Customer *</label>
+          <select
+            className="w-full border rounded px-3 py-2"
+            value={form.customer_id}
+            onChange={(e) => setForm((s) => ({ ...s, customer_id: e.target.value as Id }))}
+            required
+            disabled={!selectedMarket}
+          >
+            <option value="">{selectedMarket ? "Select customer…" : "Choose a market first…"}</option>
+            {customers.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+          <div className="text-xs text-gray-500 mt-1">
+            Loaded {customers.length} customer{customers.length === 1 ? "" : "s"} for {selectedMarket || "—"}
+          </div>
+        </div>
+
+        {/* Service */}
+        <div>
+          <label className="block text-sm mb-1">Service *</label>
           <input
-            name="service"
-            placeholder="e.g., OIL_CHANGE"
-            className="w-full rounded-md border p-2"
+            className="w-full border rounded px-3 py-2"
+            placeholder="Oil Change, A/C Diagnostic, etc."
+            value={form.service}
+            onChange={(e) => setForm((s) => ({ ...s, service: e.target.value }))}
             required
           />
-          <p className="mt-1 text-xs text-slate-500">
-            This must match one of your database enum labels for <code>service_type</code>.
-          </p>
         </div>
 
         {/* FMC */}
         <div>
-          <label className="block mb-1 font-medium">FMC</label>
-          <select name="fmc" className="w-full rounded-md border p-2" defaultValue="">
-            <option value="">—</option>
-            {/* Example enum labels; adjust to your DB’s fmc enum */}
-            <option value="ARI">ARI</option>
-            <option value="ELEMENT">ELEMENT</option>
-            <option value="WHEELS">WHEELS</option>
+          <label className="block text-sm mb-1">Fleet Management Company (optional)</label>
+          <select
+            className="w-full border rounded px-3 py-2"
+            value={form.fmc}
+            onChange={(e) => setForm((s) => ({ ...s, fmc: e.target.value }))}
+          >
+            <option value="">Select FMC…</option>
+            {fmcOptions.map((f) => (
+              <option key={f} value={f}>
+                {f}
+              </option>
+            ))}
           </select>
         </div>
 
         {/* Mileage */}
         <div>
-          <label className="block mb-1 font-medium">Mileage</label>
+          <label className="block text-sm mb-1">Mileage (optional)</label>
           <input
-            name="mileage"
             type="number"
-            min={0}
-            placeholder="e.g., 72345"
-            className="w-full rounded-md border p-2"
+            className="w-full border rounded px-3 py-2"
+            placeholder="72345"
+            value={form.mileage}
+            onChange={(e) =>
+              setForm((s) => ({
+                ...s,
+                mileage: e.target.value === "" ? "" : Number(e.target.value),
+              }))
+            }
           />
         </div>
 
-        <button className="rounded-md bg-black px-4 py-2 text-white hover:bg-black/90">
-          Create Request
-        </button>
+        {/* PO */}
+        <div>
+          <label className="block text-sm mb-1">PO (optional)</label>
+          <input
+            className="w-full border rounded px-3 py-2"
+            placeholder="PO12345"
+            value={form.po}
+            onChange={(e) => setForm((s) => ({ ...s, po: e.target.value }))}
+          />
+        </div>
+
+        {/* Notes */}
+        <div>
+          <label className="block text-sm mb-1">Notes (optional)</label>
+          <textarea
+            className="w-full border rounded px-3 py-2"
+            rows={4}
+            placeholder="Any additional context for the technician or office..."
+            value={form.notes}
+            onChange={(e) => setForm((s) => ({ ...s, notes: e.target.value }))}
+          />
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            type="submit"
+            disabled={isPending}
+            className="px-4 py-2 rounded bg-black text-white hover:opacity-80 disabled:opacity-60"
+          >
+            {isPending ? "Saving…" : "Create request"}
+          </button>
+          <a href="/" className="px-4 py-2 rounded border">
+            Cancel
+          </a>
+        </div>
       </form>
     </div>
   );

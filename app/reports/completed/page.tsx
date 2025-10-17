@@ -1,144 +1,100 @@
-// app/reports/completed/page.tsx
-'use client';
+// app/reports/page.tsx
+import { supabaseServer } from "@/lib/supabaseServer";
 
-import { useEffect, useState } from 'react';
+export const dynamic = "force-dynamic";
 
-type RangeOpt = 'today' | '7d';
-
-type Vehicle = { id: string; year: number; make: string; model: string; unit_number?: string | null };
-type Row = {
-  id: string;
-  service_type?: string | null;
-  completed_at?: string | null;
-  odometer_miles?: number | null;
-  vehicle?: Vehicle | null;
-  location?: { id: string; name: string } | null;
-  customer?: { id: string; name: string } | null; // ← new
-};
-
-export default function CompletedReportsPage() {
-  const [range, setRange] = useState<RangeOpt>('today');
-  const [rows, setRows] = useState<Row[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  async function load(r: RangeOpt) {
-    setLoading(true);
-    setErr(null);
-    try {
-      const res = await fetch(`/api/reports/completed?range=${r}`, { cache: 'no-store' });
-      const json = await res.json();
-      if (!res.ok || !json?.success) throw new Error(json?.error || `HTTP ${res.status}`);
-      setRows(json.rows || []);
-    } catch (e: any) {
-      setErr(e?.message || 'Failed to load report');
-    } finally {
-      setLoading(false);
+async function resolveCompanyId() {
+  const supabase = await supabaseServer();
+  try {
+    const { data: auth } = await supabase.auth.getUser();
+    const uid = auth.user?.id || null;
+    if (uid) {
+      const { data: prof } = await supabase.from("profiles").select("company_id").eq("id", uid).maybeSingle();
+      if (prof?.company_id) return prof.company_id as string;
     }
+  } catch {}
+  try {
+    const { data: v } = await supabase
+      .from("vehicles").select("company_id").not("company_id","is",null)
+      .order("created_at",{ascending:false}).limit(1).maybeSingle();
+    if (v?.company_id) return v.company_id as string;
+  } catch {}
+  return null;
+}
+
+export default async function ReportsPage() {
+  const supabase = await supabaseServer();
+  const company_id = await resolveCompanyId();
+  if (!company_id) return <div className="p-6">No company detected.</div>;
+
+  // counts by status
+  const statuses = ["NEW","WAITING_APPROVAL","WAITING_PARTS","DECLINED","SCHEDULED","IN_PROGRESS","COMPLETED"];
+  const counts: Record<string, number> = {};
+  for (const s of statuses) {
+    const { count } = await supabase
+      .from("service_requests")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", company_id)
+      .eq("status", s);
+    counts[s] = count ?? 0;
   }
 
-  useEffect(() => { load(range); }, [range]);
-
-  // CSV helpers
-  function toCsv(data: Row[]) {
-    const headers = ['Completed', 'Vehicle', 'Unit', 'Service', 'Odometer', 'Location', 'Customer']; // ← add
-    const lines = data.map((r) => [
-      r.completed_at ? new Date(r.completed_at).toISOString() : '',
-      r.vehicle ? `${r.vehicle.year} ${r.vehicle.make} ${r.vehicle.model}` : '',
-      r.vehicle?.unit_number ?? '',
-      r.service_type ?? '',
-      r.odometer_miles ?? '',
-      r.location?.name ?? '',
-      r.customer?.name ?? '', // ← add
-    ]);
-    const csv = [headers, ...lines]
-      .map((arr) => arr.map((x) => `"${String(x).replace(/"/g, '""')}"`).join(','))
-      .join('\n');
-    return new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  }
-
-  function downloadCsv(filename: string, blob: Blob) {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }
-
-  const canExport = !loading && rows.length > 0;
+  // recent 20
+  const { data: recent } = await supabase
+    .from("service_requests")
+    .select(`
+      id, status, created_at, service, po,
+      customer:customer_id ( name ),
+      vehicle:vehicle_id ( year, make, model, plate, unit_number )
+    `)
+    .eq("company_id", company_id)
+    .order("created_at",{ascending:false})
+    .limit(20);
 
   return (
-    <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Completed Jobs</h1>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setRange('today')}
-            className={`px-3 py-1 rounded ${range === 'today' ? 'bg-black text-white' : 'bg-gray-200'}`}
-          >
-            Today
-          </button>
-          <button
-            onClick={() => setRange('7d')}
-            className={`px-3 py-1 rounded ${range === '7d' ? 'bg-black text-white' : 'bg-gray-200'}`}
-          >
-            Last 7 days
-          </button>
-          <button
-            disabled={!canExport}
-            onClick={() => downloadCsv(`completed_${range}_${Date.now()}.csv`, toCsv(rows))}
-            className={`px-3 py-1 rounded border ${canExport ? '' : 'opacity-50 cursor-not-allowed'}`}
-            title={canExport ? 'Download CSV' : 'Nothing to export'}
-          >
-            Download CSV
-          </button>
-        </div>
+    <div className="p-6 space-y-6">
+      <h1 className="text-2xl font-semibold">Reports</h1>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {statuses.map((s) => (
+          <div key={s} className="rounded border p-4">
+            <div className="text-sm text-gray-600">{s}</div>
+            <div className="text-2xl font-semibold">{counts[s]}</div>
+          </div>
+        ))}
       </div>
 
-      {err && <div className="rounded bg-red-50 text-red-700 px-3 py-2 text-sm">{err}</div>}
-
-      {loading ? (
-        <div>Loading…</div>
-      ) : rows.length === 0 ? (
-        <div className="text-sm text-gray-600">No completed jobs in this range.</div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-[1100px] w-full text-sm">
-            <thead>
-              <tr className="text-left border-b">
-                <th className="py-2 pr-4">Completed</th>
-                <th className="pr-4">Vehicle</th>
-                <th className="pr-4">Unit</th>
-                <th className="pr-4">Service</th>
-                <th className="pr-4">Odometer</th>
-                <th className="pr-4">Location</th>
-                <th className="pr-4">Customer</th> {/* ← new */}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.id} className="border-b">
-                  <td className="py-2 pr-4">
-                    {r.completed_at ? new Date(r.completed_at).toLocaleString() : '—'}
-                  </td>
-                  <td className="pr-4">
-                    {r.vehicle ? `${r.vehicle.year} ${r.vehicle.make} ${r.vehicle.model}` : '—'}
-                  </td>
-                  <td className="pr-4">{r.vehicle?.unit_number ?? '—'}</td>
-                  <td className="pr-4">{r.service_type ?? '—'}</td>
-                  <td className="pr-4">{r.odometer_miles ?? '—'}</td>
-                  <td className="pr-4">{r.location?.name ?? '—'}</td>
-                  <td className="pr-4">{r.customer?.name ?? '—'}</td> {/* ← new */}
+      <div className="overflow-x-auto border rounded">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="text-left p-3">Created</th>
+              <th className="text-left p-3">Status</th>
+              <th className="text-left p-3">Customer</th>
+              <th className="text-left p-3">Vehicle</th>
+              <th className="text-left p-3">Service</th>
+              <th className="text-left p-3">PO</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(recent ?? []).map((r: any) => {
+              const v = r.vehicle || {};
+              const veh = [v.year, v.make, v.model, v.plate || v.unit_number].filter(Boolean).join(" ");
+              return (
+                <tr key={r.id} className="border-t">
+                  <td className="p-3">{new Date(r.created_at).toLocaleString()}</td>
+                  <td className="p-3">{r.status}</td>
+                  <td className="p-3">{r.customer?.name ?? "—"}</td>
+                  <td className="p-3">{veh || "—"}</td>
+                  <td className="p-3">{r.service ?? "—"}</td>
+                  <td className="p-3">{r.po ?? "—"}</td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="text-xs text-gray-500 mt-2">Total: {rows.length}</div>
-        </div>
-      )}
+              );
+            })}
+            {(recent ?? []).length === 0 && <tr><td colSpan={6} className="p-6 text-center text-gray-500">No data.</td></tr>}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

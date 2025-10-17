@@ -1,71 +1,61 @@
 // app/api/vehicles/route.ts
-import { getSupabase, json, onError, requireRole } from '@/lib/auth/requireRole';
+import { NextResponse } from "next/server";
+import { supabaseServer } from "@/lib/supabaseServer";
 
-export async function GET() {
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+async function resolveCompanyId() {
+  const supabase = await supabaseServer();
+
+  // Try profiles.company_id (ignore if table missing)
   try {
-    const meta = await requireRole(['ADMIN', 'OFFICE', 'DISPATCH', 'TECH']);
-    const supabase = await getSupabase();
-
-    const { data, error } = await supabase
-      .from('vehicles')
-      .select('id, year, make, model, unit_number, vin, plate')
-      .eq('company_id', meta.company_id)
-      .order('created_at', { ascending: false })
-      .limit(500);
-
-    if (error) return json({ error: error.message }, 500);
-    return json(data ?? []);
-  } catch (e) {
-    return onError(e);
-  }
-}
-
-export async function POST(req: Request) {
-  try {
-    const meta = await requireRole(['ADMIN', 'OFFICE']);
-    const supabase = await getSupabase();
-    const body = await req.json();
-
-    // normalize
-    const unit_number_raw = (body.unit_number ?? '').trim();
-    const unit_number = unit_number_raw.length ? unit_number_raw : null;
-
-    const payload = {
-      year: body.year ?? null,
-      make: String(body.make ?? '').trim(),
-      model: String(body.model ?? '').trim(),
-      unit_number,
-      vin: (body.vin ?? '').trim() || null,
-      plate: (body.plate ?? '').trim() || null,
-      company_id: meta.company_id,
-      created_at: new Date().toISOString(),
-    };
-
-    // optional pre-check: if you want nicer messages without relying on code 23505
-    if (unit_number) {
-      const { data: exists } = await supabase
-        .from('vehicles')
-        .select('id')
-        .eq('company_id', meta.company_id)
-        .ilike('unit_number', unit_number) // case-insensitive match
-        .limit(1)
+    const { data: auth } = await supabase.auth.getUser();
+    const userId = auth.user?.id || null;
+    if (userId) {
+      const { data: profile, error } = await supabase
+        .from("profiles")
+        .select("company_id")
+        .eq("id", userId)
         .maybeSingle();
 
-      if (exists) return json({ error: `Unit number "${unit_number}" already exists for this company.` }, 409);
+      if (!error && profile?.company_id) return profile.company_id as string;
     }
+  } catch {}
 
-    const { data, error } = await supabase.from('vehicles').insert(payload).select('id').single();
-
-    if (error) {
-      // unique violation
-      if ((error as any).code === '23505') {
-        return json({ error: `That unit number already exists for this company.` }, 409);
-      }
-      return json({ error: (error as any).message || 'Insert failed' }, 500);
+  // Fallback: user_metadata.company_id via /api/me
+  try {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL ?? ""}/api/me`, { cache: "no-store" });
+    if (res.ok) {
+      const me = await res.json();
+      if (me?.company_id) return me.company_id as string;
     }
+  } catch {}
 
-    return json({ id: data?.id }, 201);
-  } catch (e) {
-    return onError(e);
+  return null;
+}
+
+export async function GET() {
+  const supabase = await supabaseServer();
+  const company_id = await resolveCompanyId();
+
+  if (!company_id) {
+    return NextResponse.json({ rows: [] }, { status: 200, headers: { "Cache-Control": "no-store" } });
   }
+
+  const { data, error } = await supabase
+    .from("vehicles")
+    .select("id, year, make, model, plate, unit_number, vin, created_at")
+    .eq("company_id", company_id)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error(error);
+    return NextResponse.json({ rows: [], error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json(
+    { rows: data ?? [] },
+    { status: 200, headers: { "Cache-Control": "no-store, max-age=0" } }
+  );
 }

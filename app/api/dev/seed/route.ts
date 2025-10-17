@@ -1,143 +1,143 @@
 // app/api/dev/seed/route.ts
-import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { createClient } from '@supabase/supabase-js';
+import { NextResponse } from "next/server";
+import { supabaseServer } from "@/lib/supabaseServer";
 
-/** Admin client (service key). Requires:
- *  - NEXT_PUBLIC_SUPABASE_URL
- *  - SUPABASE_SERVICE_ROLE
- */
-function admin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE!;
-  return createClient(url, key, { auth: { persistSession: false } });
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+// Resolve a company_id using: profiles → user_metadata → latest vehicle → latest location/customer
+async function resolveCompanyId() {
+  const supabase = await supabaseServer();
+
+  // profiles.company_id
+  try {
+    const { data: auth } = await supabase.auth.getUser();
+    const uid = auth.user?.id || null;
+    if (uid) {
+      const { data: prof, error } = await supabase
+        .from("profiles")
+        .select("company_id")
+        .eq("id", uid)
+        .maybeSingle();
+      if (!error && prof?.company_id) return { company_id: prof.company_id as string, via: "profiles.company_id" };
+    }
+  } catch {}
+
+  // user_metadata.company_id
+  try {
+    const supa = await supabaseServer();
+    const { data: auth } = await supa.auth.getUser();
+    const cid = (auth.user?.user_metadata as any)?.company_id ?? null;
+    if (cid) return { company_id: cid as string, via: "user_metadata.company_id" };
+  } catch {}
+
+  // latest vehicles.company_id
+  try {
+    const { data: v } = await supabase
+      .from("vehicles")
+      .select("company_id")
+      .not("company_id", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (v?.company_id) return { company_id: v.company_id as string, via: "vehicles.latest.company_id" };
+  } catch {}
+
+  // any locations.company_id
+  try {
+    const { data: l } = await supabase
+      .from("locations")
+      .select("company_id")
+      .not("company_id", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (l?.company_id) return { company_id: l.company_id as string, via: "locations.any.company_id" };
+  } catch {}
+
+  // any customers.company_id
+  try {
+    const { data: c } = await supabase
+      .from("customers")
+      .select("company_id")
+      .not("company_id", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (c?.company_id) return { company_id: c.company_id as string, via: "customers.any.company_id" };
+  } catch {}
+
+  return { company_id: null as string | null, via: "none" };
 }
 
-/** Simple GET so visiting /api/dev/seed in the browser tells you how to run it */
-export async function GET() {
+export async function POST(req: Request) {
+  const supabase = await supabaseServer();
+  const json = await req.json().catch(() => ({} as any));
+  const explicitCompanyId: string | undefined = json?.company_id;
+
+  const { company_id: resolved, via } = await resolveCompanyId();
+  const company_id = explicitCompanyId ?? resolved ?? null;
+
+  if (!company_id) {
+    return NextResponse.json(
+      { ok: false, reason: "no-company", message: "Could not resolve company_id. Pass {company_id} in body." },
+      { status: 400 }
+    );
+  }
+
+  // Upsert one Location + one Customer for this company (if missing)
+  let seeded = { location: false, customer: false };
+
+  // locations
+  let { data: locs } = await supabase
+    .from("locations")
+    .select("id, name")
+    .eq("company_id", company_id)
+    .limit(1);
+  if (!locs || locs.length === 0) {
+    const { error: insL } = await supabase
+      .from("locations")
+      .insert([{ company_id, name: "Main Depot" }]);
+    if (!insL) seeded.location = true;
+  }
+
+  // customers
+  let { data: custs } = await supabase
+    .from("customers")
+    .select("id, name")
+    .eq("company_id", company_id)
+    .limit(1);
+  if (!custs || custs.length === 0) {
+    const { error: insC } = await supabase
+      .from("customers")
+      .insert([{ company_id, name: "Demo Customer" }]);
+    if (!insC) seeded.customer = true;
+  }
+
+  // return what we see now
+  const { data: outLocs } = await supabase
+    .from("locations")
+    .select("id, name")
+    .eq("company_id", company_id)
+    .order("name", { ascending: true });
+
+  const { data: outCusts } = await supabase
+    .from("customers")
+    .select("id, name")
+    .eq("company_id", company_id)
+    .order("name", { ascending: true });
+
   return NextResponse.json({
-    ok: false,
-    error: 'Use POST /api/dev/seed',
-    tip: "From console: fetch('/api/dev/seed', { method: 'POST' }).then(r=>r.json()).then(console.log)",
+    ok: true,
+    used_company_id: company_id,
+    resolved_via: explicitCompanyId ? "explicit" : via,
+    seeded,
+    locations: outLocs ?? [],
+    customers: outCusts ?? [],
   });
 }
 
-/** POST: seeds a minimal set of rows for the currently picked company.
- *  Requires the cookie `appCompanyId` (log in via /login first).
- */
-export async function POST() {
-  try {
-    // Next.js 15: dynamic cookies() must be awaited
-    const ck = await cookies();
-    const companyId = ck.get('appCompanyId')?.value;
-
-    if (!companyId) {
-      return NextResponse.json(
-        { ok: false, error: 'Missing appCompanyId cookie. Log in via /login first.' },
-        { status: 400 }
-      );
-    }
-
-    const supabase = admin();
-
-    // 1) Location upsert (unique by company_id + name)
-    const { data: loc, error: locErr } = await supabase
-      .from('company_locations')
-      .upsert(
-        [{ company_id: companyId, name: 'Main Yard' }],
-        { onConflict: 'company_id,name' }
-      )
-      .select()
-      .single();
-
-    if (locErr) throw locErr;
-
-    // 2) Vehicle upsert (make sure to satisfy your "vehicle_identifier" check)
-    // Use a unique unit_number and a 17-char VIN to be safe
-    const { data: veh, error: vehErr } = await supabase
-      .from('vehicles')
-      .upsert(
-        [
-          {
-            company_id: companyId,
-            year: 2018,
-            make: 'Ford',
-            model: 'Transit',
-            vin: 'TESTVIN1234567890', // 17 characters
-            unit_number: 'DEV-001',
-            // If your table has is_active, this will be accepted; otherwise it’s ignored.
-            is_active: true,
-          } as any,
-        ],
-        { onConflict: 'company_id,unit_number' }
-      )
-      .select()
-      .single();
-
-    if (vehErr) throw vehErr;
-
-    // 3) OPTIONAL: seed a single service request
-    // IMPORTANT: The enum labels must exist in your DB.
-    //   - fmc:             e.g., 'OTHER' (for COD/CC/no FMC)
-    //   - service_type:    e.g., 'OIL_CHANGE'
-    //   - priority:        e.g., 'NORMAL'
-    //   - status:          e.g., 'NEW'
-    //
-    // If you’re not sure of labels, run in Supabase SQL editor:
-    //   select e.enumlabel from pg_enum e
-    //   join pg_type t on t.oid = e.enumtypid where t.typname = 'fmc';
-    //
-    // This block is wrapped in try/catch so a bad enum won’t break the whole seed.
-    let requestId: string | null = null;
-    try {
-      const { data: req, error: reqErr } = await supabase
-        .from('service_requests')
-        .insert([
-          {
-            company_id: companyId,
-            vehicle_id: veh.id,
-            location_id: loc.id,
-            fmc: 'OTHER',
-            service_type: 'OIL_CHANGE',
-            priority: 'NORMAL',
-            status: 'NEW',
-            customer_notes: 'Seeded job',
-          } as any,
-        ])
-        .select()
-        .single();
-
-      if (reqErr) {
-        // Don’t fail the endpoint; include a hint in the response.
-        console.warn('[seed] service_requests insert skipped:', reqErr.message);
-      } else {
-        requestId = req.id;
-      }
-    } catch (e: any) {
-      console.warn('[seed] service_requests insert error:', e?.message ?? e);
-    }
-
-    return NextResponse.json({
-      ok: true,
-      message: 'Seed complete.',
-      created: {
-        location: { id: loc.id, name: loc.name },
-        vehicle: { id: veh.id, unit_number: veh.unit_number, vin: veh.vin },
-        request: requestId ? { id: requestId } : null,
-      },
-    });
-  } catch (err: any) {
-    console.error('[seed] error:', err);
-    return NextResponse.json(
-      {
-        ok: false,
-        where: err?.table || undefined,
-        error: err?.message || 'Unknown error',
-        hint:
-          err?.hint ||
-          "If this complains about missing columns, run: NOTIFY pgrst, 'reload schema'; in the Supabase SQL editor.",
-      },
-      { status: 500 }
-    );
-  }
+export async function GET() {
+  // GET will seed using resolved company_id (no body)
+  return POST(new Request("http://local/dev-seed", { method: "POST", body: "{}" }));
 }
