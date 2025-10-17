@@ -1,110 +1,61 @@
 // app/api/requests/[id]/transition/route.ts
-import { getSupabase, json, onError, requireRole } from '@/lib/auth/requireRole';
+import { NextResponse } from 'next/server';
+import { supabaseServer } from '@/lib/supabaseServer';
+import { canTransition, RequestStatus, Role } from '@/lib/status';
 
-type Status =
-  | 'NEW'
-  | 'WAITING_APPROVAL'
-  | 'WAITING_PARTS'
-  | 'SCHEDULED'
-  | 'IN_PROGRESS'
-  | 'CANCELED'
-  | 'RESCHEDULED'
-  | 'COMPLETED';
-
-type Role = 'ADMIN' | 'OFFICE' | 'DISPATCH' | 'TECH' | 'CUSTOMER';
-
-function allowedNextStatuses(current: Status, role: Role): Status[] {
-  // Admin/Office: full funnel + PO gate handled separately
-  const adminOffice: Record<Status, Status[]> = {
-    NEW: ['WAITING_APPROVAL','WAITING_PARTS','SCHEDULED'],
-    WAITING_APPROVAL: ['WAITING_PARTS','SCHEDULED','CANCELED'],
-    WAITING_PARTS: ['SCHEDULED','CANCELED'],
-    SCHEDULED: ['IN_PROGRESS','CANCELED','RESCHEDULED'],
-    IN_PROGRESS: ['CANCELED','RESCHEDULED','COMPLETED'],
-    CANCELED: ['RESCHEDULED'],
-    RESCHEDULED: ['SCHEDULED','CANCELED'],
-    COMPLETED: [],
-  };
-
-  // Dispatcher: SCHEDULED ↔ IN_PROGRESS ↔ CANCELED/RESCHEDULED/COMPLETED
-  const dispatcher: Record<Status, Status[]> = {
-    NEW: [],
-    WAITING_APPROVAL: [],
-    WAITING_PARTS: [],
-    SCHEDULED: ['IN_PROGRESS','CANCELED','RESCHEDULED'],
-    IN_PROGRESS: ['CANCELED','RESCHEDULED','COMPLETED'],
-    CANCELED: ['RESCHEDULED'],
-    RESCHEDULED: ['SCHEDULED','CANCELED'],
-    COMPLETED: [],
-  };
-
-  // Tech: start & finish only
-  const tech: Record<Status, Status[]> = {
-    NEW: [],
-    WAITING_APPROVAL: [],
-    WAITING_PARTS: [],
-    SCHEDULED: ['IN_PROGRESS'],
-    IN_PROGRESS: ['COMPLETED','CANCELED','RESCHEDULED'],
-    CANCELED: [],
-    RESCHEDULED: [],
-    COMPLETED: [],
-  };
-
-  if (role === 'ADMIN' || role === 'OFFICE') return adminOffice[current] ?? [];
-  if (role === 'DISPATCH') return dispatcher[current] ?? [];
-  if (role === 'TECH') return tech[current] ?? [];
-  return []; // CUSTOMER cannot transition
+async function getUserRole() {
+  const sb = supabaseServer();
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return { role: null as Role, user: null };
+  const { data } = await sb
+    .from('users')
+    .select('role')
+    .eq('auth_user_id', user.id)
+    .single();
+  return { role: (data?.role ?? null) as Role, user };
 }
 
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+export async function PATCH(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
-    const meta = await requireRole(['ADMIN','OFFICE','DISPATCH','TECH']);
-    const supabase = await getSupabase();
+    const { id } = await params;
+    const body = (await req.json().catch(() => ({}))) as { to?: RequestStatus; po_number?: string | null };
+    const to = body?.to;
+    if (!to) return NextResponse.json({ error: 'Missing target status' }, { status: 400 });
 
-    const body = await req.json().catch(() => ({} as any));
-    const next_status = (body?.next_status ?? '').trim().toUpperCase() as Status;
-    const po_number = (body?.po_number ?? null) as string | null;
+    const sb = supabaseServer();
 
-    if (!next_status) return json({ error: 'next_status is required' }, 400);
-
-    // Load the request (company scoped)
-    const { data: row, error: getErr } = await supabase
-      .from('requests')
-      .select('id, status, po_number, company_id')
-      .eq('id', params.id)
-      .eq('company_id', meta.company_id)
+    // Fetch current row
+    const { data: row, error: getErr } = await sb
+      .from('service_requests')
+      .select('id,status,po_number')
+      .eq('id', id)
       .single();
-    if (getErr || !row) return json({ error: 'Not found' }, 404);
+    if (getErr || !row) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-    // Role-based transition check
-    const allowed = allowedNextStatuses(row.status as Status, meta.role as Role);
-    if (!allowed.includes(next_status)) {
-      return json({ error: `Transition ${row.status} -> ${next_status} not allowed for role ${meta.role}` }, 403);
-    }
+    // Role + guard
+    const { role } = await getUserRole();
+    const guard = canTransition(role, row.status as RequestStatus, to, {
+      poRequiredForSchedule: true,
+      hasPO: !!(body.po_number || row.po_number),
+    });
+    if (!guard.ok) return NextResponse.json({ error: guard.reason }, { status: 403 });
 
-    // PO gate: moving to SCHEDULED requires a PO number (provided or existing)
-    let finalPo = row.po_number;
-    if (next_status === 'SCHEDULED') {
-      finalPo = (po_number ?? row.po_number ?? '').trim() || null;
-      if (!finalPo) return json({ error: 'PO Number is required to move to SCHEDULED' }, 400);
-    }
-
-    // Timestamp updates
-    const stamp: Record<string, string | null> = {};
+    // Compute patch columns
+    const patch: Record<string, any> = { status: to };
     const now = new Date().toISOString();
-    if (next_status === 'SCHEDULED') stamp['scheduled_at'] = now;
-    if (next_status === 'IN_PROGRESS') stamp['started_at'] = now;
-    if (next_status === 'COMPLETED') stamp['completed_at'] = now;
+    if (body.po_number && !row.po_number) patch.po_number = body.po_number;
+    if (to === 'SCHEDULED') patch.scheduled_at = now;
+    if (to === 'IN_PROGRESS') patch.started_at = now;
+    if (to === 'COMPLETED') patch.completed_at = now;
 
-    const { error: updErr } = await supabase
-      .from('requests')
-      .update({ status: next_status, po_number: finalPo, ...stamp })
-      .eq('id', params.id)
-      .eq('company_id', meta.company_id);
+    const { error: upErr } = await sb.from('service_requests').update(patch).eq('id', id);
+    if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
 
-    if (updErr) return json({ error: updErr.message }, 500);
-    return json({ ok: true, id: params.id, status: next_status, po_number: finalPo });
-  } catch (e) {
-    return onError(e);
+    return NextResponse.json({ ok: true, id, to });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message ?? 'Unknown error' }, { status: 500 });
   }
 }

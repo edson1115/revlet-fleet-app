@@ -1,35 +1,61 @@
 // app/page.tsx
-"use client";
-import Link from "next/link";
-import { useMe } from "@/app/providers/UserContext";
+import Link from 'next/link';
+import { supabaseServer } from '@/lib/supabaseServer';
 
-export default function Home() {
-  const me = useMe();
-  const role = me.role ?? "UNKNOWN";
+type Role = 'ADMIN' | 'OFFICE' | 'DISPATCH' | 'TECH' | 'CUSTOMER' | null;
 
-  const can = {
-    admin: role === "ADMIN",
-    office: role === "ADMIN" || role === "OFFICE",
-    dispatch: role === "ADMIN" || role === "DISPATCH",
-    tech: role === "ADMIN" || role === "TECH",
-    customer: role === "CUSTOMER",
-  };
+async function getRole(): Promise<Role> {
+  const sb = await supabaseServer(); // ← MUST await
 
-  return (
-    <main className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 p-6">
-      {(can.customer || can.office) && <Tile href="/fm/requests/new" label="Create Service Request" />}
-      {(can.office || can.admin) && <Tile href="/office" label="Office — NEW" />}
-      {(can.dispatch || can.admin) && <Tile href="/dispatch/scheduled" label="Dispatch — Scheduled" />}
-      {(can.tech || can.admin) && <Tile href="/tech/queue" label="Tech — In Progress" />}
-      {can.admin && <Tile href="/admin" label="Admin" />}
-    </main>
-  );
+  // Be defensive: destructure with a fallback so it never throws if shape differs
+  const {
+    data: { user } = { user: null },
+  } = await sb.auth.getUser();
+
+  if (!user) return null;
+
+  const { data } = await sb
+    .from('users')
+    .select('role')
+    .eq('auth_user_id', user.id)
+    .single();
+
+  return (data?.role ?? null) as Role;
 }
 
-function Tile({ href, label }: { href: string; label: string }) {
+export default async function HomePage() {
+  const role = await getRole();
+
   return (
-    <Link href={href} className="rounded-2xl border p-6 hover:shadow transition">
-      <div className="text-lg font-medium">{label}</div>
-    </Link>
+    <main className="mx-auto max-w-5xl p-6">
+      <h1 className="text-2xl font-semibold mb-4">Revlet Fleet</h1>
+
+      <p className="mb-6 text-slate-700">
+        {role
+          ? <>You are signed in with role <span className="font-mono">{role}</span>.</>
+          : <>You are not signed in.</>}
+      </p>
+
+      <nav className="flex flex-wrap gap-3">
+        <Link className="rounded border px-3 py-1 hover:bg-slate-50" href="/fm/requests/new">
+          Create Request
+        </Link>
+        <Link className="rounded border px-3 py-1 hover:bg-slate-50" href="/office/queue">
+          Office Queue
+        </Link>
+        <Link className="rounded border px-3 py-1 hover:bg-slate-50" href="/dispatch/scheduled">
+          Dispatch
+        </Link>
+        <Link className="rounded border px-3 py-1 hover:bg-slate-50" href="/tech/queue">
+          Tech
+        </Link>
+        <Link className="rounded border px-3 py-1 hover:bg-slate-50" href="/reports">
+          Reports
+        </Link>
+        <Link className="rounded border px-3 py-1 hover:bg-slate-50" href="/admin">
+          Admin
+        </Link>
+      </nav>
+    </main>
   );
 }

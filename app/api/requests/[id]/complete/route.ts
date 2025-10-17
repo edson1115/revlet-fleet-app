@@ -1,22 +1,12 @@
-// app/api/requests/[id]/start/route.ts
-import { NextResponse } from "next/server";
-import { requireRole } from "@/lib/authz";
-// import { db } from "@/lib/db";
+import { NextResponse } from 'next/server';
 
-export async function PATCH(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  try {
-    const { companyId } = requireRole(["ADMIN", "DISPATCH"]);
-    const { id } = await params;
-
-    // const { error } = await db.from("requests")
-    //   .update({ status: "IN_PROGRESS", started_at: new Date().toISOString() })
-    //   .eq("id", id)
-    //   .eq("company_id", companyId);
-    // if (error) throw Object.assign(new Error(error.message), { status: 400 });
-
-    return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    const status = e?.status ?? 500;
-    return NextResponse.json({ error: e?.message ?? "Server error" }, { status });
-  }
+export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const res = await fetch(new URL(`/api/requests/${id}/transition`, new URL(req.url).origin), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ to: 'COMPLETED' }),
+  });
+  const json = await res.json().catch(() => ({}));
+  return NextResponse.json(json, { status: res.status });
 }

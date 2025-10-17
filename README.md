@@ -9,42 +9,276 @@ Local dev: `pnpm dev` → http://localhost:3000
 
 📄 Project brief: [docs/PROJECT_BRIEF.md](./docs/PROJECT_BRIEF.md)
 
+The build in more detail:\
+**Customer (ABC Motors) View:**
 
+-   ✅ Dashboard: Last 5 completed services
 
+-   ✅ Service Requests: Create, view, cancel
 
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+-   ✅ Real-time status updates (see changes immediately in app)
 
-## Getting Started
+-   ✅Vehicles tab
 
-First, run the development server:
+**Where Recommendations Show:**
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+-   **Customer View:** See recommendations on completed services (helps
+    them plan future maintenance)
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+**Dispatch View:**
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+-   ✅ Dashboard: Last 5 services + incomplete alerts (jobs without PO
+    stay here)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+-   ✅ Service Requests with:
 
-## Learn More
+    -   Assign to specific tech (dropdown of all techs)
 
-To learn more about Next.js, take a look at the following resources:
+    -   Schedule date/time
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+    -   Auto-suggest parts (by vehicle + service type)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+    -   Edit/override parts list
 
-## Deploy on Vercel
+    -   Add PO number (required to fully close job)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+    -   Jobs stay in \"Needs PO\" state until PO added
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+    -   Reassign tech if needed
+
+    -   Handle incomplete → reschedule
+
+-    ✅ Emergency requests (only Dispatch sees these, can fast-track)
+
+-    ✅ Remove vehicles tab
+
+**Where Recommendations Show:**
+
+**Dispatch View:** See recommendations to follow up with customer or
+schedule future service
+
+**Tech (Mike Rodriguez) View:**
+
+-   ✅ Dashboard: Today\'s summary
+
+-   ✅ My Schedule: Only his assigned jobs, sorted by time
+
+    -   Check In → Complete/Incomplete buttons appear
+
+    -   Incomplete prompts for reason
+
+-   ✅ **NEW: Parts Pick List Tab:**
+
+    -   Shows ALL parts for ALL jobs today in one list
+
+    -   Can mark each part as \"Picked\"
+
+    -   Parts already in van (oil/filters) shown differently
+
+-   ✅ Individual job detail page also shows parts for that specific job
+
+**Tech Completion Notes - V1 Approach:**
+
+**Keep it Simple & Flexible:**
+
+-   ✅ **Free text field** (no templates yet)
+
+    -   Why: Every vehicle/situation is different, templates might be
+        limiting
+
+    -   Techs can type naturally: \"Oil leak at rear main seal -
+        recommend repair within 1000 miles\"
+
+    -   Easy to add templates in V2 if you see patterns
+
+-   ✅ **Required before completion**
+
+    -   Field label: \"Service Notes & Recommendations\"
+
+    -   Placeholder text: \"Document work completed and any
+        recommendations for future service\...\"
+
+    -   Tech must add something (even \"No issues found\" or \"All
+        good\")
+
+-   ✅ **Notes appear on completed service**
+
+    -   Customer sees it immediately when status changes to
+        \"Completed\"
+
+    -   Dispatch sees it in service details
+
+    -   Stored in service history
+
+**Tech Completion Flow - Updated:**
+
+When tech marks a service **Complete**, they should see:
+
+-   ✅ **Service Notes** (what was done)
+
+-   ✅ **NEW: Recommendations Section**
+
+    -   Text field for future service recommendations
+
+    -   Examples: \"Oil leak detected - recommend gasket replacement\",
+        \"Brake pads at 30% - schedule replacement in 2-3 months\",
+        \"Tire tread wearing unevenly - alignment recommended\"
+
+-   ✅ Mark Complete button
+
+-   
+
+**Workflow:**
+
+1)  Customer creates request → Dispatch schedules + assigns tech +
+    confirms parts → Tech sees in schedule → Tech completes → **Customer
+    gets notification \"Completed\"** → Dispatch adds PO → Status
+    updates to \"Closed\"
+
+2)  Emergency: Dispatch creates emergency → assigns tech → same day OR
+    next day
+
+3)  Incomplete: Tech marks incomplete → Dispatch reschedules → Customer
+    sees update
+
+**Color-Coded Status System:**
+
+I\'ll make statuses more visually distinct:
+
+-   🔵 **NEW** (Blue) - Just submitted, needs scheduling
+
+-   🟡 **SCHEDULED** (Yellow) - Date/time set, waiting for service day
+
+-   🟣 **IN PROGRESS** (Purple) - Tech checked in, actively working
+
+-   🟢 **COMPLETED** (Green) - Service done, customer can see
+
+-   ⚫ **CLOSED** (Dark Gray) - PO added by dispatch, fully complete
+
+-   🔴 **INCOMPLETE** (Red) - Needs attention/rescheduling
+
+-   ⚠️ **EMERGENCY** (Orange/Red border) - Urgent, fast-track
+
+**Customer Update Notifications:**
+
+You\'re right - the whole point is to **eliminate**
+calls/texts/emails/Slack!
+
+**Customer Portal - Real-Time Updates:**
+
+When customer (ABC Motors, Enterprise Fleet, etc.) logs in, they see:
+
+**Dashboard View:**
+
+-   🔴 **Active Services** (live status tracker)
+
+    -   Shows: Vehicle, Status (color-coded), Last Updated time
+
+    -   \"2020 Ford Transit • 🟣 IN PROGRESS • Updated 15 mins ago\"
+
+-   🟢 **Recently Completed** (last 5)
+
+    -   Can click \"Request Receipt\"
+
+**Service Request Detail:**
+
+-   **Status Timeline/Progress Bar:**
+
+    -   New → Scheduled → In Progress → Completed → Closed
+
+    -   Current step highlighted
+
+    -   Timestamp for each stage
+
+-   **Live Updates Section:**
+
+    -   \"Scheduled for Oct 15, 9:00 AM with Tech: Mike Rodriguez\"
+
+    -   \"Mike checked in at 9:05 AM\"
+
+    -   \"Service completed at 10:30 AM - Notes: Oil change complete.
+        Recommend brake inspection in 3 months\"
+
+    -   \"Closed - PO#: 12345\"
+
+**Key Features:**
+
+1.  ✅ **No login spamming** - Clear \"last updated\" timestamp
+
+2.  ✅ **Self-service** - They check when they want
+
+3.  ✅ **Status history** - See full timeline
+
+4.  ✅ **Tech notes visible** - Recommendations shown immediately
+
+5.  ✅ **Receipt on demand** - Download when completed
+
+**Final Feature Set - Confirmed:**
+
+**Customer View (ABC Motors, Enterprise Fleet, etc.):**
+
+-   ✅ Color-coded status badges
+
+-   ✅ Dashboard: Active services + Last 5 completed
+
+-   ✅ Vehicles tab (for scheduling reference)
+
+-   ✅ Service Requests: Create, view, cancel
+
+-   ✅ Status timeline/progress tracking
+
+-   ✅ Real-time updates (check anytime, no spam)
+
+-   ✅ Request Receipt button on completed services
+
+-   ✅ See tech notes/recommendations
+
+**Dispatch View:**
+
+-   ✅ Color-coded statuses
+
+-   ✅ Dashboard: Last 5 services + alerts (incomplete, needs PO)
+
+-   ✅ Service Requests: Schedule, assign tech, confirm parts, add PO
+
+-   ✅ Auto-suggest parts (vehicle + service type)
+
+-   ✅ Emergency requests (same day or next day)
+
+-   ✅ Jobs stay visible until PO added
+
+-   ✅ Reassign techs
+
+-   ✅ Handle incomplete → reschedule
+
+**Tech View (Mike Rodriguez):**
+
+-   ✅ Color-coded statuses
+
+-   ✅ Dashboard: Today\'s summary
+
+-   ✅ My Schedule: Only assigned jobs, sorted by time
+
+-   ✅ Parts Pick List tab: All parts for today
+
+-   ✅ Job detail page: Check In → Complete with required notes
+
+-   ✅ Service Notes & Recommendations field (required before
+    completion)
+
+-   ✅ Mark Incomplete option with reason
+
+**Status Flow:**
+
+🔵 NEW → 🟡 SCHEDULED → 🟣 IN PROGRESS → 🟢 COMPLETED → ⚫ CLOSED (Red
+for INCOMPLETE, Orange flag for EMERGENCY)
+
+**V2 Features (Future):**
+
+-   Email notifications
+
+-   Parts templates
+
+-   Priority levels for recommendations
+
+-   Inventory tracking

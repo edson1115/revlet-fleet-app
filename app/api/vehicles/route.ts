@@ -1,77 +1,71 @@
 // app/api/vehicles/route.ts
-import { NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabase, json, onError, requireRole } from '@/lib/auth/requireRole';
 
-function admin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const key = process.env.SUPABASE_SERVICE_ROLE! // service key for inserts
-  return createClient(url, key, { auth: { persistSession: false } })
+export async function GET() {
+  try {
+    const meta = await requireRole(['ADMIN', 'OFFICE', 'DISPATCH', 'TECH']);
+    const supabase = await getSupabase();
+
+    const { data, error } = await supabase
+      .from('vehicles')
+      .select('id, year, make, model, unit_number, vin, plate')
+      .eq('company_id', meta.company_id)
+      .order('created_at', { ascending: false })
+      .limit(500);
+
+    if (error) return json({ error: error.message }, 500);
+    return json(data ?? []);
+  } catch (e) {
+    return onError(e);
+  }
 }
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json()
+    const meta = await requireRole(['ADMIN', 'OFFICE']);
+    const supabase = await getSupabase();
+    const body = await req.json();
 
-    const {
-      year,
-      make,
-      model,
-      vin,
+    // normalize
+    const unit_number_raw = (body.unit_number ?? '').trim();
+    const unit_number = unit_number_raw.length ? unit_number_raw : null;
+
+    const payload = {
+      year: body.year ?? null,
+      make: String(body.make ?? '').trim(),
+      model: String(body.model ?? '').trim(),
       unit_number,
-      plate,
-      fmc = 'Other', // default to 'Other' (must match enum casing in DB)
-      is_active = true,
-    } = body ?? {}
+      vin: (body.vin ?? '').trim() || null,
+      plate: (body.plate ?? '').trim() || null,
+      company_id: meta.company_id,
+      created_at: new Date().toISOString(),
+    };
 
-    const ck = await cookies()
-    const company_id = ck.get('appCompanyId')?.value
-    if (!company_id) {
-      return NextResponse.json({ ok: false, error: 'Missing appCompanyId cookie.' }, { status: 400 })
+    // optional pre-check: if you want nicer messages without relying on code 23505
+    if (unit_number) {
+      const { data: exists } = await supabase
+        .from('vehicles')
+        .select('id')
+        .eq('company_id', meta.company_id)
+        .ilike('unit_number', unit_number) // case-insensitive match
+        .limit(1)
+        .maybeSingle();
+
+      if (exists) return json({ error: `Unit number "${unit_number}" already exists for this company.` }, 409);
     }
 
-    // Your DB constraint requires VIN or Unit #
-    if (!vin && !unit_number) {
-      return NextResponse.json(
-        { ok: false, error: 'VIN or Unit # is required.' },
-        { status: 400 }
-      )
-    }
-
-    const supabase = admin()
-
-    // Insert the vehicle
-    const { data, error } = await supabase
-      .from('vehicles')
-      .insert({
-        company_id,
-        year: year ?? null,
-        make: make ?? null,
-        model: model ?? null,
-        vin: vin ?? null,
-        unit_number: unit_number ?? null,
-        plate: plate ?? null,
-        fmc, // enum value must match labels in your DB exactly (e.g., 'Other', 'Holman', 'Element', ...)
-        is_active,
-      })
-      .select('id, year, make, model, unit_number')
-      .single()
+    const { data, error } = await supabase.from('vehicles').insert(payload).select('id').single();
 
     if (error) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 400 })
+      // unique violation
+      if ((error as any).code === '23505') {
+        return json({ error: `That unit number already exists for this company.` }, 409);
+      }
+      return json({ error: (error as any).message || 'Insert failed' }, 500);
     }
 
-    // Build a short label like "2021 Ford Transit (1111)"
-    const labelParts = [
-      data.year,
-      data.make,
-      data.model,
-      data.unit_number ? `(${data.unit_number})` : undefined,
-    ].filter(Boolean)
-    const label = String(labelParts.join(' '))
-
-    return NextResponse.json({ ok: true, vehicle: { id: data.id, label } })
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? 'Unknown error' }, { status: 500 })
+    return json({ id: data?.id }, 201);
+  } catch (e) {
+    return onError(e);
   }
 }

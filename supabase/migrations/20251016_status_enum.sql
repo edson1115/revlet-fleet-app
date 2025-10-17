@@ -1,0 +1,9 @@
+DO $$ BEGIN
+CREATE TYPE request_status AS ENUM (
+'NEW','WAITING_APPROVAL','WAITING_PARTS','SCHEDULED','IN_PROGRESS','RESCHEDULED','CANCELED','COMPLETED'
+);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+
+ALTER TABLE service_requests
+ALTER COLUMN status TYPE request_status USING status::request_status;
