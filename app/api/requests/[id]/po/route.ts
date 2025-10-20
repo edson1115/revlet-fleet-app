@@ -1,23 +1,44 @@
 // app/api/requests/[id]/po/route.ts
-import { getSupabase, json, onError, requireRole } from '@/lib/auth/requireRole';
+import { NextResponse } from "next/server";
+import { supabaseServer } from "@/lib/supabaseServer";
 
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+type Params = { id: string };
+
+export async function PATCH(req: Request, ctx: { params: Promise<Params> }) {
   try {
-    const meta = await requireRole(['ADMIN', 'OFFICE']);
-    const supabase = await getSupabase();
-    const body = await req.json();
-    const po = (body?.po ?? '').trim();
-    if (!po) return json({ error: 'PO is required' }, 400);
+    const { id } = await ctx.params;
+    const body = (await req.json()) as {
+      po?: string | null;
+      notes?: string | null;
+    };
 
+    if (!id) {
+      return NextResponse.json({ error: "Missing id" }, { status: 400 });
+    }
+
+    const updates: Record<string, any> = {};
+    if (body.hasOwnProperty("po")) updates.po = body.po ?? null;
+    if (body.hasOwnProperty("notes")) updates.notes = body.notes ?? null;
+
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json({ error: "No fields to update" }, { status: 400 });
+    }
+
+    const supabase = await supabaseServer();
     const { error } = await supabase
-      .from('requests')
-      .update({ po })
-      .eq('id', params.id)
-      .eq('company_id', meta.company_id);
+      .from("service_requests")
+      .update(updates)
+      .eq("id", id);
 
-    if (error) return json({ error: error.message }, 500);
-    return json({ ok: true });
-  } catch (e) {
-    return onError(e);
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    return NextResponse.json({ error: String(e?.message ?? e) }, { status: 500 });
   }
 }

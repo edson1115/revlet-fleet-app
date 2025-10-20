@@ -1,27 +1,47 @@
 // app/api/requests/[id]/assign/route.ts
-import { NextResponse } from 'next/server';
-import { createServerSupabase } from '@/lib/supabase/server';
+import { NextResponse } from "next/server";
+import { supabaseServer } from "@/lib/supabaseServer";
 
-export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const { id } = await ctx.params;
-  const supabase = createServerSupabase();
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-  let body: any = null;
+type Params = { id: string };
+
+export async function PATCH(req: Request, ctx: { params: Promise<Params> }) {
   try {
-    const ct = req.headers.get('content-type') || '';
-    body = ct.includes('application/json') ? await req.json() : null;
-  } catch { body = null; }
+    const { id } = await ctx.params;
+    const body = (await req.json()) as {
+      scheduled_at: string;        // ISO datetime (required)
+      request_techs?: string[];    // optional
+    };
 
-  const { error } = await supabase
-    .from('service_requests')
-    .update({
-      assigned_tech_id: body?.assigned_tech_id ?? null,
-      dispatch_notes: body?.dispatch_notes ?? null,
-      scheduled_at: body?.scheduled_at ?? null,
-      status: 'SCHEDULED',
-    })
-    .eq('id', id);
+    if (!id) {
+      return NextResponse.json({ error: "Missing id" }, { status: 400 });
+    }
+    if (!body?.scheduled_at) {
+      return NextResponse.json({ error: "scheduled_at is required" }, { status: 400 });
+    }
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ success: true, id });
+    const updates: Record<string, any> = {
+      status: "SCHEDULED",
+      scheduled_at: body.scheduled_at,
+    };
+    if (Array.isArray(body.request_techs)) {
+      updates.request_techs = body.request_techs;
+    }
+
+    const supabase = await supabaseServer();
+    const { error } = await supabase
+      .from("service_requests")
+      .update(updates)
+      .eq("id", id);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    return NextResponse.json({ ok: true, status: "SCHEDULED" });
+  } catch (e: any) {
+    return NextResponse.json({ error: String(e?.message ?? e) }, { status: 500 });
+  }
 }
