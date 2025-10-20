@@ -16,19 +16,20 @@ export async function getSessionProfile() {
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) return { role: null as Role, company_id: null as string | null, user: null };
 
-  // profiles: id, email, role, company_id
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role, company_id")
-    .eq("id", auth.user.id)
-    .maybeSingle();
+  // lib/rbac.ts
+const { data: prof } = await supabase
+  .from("profiles")
+  .select("role, company_id")   // ⬅ remove email here
+  .eq("id", user.id)
+  .maybeSingle();
 
-  return {
-    role: (profile?.role as Role) ?? null,
-    company_id: profile?.company_id ?? null,
-    user: auth.user,
-  };
-}
+return {
+  authenticated: true as const,
+  email: user.email ?? null,    // still available from auth user
+  role: (prof?.role as Role) ?? null,
+  company_id: prof?.company_id ?? null,
+};
+
 
 export async function requireRole(roles: Role[]) {
   const { role, company_id, user } = await getSessionProfile();
