@@ -2,66 +2,86 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
-async function resolveCompanyId() {
+type Params = { id: string };
+
+async function getStatus(id: string) {
   const supabase = await supabaseServer();
-  try {
-    const { data: auth } = await supabase.auth.getUser();
-    const uid = auth.user?.id || null;
-    if (uid) {
-      const { data: prof, error } = await supabase
-        .from("profiles")
-        .select("company_id")
-        .eq("id", uid)
-        .maybeSingle();
-      if (!error && prof?.company_id) return prof.company_id as string;
-    }
-  } catch {}
-  try {
-    const { data: v } = await supabase
-      .from("vehicles")
-      .select("company_id")
-      .not("company_id", "is", null)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (v?.company_id) return v.company_id as string;
-  } catch {}
-  return null;
+  const { data, error } = await supabase
+    .from("service_requests")
+    .select("status, scheduled_at, started_at")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("Not found");
+  return { supabase, row: data as { status: string; scheduled_at: string | null; started_at: string | null } };
 }
 
-export async function PATCH(_: Request, { params }: { params: { id: string } }) {
-  const supabase = await supabaseServer();
-  const company_id = await resolveCompanyId();
-  if (!company_id) return NextResponse.json({ error: "No company." }, { status: 400 });
+export async function PATCH(_req: Request, ctx: { params: Promise<Params> }) {
+  try {
+    const { id } = await ctx.params;
 
-  const now = new Date().toISOString();
+    // 1) Read current state
+    const { supabase, row } = await getStatus(id);
+    const nowIso = new Date().toISOString();
 
-  // Step 1 → SCHEDULED
-  let { error } = await supabase
-    .from("service_requests")
-    .update({ status: "SCHEDULED", scheduled_at: now })
-    .eq("id", params.id)
-    .eq("company_id", company_id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    // 2) If already completed, no-op
+    if (row.status === "COMPLETED") {
+      return NextResponse.json({ ok: true });
+    }
 
-  // Step 2 → IN_PROGRESS
-  ({ error } = await supabase
-    .from("service_requests")
-    .update({ status: "IN_PROGRESS", started_at: now })
-    .eq("id", params.id)
-    .eq("company_id", company_id));
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    // 3) Auto-walk through legal steps if your DB requires it
+    // NEW/WAITING_APPROVAL/WAITING_PARTS/DECLINED -> SCHEDULED
+    const officeStates = new Set(["NEW", "WAITING_APPROVAL", "WAITING_PARTS", "DECLINED"]);
+    if (officeStates.has(row.status)) {
+      const { error } = await supabase
+        .from("service_requests")
+        .update({
+          status: "SCHEDULED",
+          scheduled_at: row.scheduled_at ?? nowIso,
+        })
+        .eq("id", id);
+      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+      row.status = "SCHEDULED";
+    }
 
-  // Step 3 → COMPLETED
-  ({ error } = await supabase
-    .from("service_requests")
-    .update({ status: "COMPLETED", completed_at: now })
-    .eq("id", params.id)
-    .eq("company_id", company_id));
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    // SCHEDULED -> IN_PROGRESS
+    if (row.status === "SCHEDULED") {
+      const { error } = await supabase
+        .from("service_requests")
+        .update({
+          status: "IN_PROGRESS",
+          started_at: row.started_at ?? nowIso,
+        })
+        .eq("id", id);
+      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+      row.status = "IN_PROGRESS";
+    }
 
-  return NextResponse.json({ ok: true });
+    // IN_PROGRESS -> COMPLETED
+    if (row.status === "IN_PROGRESS") {
+      const { error } = await supabase
+        .from("service_requests")
+        .update({
+          status: "COMPLETED",
+          completed_at: nowIso,
+        })
+        .eq("id", id);
+      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json({ ok: true });
+    }
+
+    // Fallback: if anything unexpected remains, force-complete
+    const { error: forceErr } = await supabase
+      .from("service_requests")
+      .update({ status: "COMPLETED", completed_at: nowIso })
+      .eq("id", id);
+    if (forceErr) return NextResponse.json({ error: forceErr.message }, { status: 400 });
+
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    return NextResponse.json({ error: String(e?.message ?? e) }, { status: 500 });
+  }
 }
