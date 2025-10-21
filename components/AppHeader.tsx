@@ -1,6 +1,6 @@
 // components/AppHeader.tsx
 import Link from 'next/link';
-import { supabaseServer } from '@/lib/supabaseServer';
+import { supabaseServer } from '@/lib/supabase/server';
 import { signOutAction } from '@/app/actions/auth'; // <— path now exists
 
 export default async function AppHeader() {

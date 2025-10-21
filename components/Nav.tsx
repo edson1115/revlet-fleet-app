@@ -1,6 +1,6 @@
 // components/Nav.tsx
 import Link from "next/link";
-import { supabaseServer } from "@/lib/supabaseServer";
+import { supabaseServer } from "@/lib/supabase/server";
 import SignOutButton from "@/components/SignOutButton";
 
 function normRole(role: string | null | undefined) {

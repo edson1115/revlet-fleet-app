@@ -1,7 +1,7 @@
 'use server';
 
 import { redirect } from 'next/navigation';
-import { supabaseServer } from '@/lib/supabaseServer';
+import { supabaseServer } from '@/lib/supabase/server';
 
 export async function signOutAction() {
   // This runs on the server, so we *can* modify cookies here.

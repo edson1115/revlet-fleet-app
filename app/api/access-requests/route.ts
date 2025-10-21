@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
-import { createServerSupabase } from '@/lib/supabase/server';
+import { supabaseServer } from '@/lib/supabase/server';
 
 export async function POST(req: Request) {
-  const sb = createServerSupabase();
+  const sb = supabaseServer();
 
   let body: any = null;
   try {

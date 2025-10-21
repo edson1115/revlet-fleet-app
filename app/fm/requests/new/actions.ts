@@ -1,5 +1,5 @@
 'use server';
-import { supabaseServer } from '@/lib/supabaseServer';
+import { supabaseServer } from '@/lib/supabase/server';
 
 
 export async function createRequest(formData: FormData) {

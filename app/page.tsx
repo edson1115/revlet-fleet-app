@@ -1,6 +1,6 @@
 // app/page.tsx
 import Link from 'next/link';
-import { supabaseServer } from '@/lib/supabaseServer';
+import { supabaseServer } from '@/lib/supabase/server';
 
 type Role = 'ADMIN' | 'OFFICE' | 'DISPATCH' | 'TECH' | 'CUSTOMER' | null;
 

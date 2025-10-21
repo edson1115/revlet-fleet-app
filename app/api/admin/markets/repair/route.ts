@@ -1,6 +1,6 @@
 // app/api/admin/markets/repair/route.ts
 import { NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabaseServer";
+import { supabaseServer } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/rbac";
 
 export const runtime = "nodejs";

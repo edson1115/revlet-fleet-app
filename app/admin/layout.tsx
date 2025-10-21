@@ -1,7 +1,7 @@
 // app/admin/layout.tsx
 import { ReactNode } from "react";
 import { redirect } from "next/navigation";
-import { supabaseServer } from "@/lib/supabaseServer";
+import { supabaseServer } from "@/lib/supabase/server";
 
 function normRole(role: string | null | undefined) {
   return (role ?? "").trim().toUpperCase();

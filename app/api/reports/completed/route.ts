@@ -1,6 +1,6 @@
 // app/api/reports/completed/route.ts
 import { NextResponse } from 'next/server';
-import { createServerSupabase } from '@/lib/supabase/server';
+import { supabaseServer } from '@/lib/supabase/server';
 
 type RangeOpt = 'today' | '7d';
 
@@ -23,7 +23,7 @@ export async function GET(req: Request) {
   const range = (searchParams.get('range') as RangeOpt) || 'today';
   const { from, to } = rangeToBounds(range);
 
-  const supabase = createServerSupabase();
+  const supabase = supabaseServer();
 
   const { data, error } = await supabase
     .from('service_requests')
