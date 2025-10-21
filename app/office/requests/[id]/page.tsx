@@ -1,70 +1,117 @@
-import { supabaseServer } from '@/lib/supabaseServer';
-import { statusLabel } from '@/lib/status';
-import NotesBox from '@/components/NotesBox';
-import Link from 'next/link';
+// app/office/requests/[id]/page.tsx
+import Link from "next/link";
+import { supabaseServer } from "@/lib/supabaseServer";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-function vehicleLabel(v?: {
-  year: number | null; make: string | null; model: string | null;
-  unit_number?: string | null; plate?: string | null;
-}) {
-  if (!v) return '—';
-  const base = [v.year, v.make, v.model].filter(Boolean).join(' ');
-  const extras = [v.unit_number ? `#${v.unit_number}` : null, v.plate ? `(${v.plate})` : null]
-    .filter(Boolean).join(' ');
-  return [base || '—', extras].filter(Boolean).join(' ');
+type Params = { id: string };
+
+function vehLabel(v: any) {
+  if (!v) return "—";
+  return [v.year, v.make, v.model, v.plate || v.unit_number].filter(Boolean).join(" ") || "—";
 }
 
-export default async function OfficeRequestDetail({ params }: { params: { id: string } }) {
-  const sb = supabaseServer();
-  const { data: r, error } = await sb
-    .from('service_requests')
-    .select(`
-      id,status,service,fmc,mileage,po_number,created_at,scheduled_at,started_at,completed_at,
-      vehicle:vehicles(id,year,make,model,unit_number,plate)
-    `)
-    .eq('id', params.id)
-    .single();
+export default async function OfficeRequestDetailPage({
+  params,
+}: {
+  params: Promise<Params>;
+}) {
+  const { id } = await params;
 
-  if (error || !r) return <div className="p-6">Not found</div>;
+  const supabase = await supabaseServer();
+
+  const { data: row, error } = await supabase
+    .from("service_requests")
+    .select(
+      `
+      id, status, created_at, scheduled_at, started_at, completed_at,
+      service, po, notes,
+      customer:customer_id ( name, market ),
+      vehicle:vehicle_id ( year, make, model, plate, unit_number )
+    `
+    )
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) {
+    return (
+      <div className="p-6 space-y-4">
+        <h1 className="text-xl font-semibold">Request</h1>
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-700 text-sm">
+          {error.message}
+        </div>
+        <Link className="text-blue-600 underline text-sm" href="/office/queue">
+          ← Back to Office Queue
+        </Link>
+      </div>
+    );
+  }
+
+  if (!row) {
+    return (
+      <div className="p-6 space-y-4">
+        <h1 className="text-xl font-semibold">Request</h1>
+        <div className="text-sm text-gray-600">Not found.</div>
+        <Link className="text-blue-600 underline text-sm" href="/office/queue">
+          ← Back to Office Queue
+        </Link>
+      </div>
+    );
+  }
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="text-sm">
-        <Link href="/office/queue" className="text-blue-600 hover:underline">← Back to Office queue</Link>
-      </div>
-
+    <div className="mx-auto max-w-3xl p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Request #{r.id.slice(0, 8)}</h1>
-        <div className="text-xs rounded-full border px-2 py-1">{statusLabel(r.status)}</div>
+        <h1 className="text-2xl font-semibold">Request {row.id.slice(0, 8)}</h1>
+        <Link className="text-blue-600 underline text-sm" href="/office/queue">
+          ← Back to Office
+        </Link>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="rounded-2xl border p-4 bg-white shadow-sm">
-          <h2 className="font-semibold mb-2">Details</h2>
-          <div className="space-y-1 text-sm">
-            <div><span className="opacity-60">Vehicle:</span> {vehicleLabel((r as any).vehicle)}</div>
-            <div><span className="opacity-60">Service:</span> {r.service}</div>
-            <div><span className="opacity-60">Mileage:</span> {r.mileage ?? '—'}</div>
-            <div><span className="opacity-60">FMC:</span> {r.fmc ?? '—'}</div>
-            <div><span className="opacity-60">PO:</span> {r.po_number ?? '—'}</div>
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="rounded-2xl border p-4 space-y-2">
+          <div className="text-sm text-gray-500">Status</div>
+          <div className="text-lg">{row.status}</div>
+          <div className="text-xs text-gray-500">
+            Created: {row.created_at ? new Date(row.created_at).toLocaleString() : "—"}
+          </div>
+          <div className="text-xs text-gray-500">
+            Scheduled: {row.scheduled_at ? new Date(row.scheduled_at).toLocaleString() : "—"}
+          </div>
+          <div className="text-xs text-gray-500">
+            Started: {row.started_at ? new Date(row.started_at).toLocaleString() : "—"}
+          </div>
+          <div className="text-xs text-gray-500">
+            Completed: {row.completed_at ? new Date(row.completed_at).toLocaleString() : "—"}
           </div>
         </div>
 
-        <div className="rounded-2xl border p-4 bg-white shadow-sm md:col-span-2">
-          <h2 className="font-semibold mb-2">Timeline</h2>
-          <div className="text-sm grid gap-1">
-            <div><span className="opacity-60">Created:</span> {r.created_at ? new Date(r.created_at).toLocaleString() : '—'}</div>
-            <div><span className="opacity-60">Scheduled:</span> {r.scheduled_at ? new Date(r.scheduled_at).toLocaleString() : '—'}</div>
-            <div><span className="opacity-60">Started:</span> {r.started_at ? new Date(r.started_at).toLocaleString() : '—'}</div>
-            <div><span className="opacity-60">Completed:</span> {r.completed_at ? new Date(r.completed_at).toLocaleString() : '—'}</div>
+        <div className="rounded-2xl border p-4 space-y-2">
+          <div className="text-sm text-gray-500">Vehicle</div>
+          <div className="text-lg">{vehLabel(row.vehicle)}</div>
+
+          <div className="text-sm text-gray-500 mt-3">Customer</div>
+          <div className="text-lg">{row.customer?.name ?? "—"}</div>
+          <div className="text-xs text-gray-500">
+            Market: {row.customer?.market ?? "—"}
           </div>
         </div>
       </div>
 
-      <div className="rounded-2xl border p-4 bg-white shadow-sm">
-        <NotesBox requestId={r.id} canAdd />
+      <div className="rounded-2xl border p-4 space-y-3">
+        <div>
+          <div className="text-sm text-gray-500">Service</div>
+          <div>{row.service ?? "—"}</div>
+        </div>
+        <div>
+          <div className="text-sm text-gray-500">PO</div>
+          <div>{row.po ?? "—"}</div>
+        </div>
+        <div>
+          <div className="text-sm text-gray-500">Notes</div>
+          <div className="whitespace-pre-wrap">{row.notes ?? "—"}</div>
+        </div>
       </div>
     </div>
   );
