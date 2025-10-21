@@ -1,18 +1,28 @@
-import { NextResponse } from 'next/server';
-import { createServerSupabase } from '@/lib/supabase/server';
+// app/api/auth/magic-link/route.ts
+import { NextResponse, NextRequest } from "next/server";
+import { supabaseServer } from "@/lib/supabaseServer";
 
-export async function POST(req: Request) {
-  const sb = createServerSupabase();
-  const { email, next } = await req.json().catch(() => ({}));
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-  if (!email) return NextResponse.json({ error: 'email required' }, { status: 400 });
+export async function POST(req: NextRequest) {
+  try {
+    const { email } = (await req.json().catch(() => ({}))) as { email?: string };
+    if (!email) return NextResponse.json({ error: "Missing email" }, { status: 400 });
 
-  // Ensure you set Auth → URL configuration (SITE_URL) in Supabase
-  const { error } = await sb.auth.signInWithOtp({
-    email,
-    options: { emailRedirectTo: next || '/' },
-  });
+    const origin = req.nextUrl.origin;
+    const supabase = await supabaseServer();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json({ ok: true });
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: `${origin}/auth/callback`,
+      },
+    });
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    return NextResponse.json({ error: String(e?.message ?? e) }, { status: 500 });
+  }
 }
