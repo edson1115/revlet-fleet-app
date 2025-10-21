@@ -1,44 +1,87 @@
 // app/api/admin/markets/[id]/customers/route.ts
-import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { NextResponse } from "next/server";
+import { supabaseServer } from "@/lib/supabaseServer";
+import { requireRole } from "@/lib/rbac";
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  const marketId = params.id;
-  try {
-    const { assign, customer_ids, market_name } = await req.json();
-    if (!Array.isArray(customer_ids) || customer_ids.length === 0) {
-      return NextResponse.json({ error: "customer_ids array required" }, { status: 400 });
-    }
+// Helper: read market id from URL path (no reliance on Next params)
+function getMarketIdFromUrl(req: Request) {
+  const { pathname } = new URL(req.url);
+  // /api/admin/markets/:id/customers
+  const parts = pathname.split("/").filter(Boolean);
+  // ["api","admin","markets",":id","customers"]
+  const id = parts[3];
+  return id ?? "";
+}
 
-    // sanity: verify market exists
-    const { data: isMarket, error: mErr } = await supabaseAdmin
-      .from("company_locations")
-      .select("id, name, location_type")
-      .eq("id", marketId)
-      .single();
-    if (mErr) throw mErr;
-    if (!isMarket || isMarket.location_type !== "MARKET") {
-      return NextResponse.json({ error: "Invalid market id" }, { status: 400 });
-    }
+export async function GET(req: Request) {
+  const id = getMarketIdFromUrl(req);
 
-    const newValue = assign ? (market_name || isMarket.name) : null;
+  const { ok, company_id } = await requireRole(["ADMIN"]);
+  if (!ok || !company_id) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-    const { error } = await supabaseAdmin
+  const supabase = await supabaseServer();
+
+  // Verify market belongs to company & is MARKET
+  const { data: market, error: mErr } = await supabase
+    .from("company_locations")
+    .select("id")
+    .eq("id", id)
+    .eq("company_id", company_id)
+    .eq("location_type", "MARKET")
+    .maybeSingle();
+
+  if (mErr) return NextResponse.json({ error: mErr.message }, { status: 500 });
+  if (!market) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const { data: all, error } = await supabase
+    .from("company_customers")
+    .select("id,name,market")
+    .eq("company_id", company_id)
+    .order("name");
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  const assigned = (all ?? []).filter((c) => c.market === id);
+  const unassigned = (all ?? []).filter((c) => !c.market || c.market !== id);
+
+  return NextResponse.json({
+    assigned: assigned.map(({ id, name }) => ({ id, name })),
+    unassigned: unassigned.map(({ id, name }) => ({ id, name })),
+  });
+}
+
+export async function POST(req: Request) {
+  const id = getMarketIdFromUrl(req);
+
+  const { ok, company_id } = await requireRole(["ADMIN"]);
+  if (!ok || !company_id) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const body = await req.json().catch(() => ({}));
+  const ids: string[] = Array.isArray(body?.customer_ids) ? body.customer_ids : [];
+
+  const supabase = await supabaseServer();
+
+  // Clear prior assignments for this market
+  const { error: clearErr } = await supabase
+    .from("company_customers")
+    .update({ market: null })
+    .eq("company_id", company_id)
+    .eq("market", id);
+
+  if (clearErr) return NextResponse.json({ error: clearErr.message }, { status: 500 });
+
+  if (ids.length) {
+    const { error: assignErr } = await supabase
       .from("company_customers")
-      .update({ market: newValue })
-      .in("id", customer_ids);
+      .update({ market: id })
+      .in("id", ids)
+      .eq("company_id", company_id);
 
-    if (error) throw error;
-    return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Failed to update customer assignments" }, { status: 500 });
+    if (assignErr) return NextResponse.json({ error: assignErr.message }, { status: 500 });
   }
+
+  return NextResponse.json({ ok: true });
 }

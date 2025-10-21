@@ -1,5 +1,6 @@
 // app/admin/layout.tsx
 import { ReactNode } from "react";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabaseServer";
 
@@ -45,5 +46,21 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
   if (!allowed) redirect("/");
 
-  return <>{children}</>;
+  return (
+    <div className="mx-auto max-w-6xl p-6 space-y-6">
+      <header className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Admin</h1>
+        <nav className="flex gap-3">
+          <Link
+            href="/admin/markets"
+            className="px-3 py-1 rounded-xl bg-gray-100 hover:bg-gray-200"
+          >
+            Markets
+          </Link>
+          {/* Future: Users / Roles */}
+        </nav>
+      </header>
+      <main>{children}</main>
+    </div>
+  );
 }

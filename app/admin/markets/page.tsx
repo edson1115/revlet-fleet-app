@@ -1,16 +1,22 @@
 // app/admin/markets/page.tsx
-import MarketsAdminClient from "./ui/MarketsAdminClient";
+import { redirect } from "next/navigation";
+import { isAdmin } from "@/lib/rbac";
+import MarketsClient from "./ui/MarketsClient";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminMarketsPage() {
+export default async function MarketsPage() {
+  const admin = await isAdmin();
+  if (!admin) redirect("/");
+
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Markets Management</h1>
-        <p className="text-sm text-gray-500">Create, rename, reorder, and assign customers to markets.</p>
-      </div>
-      <MarketsAdminClient />
-    </div>
+    <section className="space-y-6">
+      <h2 className="text-xl font-semibold">Markets Management</h2>
+      <p className="text-sm text-gray-600">
+        Create, rename, and delete <strong>Markets</strong> (company locations where <code>location_type = 'MARKET'</code>).
+        Assign/unassign customers to a selected market.
+      </p>
+      <MarketsClient />
+    </section>
   );
 }

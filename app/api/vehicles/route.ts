@@ -2,60 +2,77 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
 async function resolveCompanyId() {
   const supabase = await supabaseServer();
 
-  // Try profiles.company_id (ignore if table missing)
-  try {
-    const { data: auth } = await supabase.auth.getUser();
-    const userId = auth.user?.id || null;
-    if (userId) {
-      const { data: profile, error } = await supabase
-        .from("profiles")
-        .select("company_id")
-        .eq("id", userId)
-        .maybeSingle();
+  // 1) from profile
+  const { data: auth } = await supabase.auth.getUser();
+  const uid = auth.user?.id || null;
+  if (uid) {
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("company_id")
+      .eq("id", uid)
+      .maybeSingle();
+    if (prof?.company_id) return { supabase, company_id: prof.company_id as string };
+  }
 
-      if (!error && profile?.company_id) return profile.company_id as string;
-    }
-  } catch {}
+  // 2) fallback: last vehicle with company_id
+  const { data: v } = await supabase
+    .from("vehicles")
+    .select("company_id")
+    .not("company_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
-  // Fallback: user_metadata.company_id via /api/me
-  try {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL ?? ""}/api/me`, { cache: "no-store" });
-    if (res.ok) {
-      const me = await res.json();
-      if (me?.company_id) return me.company_id as string;
-    }
-  } catch {}
-
-  return null;
+  return { supabase, company_id: (v?.company_id as string) ?? null };
 }
 
+// GET /api/vehicles -> { vehicles: [...] }
 export async function GET() {
-  const supabase = await supabaseServer();
-  const company_id = await resolveCompanyId();
+  try {
+    const { supabase, company_id } = await resolveCompanyId();
+    if (!company_id) return NextResponse.json({ vehicles: [] });
 
-  if (!company_id) {
-    return NextResponse.json({ rows: [] }, { status: 200, headers: { "Cache-Control": "no-store" } });
+    const { data, error } = await supabase
+      .from("vehicles")
+      .select("id, year, make, model, plate, unit_number")
+      .eq("company_id", company_id)
+      .order("created_at", { ascending: false });
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    return NextResponse.json({ vehicles: data ?? [] });
+  } catch (e: any) {
+    return NextResponse.json({ error: String(e?.message ?? e) }, { status: 500 });
   }
+}
 
-  const { data, error } = await supabase
-    .from("vehicles")
-    .select("id, year, make, model, plate, unit_number, vin, created_at")
-    .eq("company_id", company_id)
-    .order("created_at", { ascending: false });
+// POST /api/vehicles -> create a vehicle
+export async function POST(req: Request) {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const { supabase, company_id } = await resolveCompanyId();
+    if (!company_id) return NextResponse.json({ error: "No company" }, { status: 400 });
 
-  if (error) {
-    console.error(error);
-    return NextResponse.json({ rows: [], error: error.message }, { status: 500 });
+    const payload = {
+      company_id,
+      year: body.year ?? null,
+      make: body.make ?? null,
+      model: body.model ?? null,
+      plate: body.plate ?? null,
+      unit_number: body.unit_number ?? null,
+    };
+
+    const { data, error } = await supabase.from("vehicles").insert(payload).select("id").maybeSingle();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    return NextResponse.json({ ok: true, id: data?.id });
+  } catch (e: any) {
+    return NextResponse.json({ error: String(e?.message ?? e) }, { status: 500 });
   }
-
-  return NextResponse.json(
-    { rows: data ?? [] },
-    { status: 200, headers: { "Cache-Control": "no-store, max-age=0" } }
-  );
 }

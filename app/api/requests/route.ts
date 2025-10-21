@@ -2,111 +2,146 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
+// Resolve company_id for current user (profile-first, vehicles fallback)
 async function resolveCompanyId() {
   const supabase = await supabaseServer();
-  try {
-    const { data: auth } = await supabase.auth.getUser();
-    const uid = auth.user?.id || null;
-    if (uid) {
-      const { data: prof, error } = await supabase
-        .from("profiles")
-        .select("company_id")
-        .eq("id", uid)
-        .maybeSingle();
-      if (!error && prof?.company_id) return prof.company_id as string;
-    }
-  } catch {}
-  try {
-    const { data: v } = await supabase
-      .from("vehicles")
+  const { data: auth } = await supabase.auth.getUser();
+  const uid = auth.user?.id || null;
+
+  if (uid) {
+    const { data: prof } = await supabase
+      .from("profiles")
       .select("company_id")
-      .not("company_id", "is", null)
-      .order("created_at", { ascending: false })
-      .limit(1)
+      .eq("id", uid)
       .maybeSingle();
-    if (v?.company_id) return v.company_id as string;
-  } catch {}
-  return null;
-}
-
-export async function GET(req: Request) {
-  const supabase = await supabaseServer();
-  const url = new URL(req.url);
-  const status = url.searchParams.get("status") ?? undefined;
-  const limit = Number(url.searchParams.get("limit") ?? "100");
-
-  const company_id = await resolveCompanyId();
-  if (!company_id) return NextResponse.json({ rows: [] });
-
-  let q = supabase
-    .from("service_requests")
-    .select(
-      `
-      id, company_id, status, created_at, scheduled_at, started_at, completed_at,
-      service, fmc, mileage, po, notes,
-      vehicle:vehicle_id ( id, year, make, model, plate, unit_number ),
-      customer:customer_id ( id, name ),
-      location:location_id ( id, name )
-    `
-    )
-    .eq("company_id", company_id)
-    .order("created_at", { ascending: false })
-    .limit(limit);
-
-  if (status) q = q.eq("status", status);
-
-  const { data, error } = await q;
-  if (error) return NextResponse.json({ rows: [], error: error.message }, { status: 500 });
-  return NextResponse.json({ rows: data ?? [] });
-}
-
-export async function POST(req: Request) {
-  const supabase = await supabaseServer();
-  const company_id = await resolveCompanyId();
-  if (!company_id) return NextResponse.json({ error: "No company." }, { status: 400 });
-
-  const body = await req.json();
-  const {
-    vehicle_id,
-    location_id,
-    customer_id,
-    service,
-    fmc = null,
-    mileage = null,
-    po = null,
-    notes = null,
-    status = "NEW", // allow bypass to COMPLETED from office if desired
-  } = body ?? {};
-
-  if (!vehicle_id || !location_id || !customer_id || !service) {
-    return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
+    if (prof?.company_id) return { supabase, company_id: prof.company_id as string };
   }
 
-  const { data, error } = await supabase
-    .from("service_requests")
-    .insert([
-      {
+  const { data: v } = await supabase
+    .from("vehicles")
+    .select("company_id")
+    .not("company_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return { supabase, company_id: (v?.company_id as string) ?? null };
+}
+
+// ---------- GET: /api/requests?status=NEW|SCHEDULED|...
+export async function GET(req: Request) {
+  try {
+    const url = new URL(req.url);
+    const status = url.searchParams.get("status") || undefined;
+
+    const { supabase, company_id } = await resolveCompanyId();
+    if (!company_id) return NextResponse.json([]);
+
+    let q = supabase
+      .from("service_requests")
+      .select(
+        `
+        id, status, created_at, service, po, notes,
+        customer:customer_id ( name, market ),
+        vehicle:vehicle_id ( year, make, model, plate, unit_number )
+      `
+      )
+      .eq("company_id", company_id)
+      .order("created_at", { ascending: false });
+
+    if (status) q = q.eq("status", status);
+
+    const { data, error } = await q;
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    return NextResponse.json(data ?? []);
+  } catch (e: any) {
+    return NextResponse.json({ error: String(e?.message ?? e) }, { status: 500 });
+  }
+}
+
+// ---------- POST: /api/requests  (back-compatible + clear errors)
+export async function POST(req: Request) {
+  try {
+    const { supabase, company_id } = await resolveCompanyId();
+    if (!company_id) {
+      return NextResponse.json({ error: "No company detected for user." }, { status: 400 });
+    }
+
+    const body = await req.json().catch(() => ({}));
+
+    // Accept both new & legacy field names
+    const vehicle_id: string | null =
+      body.vehicle_id ?? body.vehicle ?? body.vehicleId ?? null;
+    const customer_id: string | null =
+      body.customer_id ?? body.customer ?? body.customerId ?? null;
+    const service: string | null = (body.service ?? "").trim() || null;
+
+    // Optional extras
+    const po: string | null = (body.po ?? "").trim() || null;
+    const notes: string | null = (body.notes ?? "").trim() || null;
+    const mileage = body.mileage ?? null;
+    const fmc_id = body.fmc_id ?? body.fmc ?? null;
+
+    // Detailed validation
+    const missing: string[] = [];
+    if (!vehicle_id) missing.push("vehicle_id");
+    if (!customer_id) missing.push("customer_id");
+    if (!service) missing.push("service");
+    if (missing.length) {
+      return NextResponse.json(
+        { error: `Missing required field(s): ${missing.join(", ")}` },
+        { status: 400 }
+      );
+    }
+
+    // Build insert payload
+    const basePayload: Record<string, any> = {
+      company_id,
+      vehicle_id,
+      customer_id,
+      status: "NEW",
+      service,
+      po,
+      notes,
+    };
+    if (mileage !== null && mileage !== undefined) basePayload.mileage = mileage;
+    if (fmc_id) basePayload.fmc_id = fmc_id;
+
+    // Insert w/ fallback minimal payload if optional columns fail
+    const { data, error } = await supabase
+      .from("service_requests")
+      .insert(basePayload)
+      .select("id")
+      .maybeSingle();
+
+    if (error) {
+      const minimal = {
         company_id,
         vehicle_id,
-        location_id,
         customer_id,
+        status: "NEW",
         service,
-        fmc,
-        mileage,
         po,
         notes,
-        status,
-        ...(status === "SCHEDULED" ? { scheduled_at: new Date().toISOString() } : {}),
-        ...(status === "IN_PROGRESS" ? { started_at: new Date().toISOString() } : {}),
-        ...(status === "COMPLETED" ? { completed_at: new Date().toISOString() } : {}),
-      },
-    ])
-    .select("id")
-    .single();
+      };
+      const retry = await supabase
+        .from("service_requests")
+        .insert(minimal)
+        .select("id")
+        .maybeSingle();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ id: data?.id });
+      if (retry.error) {
+        return NextResponse.json({ error: retry.error.message }, { status: 500 });
+      }
+      return NextResponse.json({ ok: true, id: retry.data?.id });
+    }
+
+    return NextResponse.json({ ok: true, id: data?.id });
+  } catch (e: any) {
+    return NextResponse.json({ error: String(e?.message ?? e) }, { status: 500 });
+  }
 }
