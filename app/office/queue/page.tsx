@@ -2,12 +2,16 @@
 import OfficeQueueClient from "./ui/OfficeQueueClient";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-export default function OfficeQueuePage({
+type SP = Record<string, string | string[] | undefined>;
+
+export default async function OfficeQueuePage({
   searchParams,
 }: {
-  searchParams?: Record<string, string | string[] | undefined>;
+  searchParams: Promise<SP>;
 }) {
-  const status = typeof searchParams?.status === "string" ? searchParams!.status : "";
-  return <OfficeQueueClient initialStatus={status.toUpperCase()} />;
+  const sp = await searchParams;
+  const status = typeof sp?.status === "string" ? sp.status.toUpperCase() : "";
+  return <OfficeQueueClient initialStatus={status} />;
 }
