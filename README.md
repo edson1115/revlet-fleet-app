@@ -20,6 +20,32 @@ The build in more detail:\
 
 -   ✅Vehicles tab
 
+## What’s in this branch (feature/office-scheduling-and-vehicles)
+
+**APIs**
+- `app/api/vehicles/route.ts`: UPSERT by `(company_id, unit_number)`; supports `vehicles.customer_id` or join table `company_customer_vehicles`.
+- `app/api/lookups/route.ts`: `scope=locations|customers|technicians`. Customers filter is schema-tolerant (optional join tables).
+- `app/api/requests/route.ts`: GET includes `technician`; POST accepts aliases (`service_type`, `po_number`, `customer_notes`, `odometer_miles`).
+- `app/api/requests/[id]/schedule/route.ts`: PATCH `scheduled_at`, optional `technician_id`, auto-bumps status from office states to `SCHEDULED`.
+
+**UI**
+- `app/office/requests/[id]/page.tsx`: Schedule modal with Technician picker; edits FMC/Mileage/PO/Notes.
+- `app/office/queue/page.tsx`: Added **Tech** column.
+- `components/Toast.tsx` + `components/Toaster.tsx`; provider used in `app/layout.tsx`.
+
+**DB expectations**
+- `service_requests.technician_id` (nullable FK → `technicians.id`).
+- Unique index on `vehicles(company_id, unit_number)`.
+- Your test user’s `profiles.company_id` = `00000000-0000-0000-0000-000000000001`.
+
+**Dev commands**
+```bash
+git checkout -b feature/office-scheduling-and-vehicles
+git add .
+git commit -m "Vehicles upsert + schema-tolerant lookups + schedule API + tech assignment + Toaster + queue tech column"
+git push -u origin feature/office-scheduling-and-vehicles
+
+
 **Where Recommendations Show:**
 
 -   **Customer View:** See recommendations on completed services (helps
