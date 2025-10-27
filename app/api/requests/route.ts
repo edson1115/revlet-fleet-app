@@ -46,10 +46,11 @@ export async function GET(req: Request) {
     .select(
       `
       id, company_id, status, created_at, scheduled_at, started_at, completed_at,
-      service, fmc, mileage, po, notes,
+      service, fmc, mileage, po, notes, priority,
       vehicle:vehicle_id ( id, year, make, model, plate, unit_number ),
       customer:customer_id ( id, name ),
-      location:location_id ( id, name )
+      location:location_id ( id, name ),
+      technician:technician_id ( id, full_name )
     `
     )
     .eq("company_id", company_id)
@@ -68,42 +69,45 @@ export async function POST(req: Request) {
   const company_id = await resolveCompanyId();
   if (!company_id) return NextResponse.json({ error: "No company." }, { status: 400 });
 
-  const body = await req.json();
-  const {
-    vehicle_id,
-    location_id,
-    customer_id,
-    service,
-    fmc = null,
-    mileage = null,
-    po = null,
-    notes = null,
-    status = "NEW", // allow bypass to COMPLETED from office if desired
-  } = body ?? {};
+  const raw = await req.json().catch(() => ({} as any));
+
+  const vehicle_id = raw.vehicle_id;
+  const location_id = raw.location_id;
+  const customer_id = raw.customer_id;
+
+  const service = raw.service ?? raw.service_type;
+  const fmc = raw.fmc ?? null;
+  const mileage = raw.mileage ?? raw.odometer_miles ?? null;
+  const po = raw.po ?? raw.po_number ?? null;
+  const notes = (raw.notes ?? raw.customer_notes) ?? null;
+  const priority = raw.priority ?? null;
+  const status = raw.status ?? "NEW";
 
   if (!vehicle_id || !location_id || !customer_id || !service) {
     return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
   }
 
+  const insertRow: Record<string, any> = {
+    company_id,
+    vehicle_id,
+    location_id,
+    customer_id,
+    service,
+    fmc,
+    mileage,
+    po,
+    notes,
+    priority,
+    status,
+  };
+
+  if (status === "SCHEDULED") insertRow.scheduled_at = new Date().toISOString();
+  if (status === "IN_PROGRESS") insertRow.started_at = new Date().toISOString();
+  if (status === "COMPLETED") insertRow.completed_at = new Date().toISOString();
+
   const { data, error } = await supabase
     .from("service_requests")
-    .insert([
-      {
-        company_id,
-        vehicle_id,
-        location_id,
-        customer_id,
-        service,
-        fmc,
-        mileage,
-        po,
-        notes,
-        status,
-        ...(status === "SCHEDULED" ? { scheduled_at: new Date().toISOString() } : {}),
-        ...(status === "IN_PROGRESS" ? { started_at: new Date().toISOString() } : {}),
-        ...(status === "COMPLETED" ? { completed_at: new Date().toISOString() } : {}),
-      },
-    ])
+    .insert([insertRow])
     .select("id")
     .single();
 

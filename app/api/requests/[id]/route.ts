@@ -6,7 +6,7 @@ type Id = string;
 
 /**
  * GET /api/requests/:id
- * Loads a single service request with joined display fields (location/customer/vehicle).
+ * Loads a single service request with joined display fields (location/customer/vehicle/technician).
  */
 export async function GET(_: NextRequest, { params }: { params: { id: Id } }) {
   try {
@@ -22,14 +22,17 @@ export async function GET(_: NextRequest, { params }: { params: { id: Id } }) {
         mileage,
         po,
         notes,
+        priority,
         scheduled_at,
         preferred_window_start,
         preferred_window_end,
-        priority,
+        started_at,
+        completed_at,
         updated_at,
-        location:location_id ( name ),
-        customer:customer_id ( name ),
-        vehicle:vehicle_id ( year, make, model, plate, unit_number )
+        location:location_id ( id, name ),
+        customer:customer_id ( id, name ),
+        vehicle:vehicle_id ( id, year, make, model, plate, unit_number ),
+        technician:technician_id ( id, full_name )
       `)
       .eq("id", params.id)
       .maybeSingle();
@@ -61,13 +64,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: Id } }
 
     const supabase = await supabaseServer();
 
-    // Build a sanitized update patch.
-    // Primary field names:
-    //  - fmc, po, notes, priority, location_id, preferred_window_start, preferred_window_end, mileage
-    // Legacy aliases mapped in:
-    //  - po_number -> po
-    //  - office_notes -> notes
-    //  - odometer_miles -> mileage
+    // Allowed fields
     const allowedKeys = new Set([
       "fmc",
       "po",
@@ -77,6 +74,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: Id } }
       "preferred_window_start",
       "preferred_window_end",
       "mileage",
+      "technician_id",
+      "scheduled_at",
     ]);
 
     const patch: Record<string, any> = {};
@@ -91,23 +90,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: Id } }
     if (body.office_notes != null && patch.notes == null) patch.notes = body.office_notes;
     if (body.odometer_miles != null && patch.mileage == null) patch.mileage = body.odometer_miles;
 
-    // Trim strings where reasonable
-    if (typeof patch.po === "string") {
-      patch.po = patch.po.trim() || null;
-    }
-    if (typeof patch.notes === "string") {
-      patch.notes = patch.notes.trim() || null;
-    }
-    if (typeof patch.fmc === "string") {
-      patch.fmc = patch.fmc.trim() || null;
-    }
+    // Trim strings
+    if (typeof patch.po === "string") patch.po = patch.po.trim() || null;
+    if (typeof patch.notes === "string") patch.notes = patch.notes.trim() || null;
+    if (typeof patch.fmc === "string") patch.fmc = patch.fmc.trim() || null;
 
-    // Guard: nothing to update
     if (Object.keys(patch).length === 0) {
-      return NextResponse.json(
-        { error: "No editable fields provided." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "No editable fields provided." }, { status: 400 });
     }
 
     // Optional optimistic concurrency
@@ -117,11 +106,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: Id } }
         .select("updated_at, status")
         .eq("id", id)
         .single();
-
       if (readErr) throw readErr;
 
-      // If you want to restrict editing to NEW status only, keep this:
-      // (You had this behavior in your snippet; keep/adjust as you prefer.)
+      // Keep your original NEW-only guard if desired:
       if (current?.status && current.status !== "NEW") {
         return NextResponse.json(
           { error: "Request is no longer NEW; refresh your page." },
@@ -140,13 +127,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: Id } }
       }
     }
 
-    // Update — do NOT change status here.
     const { data, error } = await supabase
       .from("service_requests")
       .update(patch)
       .eq("id", id)
-      .select(
-        `
+      .select(`
         id,
         status,
         service,
@@ -154,13 +139,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: Id } }
         mileage,
         po,
         notes,
+        priority,
         scheduled_at,
         preferred_window_start,
         preferred_window_end,
-        priority,
+        started_at,
+        completed_at,
         updated_at
-      `
-      )
+      `)
       .single();
 
     if (error) throw error;

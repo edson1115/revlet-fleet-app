@@ -1,15 +1,15 @@
 // components/Toast.tsx
-'use client';
+"use client";
 
-import { useEffect } from 'react';
+import { useEffect } from "react";
 
 export default function Toast({
-  kind = 'success',
+  kind = "success",
   message,
   onClose,
-  autoHideMs = 3500
+  autoHideMs = 3500,
 }: {
-  kind?: 'success' | 'error' | 'info';
+  kind?: "success" | "error" | "info";
   message: string;
   onClose: () => void;
   autoHideMs?: number;
@@ -20,11 +20,11 @@ export default function Toast({
   }, [onClose, autoHideMs]);
 
   const color =
-    kind === 'success'
-      ? 'bg-green-600'
-      : kind === 'error'
-      ? 'bg-red-600'
-      : 'bg-gray-800';
+    kind === "success"
+      ? "bg-green-600"
+      : kind === "error"
+      ? "bg-red-600"
+      : "bg-gray-800";
 
   return (
     <div className="fixed top-4 right-4 z-50">

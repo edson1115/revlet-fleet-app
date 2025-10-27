@@ -1,44 +1,60 @@
-import { NextResponse } from 'next/server';
-import { supabaseServer } from '@/lib/supabaseServer';
+// app/api/requests/[id]/notes/route.ts
+import { NextResponse } from "next/server";
+import { supabaseServer } from "@/lib/supabaseServer";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-const { id } = await params;
-const sb = supabaseServer();
-const { data, error } = await sb
-.from('service_request_notes')
-.select('id,body,created_at,author_user_id, author:users(email)')
-.eq('request_id', id)
-.order('created_at', { ascending: true });
-if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-return NextResponse.json({ rows: data });
+type Params = { id: string };
+
+export async function GET(_req: Request, ctx: { params: Promise<Params> }) {
+  try {
+    const { id } = await ctx.params;
+    const sb = await supabaseServer();
+
+    const { data, error } = await sb
+      .from("request_notes")
+      .select(`
+        id, request_id, author_id, body, created_at,
+        author:author_id ( id, full_name, email )
+      `)
+      .eq("request_id", id)
+      .order("created_at", { ascending: false });
+
+    if (error) return NextResponse.json({ rows: [], error: error.message }, { status: 500 });
+    return NextResponse.json({ rows: data ?? [] });
+  } catch (e: any) {
+    return NextResponse.json({ rows: [], error: String(e?.message ?? e) }, { status: 500 });
+  }
 }
 
+export async function POST(req: Request, ctx: { params: Promise<Params> }) {
+  try {
+    const { id } = await ctx.params;
+    const { body } = await req.json().catch(() => ({ body: "" }));
+    const sb = await supabaseServer();
 
-export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-const { id } = await params;
-const sb = supabaseServer();
-const { data: { user } } = await sb.auth.getUser();
-if (!user) return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
+    if (!body || !String(body).trim()) {
+      return NextResponse.json({ error: "Note body required." }, { status: 400 });
+    }
 
+    // Current user as author
+    const { data: auth } = await sb.auth.getUser();
+    const author_id = auth.user?.id || null;
+    if (!author_id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-const { data: me } = await sb.from('users').select('id,role').eq('auth_user_id', user.id).single();
-if (!me) return NextResponse.json({ error: 'User not found' }, { status: 403 });
-if (!['ADMIN','OFFICE','DISPATCH','TECH'].includes(me.role)) {
-return NextResponse.json({ error: 'Not allowed' }, { status: 403 });
-}
+    const { data, error } = await sb
+      .from("request_notes")
+      .insert([{ request_id: id, author_id, body: String(body).trim() }])
+      .select(`
+        id, request_id, author_id, body, created_at,
+        author:author_id ( id, full_name, email )
+      `)
+      .single();
 
-
-const body = (await req.json()) as { body: string };
-const text = (body?.body || '').trim();
-if (!text) return NextResponse.json({ error: 'Note text required' }, { status: 400 });
-
-
-const { data, error } = await sb
-.from('service_request_notes')
-.insert({ request_id: id, author_user_id: me.id, body: text })
-.select('id,body,created_at,author_user_id')
-.single();
-if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-return NextResponse.json({ ok: true, row: data });
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json({ note: data }, { status: 201 });
+  } catch (e: any) {
+    return NextResponse.json({ error: String(e?.message ?? e) }, { status: 500 });
+  }
 }
