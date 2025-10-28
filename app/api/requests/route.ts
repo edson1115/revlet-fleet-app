@@ -11,12 +11,12 @@ async function resolveCompanyId() {
     const { data: auth } = await supabase.auth.getUser();
     const uid = auth.user?.id || null;
     if (uid) {
-      const { data: prof, error } = await supabase
+      const { data: prof } = await supabase
         .from("profiles")
         .select("company_id")
         .eq("id", uid)
         .maybeSingle();
-      if (!error && prof?.company_id) return prof.company_id as string;
+      if (prof?.company_id) return prof.company_id as string;
     }
   } catch {}
   try {
@@ -37,10 +37,19 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const status = url.searchParams.get("status") ?? undefined;
   const limit = Number(url.searchParams.get("limit") ?? "100");
+  const offset = Number(url.searchParams.get("offset") ?? "0");
+  const sortBy = (url.searchParams.get("sortBy") ?? "created_at") as "created_at" | "status" | "scheduled_at";
+  const sortDir = (url.searchParams.get("sortDir") ?? "desc") as "asc" | "desc";
+  const mine = url.searchParams.get("mine") === "1";
+  const techId = url.searchParams.get("techId") || undefined;
 
   const company_id = await resolveCompanyId();
-  if (!company_id) return NextResponse.json({ rows: [] });
+  if (!company_id) {
+    // Graceful empty
+    return NextResponse.json({ rows: [], total: 0 });
+  }
 
+  // Base select
   let q = supabase
     .from("service_requests")
     .select(
@@ -50,18 +59,44 @@ export async function GET(req: Request) {
       vehicle:vehicle_id ( id, year, make, model, plate, unit_number ),
       customer:customer_id ( id, name ),
       location:location_id ( id, name ),
-      technician:technician_id ( id, full_name )
-    `
+      technician:technician_id ( id )
+    `,
+      { count: "exact" }
     )
     .eq("company_id", company_id)
-    .order("created_at", { ascending: false })
-    .limit(limit);
+    .order(sortBy, { ascending: sortDir === "asc" })
+    .range(offset, offset + limit - 1);
 
   if (status) q = q.eq("status", status);
+  if (techId) q = q.eq("technician_id", techId);
 
-  const { data, error } = await q;
-  if (error) return NextResponse.json({ rows: [], error: error.message }, { status: 500 });
-  return NextResponse.json({ rows: data ?? [] });
+  // Customer's own view (mine=1)
+  if (mine) {
+    const { data: auth } = await supabase.auth.getUser();
+    const uid = auth?.user?.id || null;
+
+    // If not signed in → return empty (no 401)
+    if (!uid) {
+      return NextResponse.json({ rows: [], total: 0 });
+    }
+
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("customer_id")
+      .eq("id", uid)
+      .maybeSingle();
+
+    // If the profile is not bound to a customer, empty
+    if (!prof?.customer_id) {
+      return NextResponse.json({ rows: [], total: 0 });
+    }
+
+    q = q.eq("customer_id", prof.customer_id as string);
+  }
+
+  const { data, error, count } = await q;
+  if (error) return NextResponse.json({ rows: [], total: 0, error: error.message }, { status: 500 });
+  return NextResponse.json({ rows: data ?? [], total: count ?? 0 });
 }
 
 export async function POST(req: Request) {
@@ -70,7 +105,6 @@ export async function POST(req: Request) {
   if (!company_id) return NextResponse.json({ error: "No company." }, { status: 400 });
 
   const raw = await req.json().catch(() => ({} as any));
-
   const vehicle_id = raw.vehicle_id;
   const location_id = raw.location_id;
   const customer_id = raw.customer_id;
@@ -82,6 +116,12 @@ export async function POST(req: Request) {
   const notes = (raw.notes ?? raw.customer_notes) ?? null;
   const priority = raw.priority ?? null;
   const status = raw.status ?? "NEW";
+
+  // Require sign-in for creation (customer or office). You can relax this if you want anonymous capture.
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user?.id) {
+    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  }
 
   if (!vehicle_id || !location_id || !customer_id || !service) {
     return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
@@ -101,7 +141,8 @@ export async function POST(req: Request) {
     status,
   };
 
-  if (status === "SCHEDULED") insertRow.scheduled_at = new Date().toISOString();
+  if (raw.scheduled_at) insertRow.scheduled_at = new Date(raw.scheduled_at).toISOString();
+  if (status === "SCHEDULED" && !insertRow.scheduled_at) insertRow.scheduled_at = new Date().toISOString();
   if (status === "IN_PROGRESS") insertRow.started_at = new Date().toISOString();
   if (status === "COMPLETED") insertRow.completed_at = new Date().toISOString();
 

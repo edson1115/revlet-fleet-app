@@ -1,0 +1,11 @@
+// lib/supabase/admin.ts
+import { createClient } from "@supabase/supabase-js";
+
+export function supabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  // Important: service role must only be used server-side
+  return createClient(url, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
