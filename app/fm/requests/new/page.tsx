@@ -65,7 +65,11 @@ export default function CreateRequestPage() {
         const res = await fetch("/api/lookups?scope=locations", { credentials: "include" });
         const js = await res.json();
         if (!res.ok || !js?.data) throw new Error(js?.error || "Failed to load locations");
-        const rows: Location[] = (js.data || []).map((r: any) => ({ id: r.id, name: r.name }));
+
+        const rows: Location[] = (js.data || []).map((r: any) => ({
+          id: r.id,
+          name: r.name ?? r.label, // tolerate either
+        }));
         setLocations(rows);
       } catch (e: any) {
         setErrorMsg(e?.message || "Failed to load locations");
@@ -75,7 +79,7 @@ export default function CreateRequestPage() {
     })();
   }, []);
 
-  // When Location changes → load Customers for that location (market)
+  // When Location changes → load Customers for that location
   useEffect(() => {
     (async () => {
       setCustomers([]);
@@ -87,12 +91,17 @@ export default function CreateRequestPage() {
 
       setErrorMsg(null);
       try {
-        const res = await fetch(`/api/lookups?scope=customers&market=${locationId}`, {
+        // NOTE: use location= (not market=) per latest API
+        const res = await fetch(`/api/lookups?scope=customers&location=${locationId}`, {
           credentials: "include",
         });
         const js = await res.json();
         if (!res.ok || !js?.data) throw new Error(js?.error || "Failed to load customers");
-        const rows: Customer[] = (js.data || []).map((r: any) => ({ id: r.id, name: r.name }));
+
+        const rows: Customer[] = (js.data || []).map((r: any) => ({
+          id: r.id,
+          name: r.name ?? r.label, // tolerate either
+        }));
         setCustomers(rows);
       } catch (e: any) {
         setErrorMsg(e?.message || "Failed to load customers");
@@ -113,7 +122,6 @@ export default function CreateRequestPage() {
           credentials: "include",
         });
         const js = await res.json();
-        if (!res.ok) throw new Error(js?.error || "Failed to load vehicles");
         const rows: Vehicle[] = Array.isArray(js) ? js : (js?.data ?? []);
         setVehicles(rows);
       } catch (e: any) {
@@ -122,7 +130,7 @@ export default function CreateRequestPage() {
     })();
   }, [customerId]);
 
-  // Create Request → POST to /api/requests (canonical names, plus priority)
+  // Create Request → POST to /api/requests
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
@@ -143,16 +151,16 @@ export default function CreateRequestPage() {
           customer_id: customerId,
           service,
           fmc: fmc || null,
-          priority, // optional but supported
+          priority,
           mileage: mileage ? Number(mileage) : null,
           po: po || null,
           notes: notes || null,
-          // status: "NEW" // default on server; include only if you need to override
         }),
       });
       const js = await res.json();
       if (!res.ok) throw new Error(js?.error || "Failed to create request");
 
+      // success → Office Queue
       router.push("/office/queue");
     } catch (e: any) {
       setErrorMsg(e?.message || "Failed to create request");
@@ -168,7 +176,7 @@ export default function CreateRequestPage() {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          customer_id: customerId,      // required by your /api/vehicles POST
+          customer_id: customerId, // required by /api/vehicles POST
           unit_number: avUnit.trim(),
           plate: avPlate.trim() || null,
           vin: avVin.trim() || null,

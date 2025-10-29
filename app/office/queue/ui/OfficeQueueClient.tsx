@@ -3,20 +3,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { UI_STATUSES, type UiStatus } from "@/lib/status";
 
 type Id = string;
-type Status =
-  | "NEW"
-  | "WAITING_APPROVAL"
-  | "WAITING_PARTS"
-  | "DECLINED"
-  | "SCHEDULED"
-  | "IN_PROGRESS"
-  | "COMPLETED";
 
 type Row = {
   id: Id;
-  status: Status;
+  status: UiStatus | string;
   created_at: string;
   scheduled_at?: string | null;
   service?: string | null;
@@ -32,24 +25,7 @@ type Row = {
   } | null;
 };
 
-const ACTIVE_STATUSES: Status[] = [
-  "NEW",
-  "WAITING_APPROVAL",
-  "WAITING_PARTS",
-  "DECLINED",
-  "SCHEDULED",
-  "IN_PROGRESS",
-];
-
-const STATUS_LABELS: Record<Status, string> = {
-  NEW: "New",
-  WAITING_APPROVAL: "Waiting for Approval",
-  WAITING_PARTS: "Waiting for Parts",
-  DECLINED: "Declined",
-  SCHEDULED: "Scheduled (Dispatch)",
-  IN_PROGRESS: "In Progress",
-  COMPLETED: "Completed",
-};
+const ACTIVE_STATUSES: UiStatus[] = UI_STATUSES.filter(s => s !== "COMPLETED") as UiStatus[];
 
 function vehLabel(r: Row) {
   const v = r.vehicle || {};
@@ -62,9 +38,9 @@ async function getJSON<T>(url: string) {
   return (await res.json()) as T;
 }
 
-async function patchJSON(url: string, body?: any, method: "PATCH" | "POST" = "PATCH") {
+async function patchJSON(url: string, body?: any) {
   const res = await fetch(url, {
-    method,
+    method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -72,31 +48,12 @@ async function patchJSON(url: string, body?: any, method: "PATCH" | "POST" = "PA
   return res;
 }
 
-function nextOptionsStrict(current: Status): Status[] {
-  switch (current) {
-    case "NEW":
-      return ["WAITING_APPROVAL", "WAITING_PARTS", "DECLINED", "SCHEDULED", "COMPLETED"];
-    case "WAITING_APPROVAL":
-      return ["SCHEDULED", "DECLINED", "COMPLETED"];
-    case "WAITING_PARTS":
-      return ["SCHEDULED", "DECLINED", "COMPLETED"];
-    case "DECLINED":
-      return ["SCHEDULED", "COMPLETED"];
-    case "SCHEDULED":
-      return ["IN_PROGRESS", "DECLINED", "COMPLETED"];
-    case "IN_PROGRESS":
-      return ["COMPLETED"];
-    case "COMPLETED":
-      return [];
-  }
-}
-
 export default function OfficeQueueClient({ initialStatus }: { initialStatus?: string }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string>("");
-  const [filter, setFilter] = useState<Status | "ALL">(
-    (ACTIVE_STATUSES as string[]).includes(initialStatus || "") ? (initialStatus as Status) : "ALL"
+  const [filter, setFilter] = useState<UiStatus | "ALL">(
+    (ACTIVE_STATUSES as string[]).includes(initialStatus || "") ? (initialStatus as UiStatus) : "ALL"
   );
   const [savingId, setSavingId] = useState<Id | null>(null);
 
@@ -151,33 +108,10 @@ export default function OfficeQueueClient({ initialStatus }: { initialStatus?: s
     }
   }
 
-  async function changeStatus(r: Row, next: Status) {
+  async function changeStatus(r: Row, next: UiStatus) {
     setSavingId(r.id);
     setErr("");
     try {
-      if (next === "SCHEDULED") {
-        if (!r.po || !r.po.trim()) {
-          alert("A PO is required before sending this to Dispatch (Scheduled).");
-          return;
-        }
-        // do not flip status here; go to Assign so date/techs are set and the backend is happy
-        window.location.href = `/dispatch/assign?id=${encodeURIComponent(r.id)}`;
-        return;
-      }
-
-      if (next === "IN_PROGRESS") {
-        await patchJSON(`/api/requests/${r.id}/start`, {});
-        await load();
-        return;
-      }
-
-      if (next === "COMPLETED") {
-        await patchJSON(`/api/requests/${r.id}/complete`, {});
-        await load();
-        return;
-      }
-
-      // WAITING_APPROVAL / WAITING_PARTS / DECLINED / (NEW only when currently NEW)
       await patchJSON(`/api/requests/${r.id}`, { status: next });
       await load();
     } catch (e: any) {
@@ -255,89 +189,66 @@ export default function OfficeQueueClient({ initialStatus }: { initialStatus?: s
                 </td>
               </tr>
             ) : (
-              visible.map((r) => {
-                const opts = nextOptionsStrict(r.status);
-                return (
-                  <tr key={r.id} className="border-t align-top">
-                    <td className="p-3">
-                      <div>{new Date(r.created_at).toLocaleString()}</div>
-                      {r.scheduled_at ? (
-                        <div className="text-xs text-gray-500">
-                          Scheduled {new Date(r.scheduled_at).toLocaleString()}
-                        </div>
-                      ) : null}
-                    </td>
-                    <td className="p-3">{r.customer?.name ?? "—"}</td>
-                    <td className="p-3">{vehLabel(r) || "—"}</td>
-                    <td className="p-3">{r.service ?? "—"}</td>
-                    <td className="p-3">
-                      <input
-                        defaultValue={r.po ?? ""}
-                        onBlur={async (e) => {
-                          const v = e.currentTarget.value.trim();
-                          if (v !== (r.po ?? "")) await savePO(r, v || null);
-                        }}
-                        className="w-40 rounded border px-2 py-1"
-                        placeholder="PO"
-                        disabled={savingId === r.id}
-                      />
-                    </td>
-                    <td className="p-3">
-                      <input
-                        defaultValue={r.notes ?? ""}
-                        onBlur={async (e) => {
-                          const v = e.currentTarget.value.trim();
-                          if (v !== (r.notes ?? "")) await saveNotes(r, v || null);
-                        }}
-                        className="w-72 rounded border px-2 py-1"
-                        placeholder="Notes"
-                        disabled={savingId === r.id}
-                      />
-                    </td>
-                    <td className="p-3">
-                      <div className="text-xs text-gray-500 mb-1">{STATUS_LABELS[r.status]}</div>
-                      {opts.length ? (
-                        <select
-                          className="rounded border px-2 py-1"
-                          defaultValue=""
-                          onChange={async (e) => {
-                            const v = e.currentTarget.value as Status;
-                            if (!v) return;
-                            await changeStatus(r, v);
-                            e.currentTarget.value = "";
-                          }}
-                          disabled={savingId === r.id}
-                        >
-                          <option value="" disabled>
-                            Change to…
-                          </option>
-                          {opts.map((o) => (
-                            <option key={o} value={o}>
-                              {STATUS_LABELS[o]}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span className="text-xs text-gray-400">No next actions</span>
-                      )}
-                    </td>
-                    <td className="p-3">
-                      {r.status === "SCHEDULED" ? (
-                        <button
-                          onClick={() => changeStatus(r, "IN_PROGRESS")}
-                          disabled={savingId === r.id}
-                          className="px-2 py-1 border rounded disabled:opacity-50"
-                          title="Mark In Progress"
-                        >
-                          Start
-                        </button>
-                      ) : (
-                        <span className="text-xs text-gray-400">—</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })
+              visible.map((r) => (
+                <tr key={r.id} className="border-t align-top">
+                  <td className="p-3">
+                    <div>{new Date(r.created_at).toLocaleString()}</div>
+                    {r.scheduled_at ? (
+                      <div className="text-xs text-gray-500">
+                        Scheduled {new Date(r.scheduled_at).toLocaleString()}
+                      </div>
+                    ) : null}
+                  </td>
+                  <td className="p-3">{r.customer?.name ?? "—"}</td>
+                  <td className="p-3">{vehLabel(r) || "—"}</td>
+                  <td className="p-3">{r.service ?? "—"}</td>
+                  <td className="p-3">
+                    <input
+                      defaultValue={r.po ?? ""}
+                      onBlur={async (e) => {
+                        const v = e.currentTarget.value.trim();
+                        if (v !== (r.po ?? "")) await savePO(r, v || null);
+                      }}
+                      className="w-40 rounded border px-2 py-1"
+                      placeholder="PO"
+                      disabled={savingId === r.id}
+                    />
+                  </td>
+                  <td className="p-3">
+                    <input
+                      defaultValue={r.notes ?? ""}
+                      onBlur={async (e) => {
+                        const v = e.currentTarget.value.trim();
+                        if (v !== (r.notes ?? "")) await saveNotes(r, v || null);
+                      }}
+                      className="w-72 rounded border px-2 py-1"
+                      placeholder="Notes"
+                      disabled={savingId === r.id}
+                    />
+                  </td>
+                  <td className="p-3">
+                    <select
+                      className="rounded border px-2 py-1"
+                      defaultValue=""
+                      onChange={async (e) => {
+                        const v = e.currentTarget.value as UiStatus;
+                        if (!v) return;
+                        await changeStatus(r, v);
+                        e.currentTarget.value = "";
+                      }}
+                      disabled={savingId === r.id}
+                    >
+                      <option value="" disabled>Change to…</option>
+                      {UI_STATUSES.map((o) => (
+                        <option key={o} value={o}>{o}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="p-3">
+                    <span className="text-xs text-gray-400">—</span>
+                  </td>
+                </tr>
+              ))
             )}
           </tbody>
         </table>

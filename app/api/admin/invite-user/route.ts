@@ -6,82 +6,87 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-/**
- * POST body:
- * {
- *   email: string,
- *   role: "CUSTOMER" | "OFFICE" | "DISPATCHER" | "TECH" | "ADMIN",
- *   company_id?: string,
- *   customer_id?: string
- * }
- *
- * Only ADMIN or OFFICE can invite.
- * For CUSTOMER role, customer_id is strongly recommended.
- */
+function isSuperAdminEmail(email?: string | null) {
+  const env = (process.env.SUPERADMIN_EMAILS || "")
+    .split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+  const fallback = "edson.cortes@bigo.com";
+  const e = (email || "").toLowerCase();
+  return !!e && (env.includes(e) || e === fallback);
+}
+
+type Body = {
+  email: string;
+  role: "CUSTOMER" | "OFFICE" | "DISPATCHER" | "TECH" | "ADMIN";
+  name?: string | null;
+  customer_id?: string | null;
+  customer_name?: string | null;
+  location_id?: string | null; // optional scoping
+};
+
 export async function POST(req: Request) {
-  const server = await supabaseServer();
-
-  // Authenticate the caller
-  const { data: auth } = await server.auth.getUser();
-  const uid = auth?.user?.id || null;
-  if (!uid) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
-
-  // Caller profile + role
-  const { data: caller, error: callerErr } = await server
-    .from("profiles")
-    .select("id, role, company_id")
-    .eq("id", uid)
-    .maybeSingle();
-  if (callerErr) return NextResponse.json({ error: callerErr.message }, { status: 500 });
-
-  const callerRole = String(caller?.role || "").toUpperCase();
-  if (!["ADMIN", "OFFICE"].includes(callerRole)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  const body = await req.json().catch(() => ({} as any));
-  const email = String(body?.email || "").trim().toLowerCase();
-  const role = String(body?.role || "CUSTOMER").toUpperCase();
-  const company_id = String(body?.company_id || caller?.company_id || "");
-  const customer_id = body?.customer_id ? String(body.customer_id) : null;
-
-  if (!email) return NextResponse.json({ error: "Email required." }, { status: 400 });
-  if (!company_id) return NextResponse.json({ error: "company_id required." }, { status: 400 });
-
-  // Enforce company scoping for OFFICE; ADMIN can invite cross-company if needed
-  if (callerRole === "OFFICE" && caller?.company_id && caller.company_id !== company_id) {
-    return NextResponse.json({ error: "Cross-company invite not allowed." }, { status: 403 });
-  }
-
   try {
-    const admin = supabaseAdmin();
-
-    // 🔗 ensure email redirect hits your app's /auth/callback
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-    const redirectTo = `${siteUrl}/auth/callback`;
-
-    // Send magic-link invite; user sets password upon acceptance
-    const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
-      data: { role, company_id, customer_id },
-      redirectTo,
-    });
-
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-    // (Optional) Pre-seed a profiles row
-    if (data?.user) {
-      const prof = {
-        id: data.user.id,
-        role,
-        company_id,
-        customer_id,
-        email,
-      };
-      await server.from("profiles").upsert(prof, { onConflict: "id" });
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      return NextResponse.json({ error: "supabaseKey is required" }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true });
+    const body = (await req.json()) as Body;
+    const email = (body.email || "").trim().toLowerCase();
+    const role = String(body.role || "").toUpperCase() as Body["role"];
+    const name = body.name?.trim() || null;
+    const customer_id = body.customer_id || null;
+    const customer_name = body.customer_name?.trim() || null;
+    const location_id = body.location_id || null;
+
+    if (!email || !role) {
+      return NextResponse.json({ error: "email and role are required" }, { status: 400 });
+    }
+
+    // Auth: SUPERADMIN only
+    const supabase = await supabaseServer();
+    const { data: auth } = await supabase.auth.getUser();
+    const callerEmail = auth?.user?.email || null;
+    if (!callerEmail || !isSuperAdminEmail(callerEmail)) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
+
+    // CUSTOMER needs either customer_id or customer_name
+    if (role === "CUSTOMER" && !(customer_id || customer_name)) {
+      return NextResponse.json({ error: "customer_id or customer_name is required for CUSTOMER" }, { status: 400 });
+    }
+
+    const admin = supabaseAdmin();
+
+    const userMetadata: Record<string, any> = {
+      role,
+      full_name: name,
+      customer_id: role === "CUSTOMER" ? (customer_id ?? null) : null,
+      location_id: location_id ?? null,
+    };
+
+    const { data: invited, error: inviteErr } = await admin.auth.admin.inviteUserByEmail(email, {
+      data: userMetadata,
+    });
+    if (inviteErr) return NextResponse.json({ error: inviteErr.message }, { status: 500 });
+
+    const userId = invited?.user?.id || null;
+
+    if (userId) {
+      await supabase
+        .from("profiles")
+        .upsert(
+          [{
+            id: userId,
+            email,
+            full_name: name,
+            role,
+            customer_id: role === "CUSTOMER" ? (customer_id ?? null) : null,
+          }],
+          { onConflict: "id" as any }
+        );
+    }
+
+    return NextResponse.json({ ok: true, invited_user_id: userId, email, role, location_id });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Invite failed" }, { status: 500 });
+    return NextResponse.json({ error: e?.message || "invite_failed" }, { status: 500 });
   }
 }

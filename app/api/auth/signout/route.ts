@@ -1,12 +1,11 @@
 // app/api/auth/signout/route.ts
-import { NextResponse } from 'next/server'
-import { supabaseServer } from '@/lib/supabase/server'
+import { NextResponse } from "next/server";
+import { supabaseServer } from "@/lib/supabase/server";
+
+export const dynamic = "force-dynamic";
 
 export async function POST() {
-  const sb = await supabaseServer();   // <-- await is required now
-  const { error } = await sb.auth.signOut();
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
-  }
+  const supabase = await supabaseServer();
+  await supabase.auth.signOut();
   return NextResponse.json({ ok: true });
 }

@@ -22,18 +22,18 @@ export async function PATCH(req: Request, ctx: { params: { id: string } }) {
   // Who is calling?
   const { data: auth } = await supabase.auth.getUser();
   const uid = auth?.user?.id || null;
-  if (!uid) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
+  if (!uid) return NextResponse.json({ ok: false, error: "Not signed in." }, { status: 401 });
 
   // Caller profile
   const { data: prof, error: profErr } = await supabase
     .from("profiles")
-    .select("id, role, company_id")
+    .select("id, role, company_id, full_name, email")
     .eq("id", uid)
     .maybeSingle();
-  if (profErr) return NextResponse.json({ error: profErr.message }, { status: 500 });
+  if (profErr) return NextResponse.json({ ok: false, error: profErr.message }, { status: 500 });
 
   if (!roleCanAssign(prof?.role)) {
-    return NextResponse.json({ error: "Forbidden: your role cannot assign technicians." }, { status: 403 });
+    return NextResponse.json({ ok: false, error: "Forbidden: your role cannot assign technicians." }, { status: 403 });
   }
 
   // Parse body
@@ -45,18 +45,18 @@ export async function PATCH(req: Request, ctx: { params: { id: string } }) {
   // Load request
   const { data: reqRow, error: reqErr } = await supabase
     .from("service_requests")
-    .select("id, company_id")
+    .select("id, company_id, technician_id")
     .eq("id", id)
     .maybeSingle();
-  if (reqErr) return NextResponse.json({ error: reqErr.message }, { status: 500 });
-  if (!reqRow) return NextResponse.json({ error: "Not found." }, { status: 404 });
+  if (reqErr) return NextResponse.json({ ok: false, error: reqErr.message }, { status: 500 });
+  if (!reqRow) return NextResponse.json({ ok: false, error: "Not found." }, { status: 404 });
 
   // Company safety (ADMIN may span companies; others must match)
   const callerCompany = prof?.company_id || null;
   if (callerCompany && reqRow.company_id && callerCompany !== reqRow.company_id) {
     const role = String(prof?.role || "").toUpperCase();
     if (role !== "ADMIN") {
-      return NextResponse.json({ error: "Cross-company forbidden." }, { status: 403 });
+      return NextResponse.json({ ok: false, error: "Cross-company forbidden." }, { status: 403 });
     }
   }
 
@@ -64,16 +64,16 @@ export async function PATCH(req: Request, ctx: { params: { id: string } }) {
   if (technician_id) {
     const { data: tech, error: techErr } = await supabase
       .from("technicians")
-      .select("id, company_id")
+      .select("id, company_id, name")
       .eq("id", technician_id)
       .maybeSingle();
-    if (techErr) return NextResponse.json({ error: techErr.message }, { status: 500 });
-    if (!tech) return NextResponse.json({ error: "Technician not found." }, { status: 400 });
+    if (techErr) return NextResponse.json({ ok: false, error: techErr.message }, { status: 500 });
+    if (!tech) return NextResponse.json({ ok: false, error: "Technician not found." }, { status: 400 });
 
     // Company match for technician (ADMIN can override)
     const role = String(prof?.role || "").toUpperCase();
     if (callerCompany && tech.company_id && tech.company_id !== callerCompany && role !== "ADMIN") {
-      return NextResponse.json({ error: "Technician belongs to another company." }, { status: 403 });
+      return NextResponse.json({ ok: false, error: "Technician belongs to another company." }, { status: 403 });
     }
   }
 
@@ -82,10 +82,22 @@ export async function PATCH(req: Request, ctx: { params: { id: string } }) {
     .from("service_requests")
     .update({ technician_id })
     .eq("id", id)
-    .select("id, technician_id")
+    .select("id, technician_id, company_id, status, updated_at")
     .maybeSingle();
 
-  if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
+  if (upErr) return NextResponse.json({ ok: false, error: upErr.message }, { status: 500 });
 
-  return NextResponse.json({ success: true, technician_id: updated?.technician_id ?? null });
+  // Audit event (best-effort; ignore failure)
+  try {
+    await supabase.from("service_events").insert({
+      request_id: id,
+      event_type: "ASSIGN_TECH",
+      message: technician_id
+        ? `Assigned tech -> ${technician_id}`
+        : "Cleared technician",
+      created_by: uid,
+    });
+  } catch {}
+
+  return NextResponse.json({ ok: true, data: updated });
 }

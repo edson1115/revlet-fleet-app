@@ -1,61 +1,61 @@
 // app/page.tsx
-import Link from 'next/link';
-import { supabaseServer } from '@/lib/supabase/server';
+"use client";
 
-type Role = 'ADMIN' | 'OFFICE' | 'DISPATCH' | 'TECH' | 'CUSTOMER' | null;
+import { useEffect, useState } from "react";
+import Link from "next/link";
 
-async function getRole(): Promise<Role> {
-  const sb = await supabaseServer(); // ← MUST await
+type Me = {
+  id: string;
+  role: string | null;
+  name: string | null;
+  email: string | null;
+};
 
-  // Be defensive: destructure with a fallback so it never throws if shape differs
-  const {
-    data: { user } = { user: null },
-  } = await sb.auth.getUser();
+export default function HomePage() {
+  const [me, setMe] = useState<Me | null>(null);
+  const [authed, setAuthed] = useState(false);
 
-  if (!user) return null;
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/me", { credentials: "include", cache: "no-store" });
+        if (res.status === 401) {
+          setAuthed(false);
+          setMe(null);
+          return;
+        }
+        const j = await res.json();
+        setMe(j);
+        setAuthed(true);
+      } catch {
+        setAuthed(false);
+        setMe(null);
+      }
+    })();
+  }, []);
 
-  const { data } = await sb
-    .from('users')
-    .select('role')
-    .eq('auth_user_id', user.id)
-    .single();
-
-  return (data?.role ?? null) as Role;
-}
-
-export default async function HomePage() {
-  const role = await getRole();
+  const role = String(me?.role || "").toUpperCase();
 
   return (
-    <main className="mx-auto max-w-5xl p-6">
-      <h1 className="text-2xl font-semibold mb-4">Revlet Fleet</h1>
+    <main className="max-w-4xl mx-auto p-6 space-y-6">
+      <h1 className="text-2xl font-semibold">Revlet Fleet</h1>
 
-      <p className="mb-6 text-slate-700">
-        {role
-          ? <>You are signed in with role <span className="font-mono">{role}</span>.</>
-          : <>You are not signed in.</>}
-      </p>
+      {authed ? (
+        <div className="rounded border p-3 bg-green-50">
+          You are signed in{role ? ` with role ${role}` : ""}.
+        </div>
+      ) : (
+        <div className="rounded border p-3 bg-amber-50">
+          You are not signed in. <Link className="underline" href="/auth">Sign in</Link>
+        </div>
+      )}
 
-      <nav className="flex flex-wrap gap-3">
-        <Link className="rounded border px-3 py-1 hover:bg-slate-50" href="/fm/requests/new">
-          Create Request
-        </Link>
-        <Link className="rounded border px-3 py-1 hover:bg-slate-50" href="/office/queue">
-          Office Queue
-        </Link>
-        <Link className="rounded border px-3 py-1 hover:bg-slate-50" href="/dispatch/scheduled">
-          Dispatch
-        </Link>
-        <Link className="rounded border px-3 py-1 hover:bg-slate-50" href="/tech/queue">
-          Tech
-        </Link>
-        <Link className="rounded border px-3 py-1 hover:bg-slate-50" href="/reports">
-          Reports
-        </Link>
-        <Link className="rounded border px-3 py-1 hover:bg-slate-50" href="/admin">
-          Admin
-        </Link>
-      </nav>
+      <div className="grid gap-3">
+        <Link className="underline" href="/customer/requests/new">Create Request (Customer)</Link>
+        <Link className="underline" href="/office/queue">Office Queue</Link>
+        <Link className="underline" href="/reports">Reports</Link>
+        <Link className="underline" href="/admin">Admin</Link>
+      </div>
     </main>
   );
 }

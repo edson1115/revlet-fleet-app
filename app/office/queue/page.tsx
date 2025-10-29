@@ -1,23 +1,22 @@
+// app/office/queue/page.tsx
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import { InviteUserButton } from '@/components/InviteUserButton';
+import { UI_STATUSES, type UiStatus } from '@/lib/status';
 
 /* =========================
    Types
 ========================= */
-type IdOpt = { id: string; label: string };
-type Technician = { id: string; label?: string | null };
-
 type RequestRow = {
   id: string;
-  status: string;
+  status: UiStatus | string; // tolerate older records
   service?: string | null;
   priority?: string | null;
   fmc?: string | null;
   mileage?: number | null;
   po?: string | null;
-  notes?: string | null; // legacy single-notes field (kept for compatibility)
+  notes?: string | null;
   created_at?: string | null;
   scheduled_at?: string | null;
   started_at?: string | null;
@@ -36,7 +35,6 @@ type RequestRow = {
 };
 
 type RequestDetails = RequestRow & {
-  // If your details route returns a notes array, use this:
   notes_list?: Array<{ id: string; text: string; created_at?: string | null }> | null;
 };
 
@@ -96,7 +94,7 @@ function fmtDate(s?: string | null) {
   try {
     return new Date(s).toLocaleString();
   } catch {
-    return s;
+    return s as string;
   }
 }
 
@@ -117,7 +115,7 @@ export default function OfficeQueuePage() {
   const [drawerBusy, setDrawerBusy] = useState(false);
 
   // Editable fields inside drawer
-  const [dStatus, setDStatus] = useState<string>('NEW');
+  const [dStatus, setDStatus] = useState<UiStatus>('NEW');
   const [dService, setDService] = useState<string>('');
   const [dFmc, setDFmc] = useState<string>('');
   const [dPo, setDPo] = useState<string>('');
@@ -130,20 +128,7 @@ export default function OfficeQueuePage() {
   const [noteBusy, setNoteBusy] = useState(false);
   const [noteErr, setNoteErr] = useState('');
 
-  // Status options for Office (adjust to your policy)
-  const statusOptions = useMemo(
-    () => [
-      'NEW',
-      'WAITING_APPROVAL',
-      'WAITING_PARTS',
-      'WAITING_TO_BE_SCHEDULED',
-      'SCHEDULED',
-      'IN_PROGRESS',
-      'COMPLETED',
-      'CANCELED',
-    ],
-    []
-  );
+  const statusOptions = useMemo(() => UI_STATUSES, []);
 
   // Load queue
   useEffect(() => {
@@ -174,14 +159,14 @@ export default function OfficeQueuePage() {
       setDrawerRow(data);
 
       // seed edit fields
-      setDStatus(String(data.status || 'NEW'));
+      const curStatus = (data.status as UiStatus) || 'NEW';
+      setDStatus(curStatus);
       setDService(String(data.service || ''));
       setDFmc(String(data.fmc || ''));
       setDPo(String(data.po || ''));
       setDMileage(data.mileage != null ? String(data.mileage) : '');
       setDScheduledAt(data.scheduled_at ? new Date(data.scheduled_at).toISOString().slice(0, 16) : '');
 
-      // notes array if provided
       const n = (data.notes_list || []).map(n => ({ id: n.id, text: n.text, created_at: n.created_at ?? null }));
       setNotes(n);
       setNewNote('');
@@ -201,7 +186,7 @@ export default function OfficeQueuePage() {
     setDrawerErr('');
   }
 
-  // Save details (PATCH)
+  // Save details (PATCH) — allow any→any, no side-effects enforced here
   async function saveDetails() {
     if (!drawerId) return;
     setDrawerBusy(true);
@@ -213,21 +198,26 @@ export default function OfficeQueuePage() {
         fmc: dFmc || null,
         po: dPo || null,
         mileage: dMileage ? Number(dMileage) : null,
+        scheduled_at: dScheduledAt ? new Date(dScheduledAt).toISOString() : null,
       };
-      // optional scheduled date if present (assumes local 'YYYY-MM-DDTHH:mm')
-      if (dScheduledAt) {
-        // send RFC 3339
-        body.scheduled_at = new Date(dScheduledAt).toISOString();
-      } else {
-        body.scheduled_at = null;
-      }
 
       const updated = await patchJSON<RequestDetails>(`/api/requests/${encodeURIComponent(drawerId)}`, body);
       setDrawerRow(updated);
 
       // also reflect in list
       setRows(prev =>
-        prev.map(r => (r.id === drawerId ? { ...r, status: updated.status, service: updated.service, priority: updated.priority, fmc: updated.fmc, mileage: updated.mileage, po: updated.po, scheduled_at: updated.scheduled_at } : r))
+        prev.map(r => (r.id === drawerId
+          ? {
+              ...r,
+              status: updated.status as UiStatus,
+              service: updated.service,
+              priority: updated.priority,
+              fmc: updated.fmc,
+              mileage: updated.mileage,
+              po: updated.po,
+              scheduled_at: updated.scheduled_at
+            }
+          : r))
       );
     } catch (e: any) {
       setDrawerErr(e.message || 'Update failed');
@@ -244,15 +234,12 @@ export default function OfficeQueuePage() {
     setNoteBusy(true);
     setNoteErr('');
     try {
-      // support either /api/requests/[id]/notes or PATCH details with { add_note: "..." }
-      // prefer dedicated notes route if you have it; else use PATCH with add_note
       let noteResp: { id: string; text: string; created_at?: string | null } | null = null;
 
       try {
         noteResp = await postJSON(`/api/requests/${encodeURIComponent(drawerId)}/notes`, { text });
       } catch {
         const d = await patchJSON<RequestDetails>(`/api/requests/${encodeURIComponent(drawerId)}`, { add_note: text });
-        // expect latest note first if backend returns notes_list
         const latest = (d.notes_list || [])[0];
         if (latest) noteResp = { id: latest.id, text: latest.text, created_at: latest.created_at ?? null };
       }
@@ -274,7 +261,6 @@ export default function OfficeQueuePage() {
     setNoteBusy(true);
     setNoteErr('');
     try {
-      // support either DELETE notes endpoint or PATCH with { remove_note_id }
       try {
         await delJSON(`/api/requests/${encodeURIComponent(drawerId)}/notes/${encodeURIComponent(id)}`);
       } catch {
@@ -368,7 +354,7 @@ export default function OfficeQueuePage() {
                     <select
                       className="border rounded-md px-3 py-2 w-full"
                       value={dStatus}
-                      onChange={(e) => setDStatus(e.target.value)}
+                      onChange={(e) => setDStatus(e.target.value as UiStatus)}
                       disabled={drawerBusy}
                     >
                       {statusOptions.map(s => <option key={s} value={s}>{s}</option>)}

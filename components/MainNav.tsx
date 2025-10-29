@@ -7,7 +7,7 @@ type Me = { role?: string | null; name?: string | null; email?: string | null };
 
 async function getMe(): Promise<{ me: Me | null; authed: boolean }> {
   try {
-    const res = await fetch("/api/me", { credentials: "include" });
+    const res = await fetch("/api/me", { credentials: "include", cache: "no-store" });
     if (res.status === 401) return { me: null, authed: false };
     if (!res.ok) throw new Error(String(res.status));
     return { me: await res.json(), authed: true };
@@ -36,10 +36,12 @@ export default function MainNav() {
   }, []);
 
   const role = String(me?.role || "CUSTOMER").toUpperCase();
+  const isSuper = role === "SUPERADMIN";
   const isCustomer = role === "CUSTOMER";
   const isOffice = role === "OFFICE";
   const isDispatcher = role === "DISPATCHER";
   const isTech = role === "TECH" || role === "TECHNICIAN";
+  const isAdmin = role === "ADMIN";
 
   async function signOut() {
     try { await postJSON("/api/auth/logout"); } catch {}
@@ -50,37 +52,39 @@ export default function MainNav() {
     <nav className="w-full border-b bg-white">
       <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Link href="/" className="font-semibold">Revlet</Link>
+          <Link href="/" className="font-semibold">Revlet Fleet</Link>
 
-          {isCustomer && (
+          {/* Always show Create Request entry point in header */}
+          <Link href="/fm/requests/new" className="text-sm hover:underline">Create Request</Link>
+
+          {(isCustomer) && (
             <>
               <Link href="/customer/requests" className="text-sm hover:underline">My Requests</Link>
-              <Link href="/customer/requests/new" className="text-sm hover:underline">Create Request</Link>
             </>
           )}
 
-          {(isOffice || isDispatcher || isTech) && (
+          {(isSuper || isAdmin || isOffice || isDispatcher) && (
             <>
               <Link href="/office/queue" className="text-sm hover:underline">Office Queue</Link>
               <Link href="/reports" className="text-sm hover:underline">Reports</Link>
+              <Link href="/admin" className="text-sm hover:underline">Admin</Link>
             </>
           )}
 
-          {isDispatcher && (
+          {(isSuper || isDispatcher) && (
             <Link href="/tech/dispatch" className="text-sm hover:underline">Dispatch</Link>
           )}
 
-          {isTech && (
-            <Link href="/tech/my-jobs" className="text-sm hover:underline">My Jobs</Link>
+          {(isSuper || isTech) && (
+            <Link href="/tech/my-jobs" className="text-sm hover:underline">Tech</Link>
           )}
         </div>
 
         <div className="flex items-center gap-3 text-xs text-gray-600">
-          <div>{authed ? (me?.name ?? me?.email ?? "User") : "Guest"} • {role}</div>
+          <div>{authed ? (me?.email ?? me?.name ?? "User") : "Guest"} • {role}</div>
           {authed ? (
             <button onClick={signOut} className="border px-2 py-1 rounded">Sign out</button>
           ) : (
-            // replace with your auth page/route
             <Link href="/auth" className="border px-2 py-1 rounded">Sign in</Link>
           )}
         </div>

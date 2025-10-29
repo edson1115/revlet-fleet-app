@@ -1,44 +1,54 @@
 // app/api/requests/[id]/po/route.ts
 import { NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabaseServer";
+import { supabaseServer } from "@/lib/supabase/server";
 
-export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Params = { id: string };
+/**
+ * PATCH /api/requests/:id/po
+ * Body: { po_number: string }
+ * Office/Admin can set PO number.
+ */
+export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+  const supabase = await supabaseServer();
+  const { id } = params;
 
-export async function PATCH(req: Request, ctx: { params: Promise<Params> }) {
-  try {
-    const { id } = await ctx.params;
-    const body = (await req.json()) as {
-      po?: string | null;
-      notes?: string | null;
-    };
+  const { data: auth } = await supabase.auth.getUser();
+  const uid = auth?.user?.id || null;
+  if (!uid) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
 
-    if (!id) {
-      return NextResponse.json({ error: "Missing id" }, { status: 400 });
-    }
+  const { data: prof } = await supabase
+    .from("profiles")
+    .select("role, company_id")
+    .eq("id", uid)
+    .maybeSingle();
 
-    const updates: Record<string, any> = {};
-    if (body.hasOwnProperty("po")) updates.po = body.po ?? null;
-    if (body.hasOwnProperty("notes")) updates.notes = body.notes ?? null;
-
-    if (Object.keys(updates).length === 0) {
-      return NextResponse.json({ error: "No fields to update" }, { status: 400 });
-    }
-
-    const supabase = await supabaseServer();
-    const { error } = await supabase
-      .from("service_requests")
-      .update(updates)
-      .eq("id", id);
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
-
-    return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    return NextResponse.json({ error: String(e?.message ?? e) }, { status: 500 });
+  const role = String(prof?.role || "").toUpperCase();
+  if (!["OFFICE", "ADMIN", "DISPATCHER"].includes(role)) {
+    return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
   }
+
+  const body = await req.json().catch(() => ({}));
+  const po_number = typeof body?.po_number === "string" ? body.po_number.trim() : "";
+
+  // company check
+  const { data: reqRow } = await supabase
+    .from("service_requests")
+    .select("company_id")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (reqRow?.company_id && prof?.company_id && reqRow.company_id !== prof.company_id && role !== "ADMIN") {
+    return NextResponse.json({ ok: false, error: "cross-company forbidden" }, { status: 403 });
+  }
+
+  const { data: updated, error } = await supabase
+    .from("service_requests")
+    .update({ po_number: po_number || null })
+    .eq("id", id)
+    .select("id, po_number, updated_at")
+    .maybeSingle();
+
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true, data: updated });
 }
