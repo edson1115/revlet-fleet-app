@@ -15,8 +15,12 @@ function isSuperAdminEmail(email?: string | null) {
   return !!e && (envList.includes(e) || e === fallback);
 }
 
-function ok(data: any) { return NextResponse.json({ ok: true, data }); }
-function fail(error: string, code = 200) { return NextResponse.json({ ok: false, error }, { status: code }); }
+function ok(data: any) {
+  return NextResponse.json({ ok: true, data });
+}
+function fail(error: string, code = 200) {
+  return NextResponse.json({ ok: false, error }, { status: code });
+}
 
 export async function GET(req: Request) {
   const supabase = await supabaseServer();
@@ -50,8 +54,70 @@ export async function GET(req: Request) {
       return ok((data ?? []).map((r) => ({ id: r.id, name: r.name ?? r.id })));
     }
 
+    // ---------------- COMPANIES (smart) ----------------
+    if (scope === "companies") {
+      // 1) try real companies table first
+      const { data: companiesTable, error: companiesErr } = await supabase
+        .from("companies")
+        .select("id, name")
+        .order("name", { ascending: true });
+
+      if (!companiesErr && (companiesTable ?? []).length > 0) {
+        // if not admin, narrow
+        const filtered = !isAdmin && viewer_company_id
+          ? (companiesTable ?? []).filter((c) => c.id === viewer_company_id)
+          : (companiesTable ?? []);
+        return ok(filtered.map((r) => ({ id: r.id, name: (r as any).name ?? r.id })));
+      }
+
+      // 2) fallback: derive from locations + customers
+      const [locs, custs] = await Promise.all([
+        supabase.from("company_locations").select("company_id, name").order("name", { ascending: true }),
+        supabase.from("company_customers").select("company_id, name").order("name", { ascending: true }),
+      ]);
+
+      const byId = new Map<string, { id: string; name: string }>();
+
+      // derive from locations
+      if (!locs.error) {
+        for (const row of locs.data ?? []) {
+          const cid = (row as any).company_id as string | null;
+          if (!cid) continue;
+          // location name is not really company name, so use placeholder
+          if (!byId.has(cid)) {
+            byId.set(cid, { id: cid, name: `Company ${cid.slice(0, 8)}` });
+          }
+        }
+      }
+
+      // derive from customers (these usually have the nicer name)
+      if (!custs.error) {
+        for (const row of custs.data ?? []) {
+          const cid = (row as any).company_id as string | null;
+          if (!cid) continue;
+          const current = byId.get(cid);
+          const niceName = (row as any).name as string | null;
+          if (!current) {
+            byId.set(cid, { id: cid, name: niceName || `Company ${cid.slice(0, 8)}` });
+          } else {
+            // prefer customer name over placeholder
+            if (niceName && current.name.startsWith("Company ")) {
+              byId.set(cid, { id: cid, name: niceName });
+            }
+          }
+        }
+      }
+
+      // scope for non-admin
+      let rows = Array.from(byId.values());
+      if (!isAdmin && viewer_company_id) {
+        rows = rows.filter((r) => r.id === viewer_company_id);
+      }
+
+      return ok(rows);
+    }
+
     // ---------------- LOCATIONS ----------------
-    // NOTE: company_locations has (id, name, company_id)
     if (scope === "locations") {
       let q = supabase
         .from("company_locations")
@@ -69,15 +135,10 @@ export async function GET(req: Request) {
     }
 
     // ---------------- CUSTOMERS ----------------
-    // Supports:
-    //  - ?location=<location_id>  -> list customers for that location's company_id
-    //  - no filter                -> all customers (scoped by viewer company if not admin)
     if (scope === "customers") {
       const location = url.searchParams.get("location");
 
-      // If a location is provided, look up its company_id, then list customers for that company
       if (location) {
-        // load location (company_locations: id, name, company_id)
         let qLoc = supabase
           .from("company_locations")
           .select("id, company_id")
@@ -104,7 +165,6 @@ export async function GET(req: Request) {
         return ok((data ?? []).map((r) => ({ id: r.id, name: (r as any).name ?? r.id })));
       }
 
-      // No filter: all customers (scoped by company for non-admins)
       let q = supabase
         .from("company_customers")
         .select("id, name, company_id")

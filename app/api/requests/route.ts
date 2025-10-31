@@ -1,6 +1,7 @@
 // app/api/requests/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import { UI_TO_DB_STATUS, DB_TO_UI_STATUS } from "@/lib/status";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,6 @@ function isSuperAdminEmail(email?: string | null) {
 }
 
 function pickScheduled(r: any) {
-  // Only use scheduled_at to match your schema
   return r.scheduled_at ?? null;
 }
 
@@ -34,22 +34,21 @@ function toUiRow(
   const location = r.location_id ? rel.locations[r.location_id] ?? null : null;
   const tech = r.technician_id ? rel.technicians[r.technician_id] ?? null : null;
 
+  // DB → UI status
+  const uiStatus = r.status ? DB_TO_UI_STATUS[r.status] ?? r.status : "NEW";
+
   return {
     id: r.id,
-    status: r.status ?? "NEW",
+    status: uiStatus,
     service: r.service ?? null,
+    fmc: r.fmc ?? null,
     po: r.po ?? null,
     notes: r.notes ?? null,
     mileage: r.mileage ?? null,
     priority: r.priority ?? null,
     created_at: r.created_at,
     scheduled_at: pickScheduled(r),
-    customer: customer
-      ? {
-          id: customer.id,
-          name: customer.name ?? customer.company_name ?? null,
-        }
-      : null,
+    customer: customer ? { id: customer.id, name: customer.name ?? customer.company_name ?? null } : null,
     vehicle: vehicle
       ? {
           id: vehicle.id,
@@ -61,7 +60,7 @@ function toUiRow(
         }
       : null,
     location: location ? { id: location.id, name: location.name ?? null } : null,
-    technician: tech ? { id: tech.id ?? null } : null,
+    technician: tech ? { id: tech.id ?? null, name: tech.name ?? null } : null,
   };
 }
 
@@ -111,7 +110,7 @@ export async function GET(req: NextRequest) {
     const sortByParam = (url.searchParams.get("sortBy") || "created_at").toLowerCase();
     const sortDirAsc = (url.searchParams.get("sortDir") || "desc").toLowerCase() === "asc";
     const mine = url.searchParams.get("mine") === "1";
-    const statusFilter = url.searchParams.get("status") || undefined;
+    const statusParam = url.searchParams.get("status") || undefined;
 
     const { data: auth } = await supabase.auth.getUser();
     const uid = auth?.user?.id || null;
@@ -130,11 +129,11 @@ export async function GET(req: NextRequest) {
     const company_id = prof?.company_id ?? meta?.company_id ?? null;
     const customer_id = prof?.customer_id ?? meta?.customer_id ?? null;
 
-    // Select only columns we know exist (no schedule_dt/scheduled_for)
     const cols = [
       "id",
       "status",
       "service",
+      "fmc",
       "po",
       "notes",
       "mileage",
@@ -150,12 +149,28 @@ export async function GET(req: NextRequest) {
 
     let q = supabase.from("service_requests").select(cols);
 
+    // scope
     if (!isAdmin && company_id) q = q.eq("company_id", company_id);
     if (mine) {
       if (!customer_id) return NextResponse.json({ rows: [] });
       q = q.eq("customer_id", customer_id);
     }
-    if (statusFilter) q = q.eq("status", statusFilter);
+
+    // NEW: multi-status filter
+    if (statusParam) {
+      // e.g. "NEW,WAITING TO BE SCHEDULED"
+      const rawParts = statusParam.split(",").map((s) => s.trim()).filter(Boolean);
+      const dbStatuses = rawParts.map((ui) => {
+        // UI might have spaces ("WAITING TO BE SCHEDULED") so map it
+        const mapped = UI_TO_DB_STATUS[ui as keyof typeof UI_TO_DB_STATUS];
+        return mapped ?? ui; // fallback: use as-is
+      });
+      if (dbStatuses.length === 1) {
+        q = q.eq("status", dbStatuses[0]);
+      } else if (dbStatuses.length > 1) {
+        q = q.in("status", dbStatuses);
+      }
+    }
 
     if (sortByParam === "scheduled_at") {
       q = q.order("scheduled_at", { ascending: sortDirAsc }).limit(limit);
@@ -195,7 +210,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-/** POST /api/requests (create) */
+/** POST /api/requests (create) — unchanged from your last version except FMC is nullable */
 export async function POST(req: NextRequest) {
   try {
     const supabase = await supabaseServer();
@@ -231,13 +246,14 @@ export async function POST(req: NextRequest) {
       },
       service = null,
       notes = null,
+      fmc = null,
       po = null,
       mileage = null,
       priority = null as null | string,
       scheduled_at = null as null | string,
     } = body || {};
 
-    // Ensure vehicle_id if inline vehicle data was sent
+    // ensure vehicle if inline
     let finalVehicleId: string | null = vehicle_id ?? null;
     if (!finalVehicleId && vehicle && (vehicle.unit_number || vehicle.plate || vehicle.vin)) {
       const unit = (vehicle.unit_number || "").trim();
@@ -262,7 +278,6 @@ export async function POST(req: NextRequest) {
           .single();
 
         if (res.error) {
-          // Fallback find by unit_number (+ company_id if available)
           let q = supabase.from("vehicles").select("id").eq("unit_number", unit).limit(1).maybeSingle();
           if (company_id) q = q.eq("company_id", company_id);
           const alt = await q;
@@ -273,11 +288,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Build insert row (only columns that exist)
     const insertRow: any = {
       status: "NEW",
       service,
       notes,
+      fmc: fmc || null,
       po,
       mileage,
       priority,
@@ -292,7 +307,7 @@ export async function POST(req: NextRequest) {
       .from("service_requests")
       .insert(insertRow)
       .select(
-        "id, status, service, po, notes, mileage, priority, created_at, scheduled_at, customer_id, vehicle_id, location_id, technician_id"
+        "id, status, service, fmc, po, notes, mileage, priority, created_at, scheduled_at, customer_id, vehicle_id, location_id, technician_id"
       )
       .single();
 
