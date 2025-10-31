@@ -1,16 +1,12 @@
-// app/office/queue/page.tsx
-'use client';
+"use client";
 
-import { useEffect, useMemo, useState } from 'react';
-import { InviteUserButton } from '@/components/InviteUserButton';
-import { UI_STATUSES, type UiStatus } from '@/lib/status';
+import { useEffect, useMemo, useState } from "react";
+import { InviteUserButton } from "@/components/InviteUserButton";
+import { UI_STATUSES, type UiStatus } from "@/lib/status";
 
-/* =========================
-   Types
-========================= */
 type RequestRow = {
   id: string;
-  status: UiStatus | string; // tolerate older records
+  status: UiStatus | string;
   service?: string | null;
   priority?: string | null;
   fmc?: string | null;
@@ -31,66 +27,58 @@ type RequestRow = {
     plate?: string | null;
   } | null;
   location?: { id?: string; name?: string | null } | null;
-  technician?: { id: string | null } | null;
+  technician?: { id: string | null; name?: string | null } | null;
 };
 
 type RequestDetails = RequestRow & {
   notes_list?: Array<{ id: string; text: string; created_at?: string | null }> | null;
 };
 
-/* =========================
-   Helpers
-========================= */
 async function fetchJSON<T>(url: string) {
-  const res = await fetch(url, { credentials: 'include' });
+  const res = await fetch(url, { credentials: "include" });
   if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`HTTP ${res.status} ${res.statusText}${text ? ` – ${text}` : ''}`);
+    const text = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status} ${res.statusText}${text ? ` – ${text}` : ""}`);
   }
   return res.json() as Promise<T>;
 }
 async function patchJSON<T>(url: string, body: any) {
   const res = await fetch(url, {
-    method: 'PATCH',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`HTTP ${res.status} ${res.statusText}${text ? ` – ${text}` : ''}`);
+    const text = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status} ${res.statusText}${text ? ` – ${text}` : ""}`);
   }
   return res.json() as Promise<T>;
 }
 async function postJSON<T>(url: string, body: any) {
   const res = await fetch(url, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`HTTP ${res.status} ${res.statusText}${text ? ` – ${text}` : ''}`);
+    const text = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status} ${res.statusText}${text ? ` – ${text}` : ""}`);
   }
   return res.json() as Promise<T>;
 }
 async function delJSON<T>(url: string) {
-  const res = await fetch(url, { method: 'DELETE', credentials: 'include' });
+  const res = await fetch(url, { method: "DELETE", credentials: "include" });
   if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`HTTP ${res.status} ${res.statusText}${text ? ` – ${text}` : ''}`);
+    const text = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status} ${res.statusText}${text ? ` – ${text}` : ""}`);
   }
   return res.json() as Promise<T>;
 }
 
-function fmtVehicle(v?: RequestRow['vehicle']) {
-  if (!v) return '—';
-  const ymk = [v.year, v.make, v.model].filter(Boolean).join(' ');
-  return v.unit_number || ymk || v.plate || v.id || '—';
-}
 function fmtDate(s?: string | null) {
-  if (!s) return '—';
+  if (!s) return "—";
   try {
     return new Date(s).toLocaleString();
   } catch {
@@ -98,81 +86,169 @@ function fmtDate(s?: string | null) {
   }
 }
 
-/* =========================
-   Page Component
-========================= */
+function renderVehicle(v?: RequestRow["vehicle"]) {
+  if (!v) return "—";
+  const parts: string[] = [];
+  if (v.year) parts.push(String(v.year));
+  if (v.make) parts.push(v.make);
+  if (v.model) parts.push(v.model);
+  const main = parts.join(" ").trim();
+  if (main && v.unit_number) return `${main} (${v.unit_number})`;
+  if (main) return main;
+  if (v.unit_number) return v.unit_number;
+  if (v.plate) return v.plate;
+  if (v.id) return v.id;
+  return "—";
+}
+
 export default function OfficeQueuePage() {
-  // Table + filters
+  // table
   const [rows, setRows] = useState<RequestRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  // Drawer
+  // drawer
   const [showDrawer, setShowDrawer] = useState(false);
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [drawerRow, setDrawerRow] = useState<RequestDetails | null>(null);
-  const [drawerErr, setDrawerErr] = useState('');
+  const [drawerErr, setDrawerErr] = useState("");
   const [drawerBusy, setDrawerBusy] = useState(false);
 
-  // Editable fields inside drawer
-  const [dStatus, setDStatus] = useState<UiStatus>('NEW');
-  const [dService, setDService] = useState<string>('');
-  const [dFmc, setDFmc] = useState<string>('');
-  const [dPo, setDPo] = useState<string>('');
-  const [dMileage, setDMileage] = useState<string>('');
-  const [dScheduledAt, setDScheduledAt] = useState<string>(''); // ISO local datetime string (optional)
+  // drawer editable fields
+  const [dStatus, setDStatus] = useState<UiStatus>("NEW");
+  const [dService, setDService] = useState<string>("");
+  const [dFmc, setDFmc] = useState<string>("");
+  const [dPo, setDPo] = useState<string>("");
+  const [dMileage, setDMileage] = useState<string>("");
+  const [dScheduledAt, setDScheduledAt] = useState<string>("");
 
-  // Notes
+  // notes in drawer
   const [notes, setNotes] = useState<Array<{ id: string; text: string; created_at?: string | null }>>([]);
-  const [newNote, setNewNote] = useState('');
+  const [newNote, setNewNote] = useState("");
   const [noteBusy, setNoteBusy] = useState(false);
-  const [noteErr, setNoteErr] = useState('');
+  const [noteErr, setNoteErr] = useState("");
 
+  // FILTER TOGGLES (all separate now)
+  const [showNew, setShowNew] = useState(true);
+  const [showWaitingSched, setShowWaitingSched] = useState(true);
+  const [showWaitingApproval, setShowWaitingApproval] = useState(true);
+  const [showDeclined, setShowDeclined] = useState(true);
+  const [showWaitingParts, setShowWaitingParts] = useState(true);
+  const [showScheduled, setShowScheduled] = useState(true);
+  const [showInProgress, setShowInProgress] = useState(true);
+  const [showDispatched, setShowDispatched] = useState(true);
+  const [showCompleted, setShowCompleted] = useState(true);
+
+  // pull from lib so Office + Dispatch + Superadmin all see the same label list
   const statusOptions = useMemo(() => UI_STATUSES, []);
 
-  // Load queue
+  // initial load
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        const data = await fetchJSON<{ rows: RequestRow[] }>('/api/requests?limit=50&sortBy=created_at&sortDir=desc');
+        const data = await fetchJSON<{ rows: RequestRow[] }>(
+          "/api/requests?limit=50&sortBy=created_at&sortDir=desc"
+        );
         if (!mounted) return;
         setRows(data.rows || []);
       } catch (e: any) {
         if (!mounted) return;
-        setErr(e.message || 'Failed to load queue');
+        setErr(e.message || "Failed to load queue");
       } finally {
         if (mounted) setLoading(false);
       }
     })();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  // When opening a row
+  // client-side filter
+  const filteredRows = useMemo(() => {
+    return rows.filter((r) => {
+      const s = (r.status || "").toUpperCase();
+      const isScheduled = !!r.scheduled_at;
+
+      const matchNew = showNew && s === "NEW";
+      const matchWaitingSched = showWaitingSched && s === "WAITING_TO_BE_SCHEDULED";
+      const matchWaitingApproval = showWaitingApproval && s === "WAITING_APPROVAL";
+      const matchDeclined = showDeclined && s === "DECLINED";
+      const matchWaitingParts = showWaitingParts && s === "WAITING_FOR_PARTS";
+      // treat real SCHEDULED + "has a scheduled_at" as scheduled
+      const matchScheduled = showScheduled && (s === "SCHEDULED" || isScheduled);
+      const matchInProgress = showInProgress && s === "IN_PROGRESS";
+      const matchDispatched = showDispatched && s === "DISPATCHED";
+      const matchCompleted = showCompleted && (s === "COMPLETED" || s === "DONE");
+
+      // if EVERYTHING is off → show all (makes your SUPERADMIN view safer)
+      if (
+        !showNew &&
+        !showWaitingSched &&
+        !showWaitingApproval &&
+        !showDeclined &&
+        !showWaitingParts &&
+        !showScheduled &&
+        !showInProgress &&
+        !showDispatched &&
+        !showCompleted
+      ) {
+        return true;
+      }
+
+      return (
+        matchNew ||
+        matchWaitingSched ||
+        matchWaitingApproval ||
+        matchDeclined ||
+        matchWaitingParts ||
+        matchScheduled ||
+        matchInProgress ||
+        matchDispatched ||
+        matchCompleted
+      );
+    });
+  }, [
+    rows,
+    showNew,
+    showWaitingSched,
+    showWaitingApproval,
+    showDeclined,
+    showWaitingParts,
+    showScheduled,
+    showInProgress,
+    showDispatched,
+    showCompleted,
+  ]);
+
+  // open drawer
   async function openDrawer(id: string) {
     setShowDrawer(true);
     setDrawerId(id);
-    setDrawerErr('');
+    setDrawerErr("");
     setDrawerBusy(true);
     try {
       const data = await fetchJSON<RequestDetails>(`/api/requests/${encodeURIComponent(id)}`);
       setDrawerRow(data);
 
-      // seed edit fields
-      const curStatus = (data.status as UiStatus) || 'NEW';
+      const curStatus = (data.status as UiStatus) || "NEW";
       setDStatus(curStatus);
-      setDService(String(data.service || ''));
-      setDFmc(String(data.fmc || ''));
-      setDPo(String(data.po || ''));
-      setDMileage(data.mileage != null ? String(data.mileage) : '');
-      setDScheduledAt(data.scheduled_at ? new Date(data.scheduled_at).toISOString().slice(0, 16) : '');
+      setDService(String(data.service || ""));
+      setDFmc(String(data.fmc || ""));
+      setDPo(String(data.po || ""));
+      setDMileage(data.mileage != null ? String(data.mileage) : "");
+      setDScheduledAt(data.scheduled_at ? new Date(data.scheduled_at).toISOString().slice(0, 16) : "");
 
-      const n = (data.notes_list || []).map(n => ({ id: n.id, text: n.text, created_at: n.created_at ?? null }));
+      const n = (data.notes_list || []).map((n) => ({
+        id: n.id,
+        text: n.text,
+        created_at: n.created_at ?? null,
+      }));
       setNotes(n);
-      setNewNote('');
-      setNoteErr('');
+      setNewNote("");
+      setNoteErr("");
     } catch (e: any) {
-      setDrawerErr(e.message || 'Failed to load details');
+      setDrawerErr(e.message || "Failed to load details");
     } finally {
       setDrawerBusy(false);
     }
@@ -183,14 +259,14 @@ export default function OfficeQueuePage() {
     setShowDrawer(false);
     setDrawerId(null);
     setDrawerRow(null);
-    setDrawerErr('');
+    setDrawerErr("");
   }
 
-  // Save details (PATCH) — allow any→any, no side-effects enforced here
+  // save drawer
   async function saveDetails() {
     if (!drawerId) return;
     setDrawerBusy(true);
-    setDrawerErr('');
+    setDrawerErr("");
     try {
       const body: any = {
         status: dStatus || null,
@@ -201,74 +277,87 @@ export default function OfficeQueuePage() {
         scheduled_at: dScheduledAt ? new Date(dScheduledAt).toISOString() : null,
       };
 
-      const updated = await patchJSON<RequestDetails>(`/api/requests/${encodeURIComponent(drawerId)}`, body);
+      const updated = await patchJSON<RequestDetails>(
+        `/api/requests/${encodeURIComponent(drawerId)}`,
+        body
+      );
       setDrawerRow(updated);
 
-      // also reflect in list
-      setRows(prev =>
-        prev.map(r => (r.id === drawerId
-          ? {
-              ...r,
-              status: updated.status as UiStatus,
-              service: updated.service,
-              priority: updated.priority,
-              fmc: updated.fmc,
-              mileage: updated.mileage,
-              po: updated.po,
-              scheduled_at: updated.scheduled_at
-            }
-          : r))
+      // update list
+      setRows((prev) =>
+        prev.map((r) =>
+          r.id === drawerId
+            ? {
+                ...r,
+                status: updated.status,
+                service: updated.service,
+                fmc: updated.fmc,
+                po: updated.po,
+                mileage: updated.mileage,
+                scheduled_at: updated.scheduled_at,
+                vehicle: updated.vehicle ?? r.vehicle,
+                technician: updated.technician ?? r.technician,
+              }
+            : r
+        )
       );
     } catch (e: any) {
-      setDrawerErr(e.message || 'Update failed');
+      setDrawerErr(e.message || "Update failed");
     } finally {
       setDrawerBusy(false);
     }
   }
 
-  // Notes: add
+  // add note
   async function addNote() {
     if (!drawerId) return;
     const text = newNote.trim();
     if (!text) return;
     setNoteBusy(true);
-    setNoteErr('');
+    setNoteErr("");
     try {
       let noteResp: { id: string; text: string; created_at?: string | null } | null = null;
-
       try {
         noteResp = await postJSON(`/api/requests/${encodeURIComponent(drawerId)}/notes`, { text });
       } catch {
-        const d = await patchJSON<RequestDetails>(`/api/requests/${encodeURIComponent(drawerId)}`, { add_note: text });
+        const d = await patchJSON<RequestDetails>(`/api/requests/${encodeURIComponent(drawerId)}`, {
+          add_note: text,
+        });
         const latest = (d.notes_list || [])[0];
-        if (latest) noteResp = { id: latest.id, text: latest.text, created_at: latest.created_at ?? null };
+        if (latest)
+          noteResp = {
+            id: latest.id,
+            text: latest.text,
+            created_at: latest.created_at ?? null,
+          };
       }
-
       if (noteResp) {
-        setNotes(prev => [{ id: noteResp.id, text: noteResp.text, created_at: noteResp.created_at ?? null }, ...prev]);
-        setNewNote('');
+        setNotes((prev) => [noteResp!, ...prev]);
+        setNewNote("");
       }
     } catch (e: any) {
-      setNoteErr(e.message || 'Failed to add note');
+      setNoteErr(e.message || "Failed to add note");
     } finally {
       setNoteBusy(false);
     }
   }
 
-  // Notes: delete
+  // remove note
   async function removeNote(id: string) {
     if (!drawerId) return;
     setNoteBusy(true);
-    setNoteErr('');
+    setNoteErr("");
     try {
       try {
         await delJSON(`/api/requests/${encodeURIComponent(drawerId)}/notes/${encodeURIComponent(id)}`);
       } catch {
-        await patchJSON<RequestDetails>(`/api/requests/${encodeURIComponent(drawerId)}`, { remove_note_id: id });
+        await patchJSON<RequestDetails>(`/api/requests/${encodeURIComponent(drawerId)}`, {
+          remove_note_id: id,
+        });
       }
-      setNotes(prev => prev.filter(n => n.id !== id));
+      setNotes((prev) => prev.filter((n) => n.id !== id));
     } catch (e: any) {
-      setNoteErr(e.message || 'Failed to remove note');
+      setNoteErr(e.message || "Failed to remove note");
     } finally {
       setNoteBusy(false);
     }
@@ -281,11 +370,91 @@ export default function OfficeQueuePage() {
         <InviteUserButton />
       </div>
 
+      {/* FILTER BAR */}
+      <div className="flex flex-wrap gap-3 mb-2 text-sm">
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={showNew} onChange={(e) => setShowNew(e.target.checked)} />
+          <span>NEW</span>
+        </label>
+
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={showWaitingSched}
+            onChange={(e) => setShowWaitingSched(e.target.checked)}
+          />
+          <span>WAITING TO BE SCHEDULED</span>
+        </label>
+
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={showWaitingApproval}
+            onChange={(e) => setShowWaitingApproval(e.target.checked)}
+          />
+          <span>WAITING APPROVAL</span>
+        </label>
+
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={showDeclined}
+            onChange={(e) => setShowDeclined(e.target.checked)}
+          />
+          <span>DECLINED</span>
+        </label>
+
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={showWaitingParts}
+            onChange={(e) => setShowWaitingParts(e.target.checked)}
+          />
+          <span>WAITING FOR PARTS</span>
+        </label>
+
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={showScheduled}
+            onChange={(e) => setShowScheduled(e.target.checked)}
+          />
+          <span>SCHEDULED</span>
+        </label>
+
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={showInProgress}
+            onChange={(e) => setShowInProgress(e.target.checked)}
+          />
+          <span>IN PROGRESS</span>
+        </label>
+
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={showDispatched}
+            onChange={(e) => setShowDispatched(e.target.checked)}
+          />
+          <span>DISPATCHED</span>
+        </label>
+
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={showCompleted}
+            onChange={(e) => setShowCompleted(e.target.checked)}
+          />
+          <span>COMPLETED</span>
+        </label>
+      </div>
+
       {loading ? (
         <div>Loading queue…</div>
       ) : err ? (
         <div className="text-red-600">Error: {err}</div>
-      ) : rows.length === 0 ? (
+      ) : filteredRows.length === 0 ? (
         <div>No service requests found.</div>
       ) : (
         <table className="w-full text-sm border-collapse">
@@ -296,22 +465,23 @@ export default function OfficeQueuePage() {
               <th className="text-left px-3 py-2">Service</th>
               <th className="text-left px-3 py-2">Status</th>
               <th className="text-left px-3 py-2">Priority</th>
+              <th className="text-left px-3 py-2">Scheduled</th>
               <th className="text-left px-3 py-2">Created</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {filteredRows.map((r) => (
               <tr
                 key={r.id}
                 className="border-b hover:bg-gray-50 cursor-pointer"
                 onClick={() => openDrawer(r.id)}
-                title="View & edit request"
               >
-                <td className="px-3 py-2">{r.customer?.name || '—'}</td>
-                <td className="px-3 py-2">{fmtVehicle(r.vehicle)}</td>
-                <td className="px-3 py-2">{r.service || '—'}</td>
+                <td className="px-3 py-2">{r.customer?.name || "—"}</td>
+                <td className="px-3 py-2">{renderVehicle(r.vehicle)}</td>
+                <td className="px-3 py-2">{r.service || "—"}</td>
                 <td className="px-3 py-2">{r.status}</td>
-                <td className="px-3 py-2">{r.priority || '—'}</td>
+                <td className="px-3 py-2">{r.priority || "—"}</td>
+                <td className="px-3 py-2">{fmtDate(r.scheduled_at)}</td>
                 <td className="px-3 py-2">{fmtDate(r.created_at)}</td>
               </tr>
             ))}
@@ -319,13 +489,13 @@ export default function OfficeQueuePage() {
         </table>
       )}
 
-      {/* ===== Drawer ===== */}
+      {/* Drawer */}
       {showDrawer ? (
         <div
           className="fixed inset-0 z-50 flex items-start justify-end bg-black/40"
-          role="dialog"
-          aria-modal="true"
-          onClick={(e) => { if (e.target === e.currentTarget && !drawerBusy && !noteBusy) closeDrawer(); }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !drawerBusy && !noteBusy) closeDrawer();
+          }}
         >
           <div className="w-full max-w-2xl bg-white h-full overflow-y-auto shadow-xl p-6">
             <div className="flex items-center justify-between mb-4">
@@ -333,21 +503,22 @@ export default function OfficeQueuePage() {
               <button
                 onClick={() => !drawerBusy && !noteBusy && closeDrawer()}
                 className="px-3 py-1 border rounded"
-                aria-label="Close"
               >
                 ✕
               </button>
             </div>
 
             {drawerErr ? (
-              <div className="border border-red-300 bg-red-50 text-red-800 p-2 rounded mb-3">{drawerErr}</div>
+              <div className="border border-red-300 bg-red-50 text-red-800 p-2 rounded mb-3">
+                {drawerErr}
+              </div>
             ) : null}
 
             {!drawerRow ? (
               <div>Loading…</div>
             ) : (
               <div className="space-y-6">
-                {/* Top editable fields */}
+                {/* Editable top */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <label className="block text-sm">
                     <span className="block mb-1">Status</span>
@@ -357,7 +528,11 @@ export default function OfficeQueuePage() {
                       onChange={(e) => setDStatus(e.target.value as UiStatus)}
                       disabled={drawerBusy}
                     >
-                      {statusOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                      {statusOptions.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
                     </select>
                   </label>
 
@@ -395,12 +570,10 @@ export default function OfficeQueuePage() {
                     <span className="block mb-1">Mileage</span>
                     <input
                       type="number"
-                      inputMode="numeric"
                       className="border rounded-md px-3 py-2 w-full"
                       value={dMileage}
                       onChange={(e) => setDMileage(e.target.value)}
                       disabled={drawerBusy}
-                      placeholder="Odometer"
                     />
                   </label>
 
@@ -424,30 +597,37 @@ export default function OfficeQueuePage() {
                   </div>
                   <div className="text-sm">
                     <div className="text-gray-500">Customer</div>
-                    <div>{drawerRow.customer?.name || '—'}</div>
+                    <div>{drawerRow.customer?.name || "—"}</div>
                   </div>
                   <div className="text-sm">
                     <div className="text-gray-500">Location</div>
-                    <div>{drawerRow.location?.name || '—'}</div>
+                    <div>{drawerRow.location?.name || "—"}</div>
                   </div>
                   <div className="text-sm">
                     <div className="text-gray-500">Vehicle</div>
-                    <div>{fmtVehicle(drawerRow.vehicle)}</div>
+                    <div>{renderVehicle(drawerRow.vehicle)}</div>
                   </div>
                   <div className="text-sm">
                     <div className="text-gray-500">Technician</div>
-                    <div>{drawerRow.technician?.id || '—'}</div>
+                    {/* this is the spot you wanted so Office can SEE what Dispatch picked */}
+                    <div>{drawerRow.technician?.name || drawerRow.technician?.id || "—"}</div>
                   </div>
                 </div>
 
                 <div className="flex items-center justify-end gap-3">
-                  <button className="px-4 py-2 border rounded" onClick={closeDrawer} disabled={drawerBusy || noteBusy}>Close</button>
+                  <button
+                    className="px-4 py-2 border rounded"
+                    onClick={closeDrawer}
+                    disabled={drawerBusy || noteBusy}
+                  >
+                    Close
+                  </button>
                   <button
                     className="px-4 py-2 bg-black text-white rounded disabled:opacity-40"
                     onClick={saveDetails}
                     disabled={drawerBusy || noteBusy}
                   >
-                    {drawerBusy ? 'Saving…' : 'Save'}
+                    {drawerBusy ? "Saving…" : "Save"}
                   </button>
                 </div>
 
@@ -473,7 +653,7 @@ export default function OfficeQueuePage() {
                       onClick={addNote}
                       disabled={noteBusy || !newNote.trim()}
                     >
-                      {noteBusy ? 'Adding…' : 'Add'}
+                      {noteBusy ? "Adding…" : "Add"}
                     </button>
                   </div>
 
@@ -481,7 +661,7 @@ export default function OfficeQueuePage() {
                     <div className="text-sm text-gray-500">No notes yet.</div>
                   ) : (
                     <ul className="space-y-2">
-                      {notes.map(n => (
+                      {notes.map((n) => (
                         <li key={n.id} className="border rounded-md p-3">
                           <div className="text-sm whitespace-pre-wrap">{n.text}</div>
                           <div className="text-xs text-gray-500 mt-1">{fmtDate(n.created_at)}</div>

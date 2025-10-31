@@ -6,6 +6,9 @@ import { DB_TO_UI_STATUS, UI_TO_DB_STATUS, type UiStatus } from "@/lib/status";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+// since fmc is an enum & NOT NULL, we always write this
+const FMC_ENUM_FALLBACK = "NONE";
+
 /** Super-admin allow list */
 function isSuperAdminEmail(email?: string | null) {
   const envList = (process.env.SUPERADMIN_EMAILS || "")
@@ -47,13 +50,16 @@ function toUiRow(
   const location = r.location_id ? rel.locations[r.location_id] ?? null : null;
   const tech = r.technician_id ? rel.technicians[r.technician_id] ?? null : null;
 
+  // prefer text → fallback to enum → fallback to null
+  const fmc = r.fmc_text ?? r.fmc ?? null;
+
   return {
     id: r.id,
-    status: toUiStatus(r.status), // << map DB -> UI
+    status: toUiStatus(r.status),
     service: r.service ?? null,
-    fmc: r.fmc ?? null,
+    fmc,
     po: r.po ?? null,
-    notes: r.notes ?? null, // legacy single-note field if you use it
+    notes: r.notes ?? null,
     mileage: r.mileage ?? null,
     priority: r.priority ?? null,
     created_at: r.created_at,
@@ -71,7 +77,6 @@ function toUiRow(
       : null,
     location: location ? { id: location.id, name: location.name ?? null } : null,
     technician: tech ? { id: tech.id ?? null } : null,
-    // Drawer expects optional notes array as notes_list
     notes_list: notes ?? null,
   };
 }
@@ -116,7 +121,6 @@ async function fetchRelations(
 }
 
 async function fetchNotesIfAny(supabase: any, requestId: string) {
-  // Optional: service_request_notes (id, request_id, text, created_at)
   try {
     const { data, error } = await supabase
       .from("service_request_notes")
@@ -134,15 +138,12 @@ async function fetchNotesIfAny(supabase: any, requestId: string) {
   }
 }
 
-/** GET /api/requests/[id] (details)
- * Next 15 requires awaiting params.
- */
+/** GET /api/requests/[id] */
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params;
     const supabase = await supabaseServer();
 
-    // Auth + scoping
     const { data: auth } = await supabase.auth.getUser();
     const uid = auth?.user?.id || null;
     const email = auth?.user?.email || null;
@@ -159,12 +160,13 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     const isAdmin = String(role || "").toUpperCase() === "ADMIN" || isSuperAdminEmail(email);
     const company_id = prof?.company_id ?? meta?.company_id ?? null;
 
-    // Flat select only (no nested relationships)
+    // IMPORTANT: include fmc_text here
     const cols = [
       "id",
       "status",
       "service",
       "fmc",
+      "fmc_text",
       "po",
       "notes",
       "mileage",
@@ -204,27 +206,26 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   }
 }
 
-/** PATCH /api/requests/[id] (update details + optional notes add/remove) */
+/** PATCH /api/requests/[id] */
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params;
     const supabase = await supabaseServer();
-
     const body = await req.json().catch(() => ({} as any));
+
     const {
       status = undefined,
       service = undefined,
       fmc = undefined,
       po = undefined,
-      notes = undefined, // legacy single-note field
+      notes = undefined,
       mileage = undefined,
       priority = undefined,
-      scheduled_at = undefined, // ISO string or empty to clear
-      add_note = undefined as string | undefined, // optional: create a note row
-      remove_note_id = undefined as string | undefined, // optional: delete a note row
+      scheduled_at = undefined,
+      add_note = undefined as string | undefined,
+      remove_note_id = undefined as string | undefined,
     } = body || {};
 
-    // Auth + scoping
     const { data: auth } = await supabase.auth.getUser();
     const uid = auth?.user?.id || null;
     const email = auth?.user?.email || null;
@@ -241,11 +242,16 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     const isAdmin = String(role || "").toUpperCase() === "ADMIN" || isSuperAdminEmail(email);
     const company_id = prof?.company_id ?? meta?.company_id ?? null;
 
-    // Build update payload with only provided fields
+    // build patch
     const patch: any = {};
-    if (typeof status !== "undefined") patch.status = status ? toDbStatus(status) : null; // << map UI -> DB
+    if (typeof status !== "undefined") patch.status = status ? toDbStatus(status) : null;
     if (typeof service !== "undefined") patch.service = service || null;
-    if (typeof fmc !== "undefined") patch.fmc = fmc || null;
+    if (typeof fmc !== "undefined") {
+      // always keep enum happy
+      patch.fmc = FMC_ENUM_FALLBACK;
+      // store user-typed text
+      patch.fmc_text = fmc || null;
+    }
     if (typeof po !== "undefined") patch.po = po || null;
     if (typeof notes !== "undefined") patch.notes = notes || null;
     if (typeof mileage !== "undefined") patch.mileage = mileage === "" ? null : Number(mileage);
@@ -254,7 +260,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       patch.scheduled_at = scheduled_at ? new Date(scheduled_at).toISOString() : null;
     }
 
-    // Update the request row (if anything to update)
     if (Object.keys(patch).length > 0) {
       let uq = supabase.from("service_requests").update(patch).eq("id", id).select("id").maybeSingle();
       if (!isAdmin && company_id) uq = uq.eq("company_id", company_id);
@@ -262,34 +267,31 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       if (ures.error) return NextResponse.json({ error: ures.error.message }, { status: 500 });
     }
 
-    // Optional: add a note
+    // add note
     if (add_note && add_note.trim()) {
       try {
         await supabase.from("service_request_notes").insert([{ request_id: id, text: add_note.trim() }]);
       } catch {
-        // ignore if table doesn't exist
+        // ignore
       }
     }
 
-    // Optional: remove a note
+    // remove note
     if (remove_note_id) {
       try {
-        await supabase
-          .from("service_request_notes")
-          .delete()
-          .eq("id", remove_note_id)
-          .eq("request_id", id);
+        await supabase.from("service_request_notes").delete().eq("id", remove_note_id).eq("request_id", id);
       } catch {
-        // ignore if table doesn't exist
+        // ignore
       }
     }
 
-    // Return fresh details
+    // return fresh
     const cols = [
       "id",
       "status",
       "service",
       "fmc",
+      "fmc_text",
       "po",
       "notes",
       "mileage",
@@ -321,7 +323,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     );
     const notesList = await fetchNotesIfAny(supabase, row.id);
 
-    // Map status back to UI for the response
+    // map status back to UI
     row.status = toUiStatus(row.status);
 
     return NextResponse.json(toUiRow(row, rel, notesList));

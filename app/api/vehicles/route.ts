@@ -4,78 +4,140 @@ import { supabaseServer } from "@/lib/supabaseServer";
 
 export const dynamic = "force-dynamic";
 
-async function resolveCompanyId() {
+// single place to figure out who we are
+async function getCurrentUserContext() {
   const supabase = await supabaseServer();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { user: null, company_id: null, role: null, isSuper: false };
+  }
+
+  const authUid = user.id;
+
+  // try newer app_users
+  let appUser: { company_id: string | null; role: string | null } | null = null;
   try {
-    const { data: auth } = await supabase.auth.getUser();
-    const uid = auth.user?.id || null;
-    if (uid) {
-      const { data: prof } = await supabase
-        .from("profiles")
-        .select("company_id")
-        .eq("id", uid)
-        .maybeSingle();
-      if (prof?.company_id) return prof.company_id as string;
-    }
-  } catch {}
-  try {
-    const { data: v } = await supabase
-      .from("vehicles")
-      .select("company_id")
-      .not("company_id", "is", null)
-      .order("created_at", { ascending: false })
-      .limit(1)
+    const { data } = await supabase
+      .from("app_users")
+      .select("company_id, role")
+      .eq("auth_uid", authUid)
       .maybeSingle();
-    if (v?.company_id) return v.company_id as string;
-  } catch {}
-  return null;
+    if (data) {
+      appUser = {
+        company_id: (data as any).company_id ?? null,
+        role: (data as any).role ?? null,
+      };
+    }
+  } catch {
+    // ignore
+  }
+
+  // try legacy profiles
+  let profile: { company_id: string | null } | null = null;
+  try {
+    const { data } = await supabase
+      .from("profiles")
+      .select("company_id")
+      .eq("id", authUid)
+      .maybeSingle();
+    if (data) {
+      profile = { company_id: (data as any).company_id ?? null };
+    }
+  } catch {
+    // ignore
+  }
+
+  const role = appUser?.role ?? null;
+  const isSuper = role === "SUPERADMIN" || role === "ADMIN";
+  const company_id = appUser?.company_id ?? profile?.company_id ?? null;
+
+  return { user, company_id, role, isSuper };
 }
 
 const SELECT_COLS =
-  "id, company_id, customer_id, unit_number, plate, year, make, model, vin, created_at";
+  "id, company_id, location_id, unit_number, plate, year, make, model, vin, notes, active, is_active, created_at";
 
+/**
+ * GET /api/vehicles
+ * GET /api/vehicles?customer_id=...
+ */
 export async function GET(req: Request) {
   const supabase = await supabaseServer();
   const url = new URL(req.url);
-  const debug = url.searchParams.get("debug") === "1";
   const customer_id = url.searchParams.get("customer_id") || undefined;
+  const debug = url.searchParams.get("debug") === "1";
 
-  const company_id = await resolveCompanyId();
-  if (!company_id) {
-    return NextResponse.json(
-      debug
-        ? { error: "no_company", hint: "profiles.company_id is null for this user" }
-        : { error: "no_company" },
-      { status: 400 }
-    );
+  const { user, company_id, isSuper, role } = await getCurrentUserContext();
+
+  if (!user) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   try {
+    // SUPERADMIN — show all, optionally filtered by join
+    if (isSuper) {
+      if (customer_id) {
+        // look in join table first
+        const join = await supabase
+          .from("company_customer_vehicles")
+          .select("vehicle_id, company_id")
+          .eq("customer_id", customer_id);
+
+        if (!join.error && (join.data?.length ?? 0) > 0) {
+          const ids = join.data.map((r: any) => r.vehicle_id);
+          let byIds = await supabase.from("vehicles").select(SELECT_COLS).in("id", ids);
+          if (byIds.error) {
+            byIds = await supabase.from("vehicles").select("*").in("id", ids);
+          }
+          return NextResponse.json(byIds.data ?? []);
+        }
+
+        // nothing in join → just return all
+        let all = await supabase.from("vehicles").select(SELECT_COLS);
+        if (all.error) {
+          all = await supabase.from("vehicles").select("*");
+        }
+        return NextResponse.json(all.data ?? []);
+      }
+
+      // no customer_id
+      let all = await supabase.from("vehicles").select(SELECT_COLS);
+      if (all.error) {
+        all = await supabase.from("vehicles").select("*");
+      }
+      return NextResponse.json(all.data ?? []);
+    }
+
+    // NON SUPER → needs company
+    if (!company_id) {
+      return NextResponse.json(
+        debug
+          ? {
+              error: "no_company",
+              hint: "profiles/app_users has no company_id for this user",
+              role,
+            }
+          : { error: "no_company" },
+        { status: 400 }
+      );
+    }
+
+    // If no customer_id → normal company vehicles
     if (!customer_id) {
       let res = await supabase.from("vehicles").select(SELECT_COLS).eq("company_id", company_id);
-      if (res.error) res = await supabase.from("vehicles").select("*").eq("company_id", company_id);
+      if (res.error) {
+        res = await supabase.from("vehicles").select("*").eq("company_id", company_id);
+      }
       if (res.error) throw res.error;
       return NextResponse.json(res.data ?? []);
     }
 
-    // Try direct column first
-    let direct = await supabase
-      .from("vehicles")
-      .select(SELECT_COLS)
-      .eq("company_id", company_id)
-      .eq("customer_id", customer_id);
-    if (direct.error) {
-      direct = await supabase
-        .from("vehicles")
-        .select("*")
-        .eq("company_id", company_id)
-        .eq("customer_id", customer_id);
-    }
-    if (!direct.error && (direct.data?.length ?? 0) > 0) {
-      return NextResponse.json(direct.data ?? []);
-    }
-
-    // Fallback: join table
+    // If customer_id IS present →
+    // 1) look in join table
     const join = await supabase
       .from("company_customer_vehicles")
       .select("vehicle_id")
@@ -83,7 +145,7 @@ export async function GET(req: Request) {
       .eq("customer_id", customer_id);
 
     if (!join.error && (join.data?.length ?? 0) > 0) {
-      const ids = (join.data ?? []).map((r: { vehicle_id: string }) => r.vehicle_id);
+      const ids = join.data.map((r: any) => r.vehicle_id);
       let byIds = await supabase
         .from("vehicles")
         .select(SELECT_COLS)
@@ -100,108 +162,146 @@ export async function GET(req: Request) {
       return NextResponse.json(byIds.data ?? []);
     }
 
+    // 2) no customer-linked vehicles → give company vehicles so UI isn't empty
+    let fallback = await supabase.from("vehicles").select(SELECT_COLS).eq("company_id", company_id);
+    if (fallback.error) {
+      fallback = await supabase.from("vehicles").select("*").eq("company_id", company_id);
+    }
+
     if (debug) {
-      let unsafe = await supabase.from("vehicles").select(SELECT_COLS).eq("customer_id", customer_id);
-      if (unsafe.error) unsafe = await supabase.from("vehicles").select("*").eq("customer_id", customer_id);
       return NextResponse.json({
-        rows: [],
-        via: "empty_for_company",
-        probe_found_for_other_company: Array.isArray(unsafe.data) ? unsafe.data.length : undefined,
-        probe_sample: Array.isArray(unsafe.data) ? unsafe.data.slice(0, 3) : [],
+        via: "no-customer-link → returning company vehicles",
+        customer_id,
+        company_id,
+        rows: fallback.data ?? [],
       });
     }
 
-    return NextResponse.json([]);
+    return NextResponse.json(fallback.data ?? []);
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || String(e) }, { status: 500 });
   }
 }
 
+/**
+ * POST /api/vehicles
+ *
+ * IMPORTANT: your vehicles table does NOT have customer_id
+ * so we WILL NOT insert customer_id into vehicles.
+ * Instead, we'll link in company_customer_vehicles if customer_id was provided.
+ */
 export async function POST(req: Request) {
   const supabase = await supabaseServer();
-  const company_id = await resolveCompanyId();
-  if (!company_id) {
-    return NextResponse.json({ error: "no_company" }, { status: 400 });
+  const { user, company_id: ctxCompanyId, isSuper } = await getCurrentUserContext();
+
+  if (!user) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const body = await req.json().catch(() => ({}));
   const {
-    customer_id,
+    company_id: bodyCompanyId = null,
+    customer_id = null, // we'll use this ONLY for link table
+    location_id = null,
     unit_number,
     plate = null,
     year = null,
     make = null,
     model = null,
     vin = null,
+    notes = null,
   } = body ?? {};
 
-  if (!customer_id || !unit_number?.trim()) {
-    return NextResponse.json({ error: "customer_id and unit_number are required" }, { status: 400 });
+  // super can override company_id in body, normal user can't
+  const company_id = isSuper ? bodyCompanyId ?? ctxCompanyId : ctxCompanyId;
+
+  if (!company_id) {
+    return NextResponse.json({ error: "no_company" }, { status: 400 });
   }
 
-  const cleanUnit = String(unit_number).trim();
+  // ⬇️ THIS is the change: unit_number is now OPTIONAL
+  const cleanUnit = unit_number ? String(unit_number).trim() : null;
+  const hasUnit = !!cleanUnit;
+
+  // Base payload
+  const insertPayload: Record<string, any> = {
+    company_id,
+    location_id,
+    unit_number: hasUnit ? cleanUnit : null,
+    plate,
+    year,
+    make,
+    model,
+    vin,
+    notes,
+    active: true,
+    is_active: true,
+  };
 
   try {
-    // First attempt: schema WITH vehicles.customer_id — use UPSERT to avoid unique errors
-    let upsert = await supabase
-      .from("vehicles")
-      .upsert(
-        [{ company_id, customer_id, unit_number: cleanUnit, plate, year, make, model, vin }],
-        { onConflict: "company_id,unit_number" }
-      )
-      .select(SELECT_COLS)
-      .single();
+    let ins;
 
-    if (!upsert.error) {
-      return NextResponse.json(upsert.data, { status: 201 });
-    }
+    if (hasUnit) {
+      // if we DO have a unit_number, we keep your previous behavior:
+      // try to insert, but if duplicate, return existing
+      ins = await supabase.from("vehicles").insert(insertPayload).select(SELECT_COLS).single();
 
-    // If that failed because there is no customer_id column, do a 2-step UPSERT + link
-    // Step 1: upsert the vehicle row without customer_id
-    let veh = await supabase
-      .from("vehicles")
-      .upsert(
-        [{ company_id, unit_number: cleanUnit, plate, year, make, model, vin }],
-        { onConflict: "company_id,unit_number" }
-      )
-      .select("id, company_id, unit_number, plate, year, make, model, vin, created_at")
-      .single();
+      if (ins.error) {
+        const msg = ins.error.message || "";
+        if (msg.includes("duplicate") || msg.includes("already exists")) {
+          const existing = await supabase
+            .from("vehicles")
+            .select(SELECT_COLS)
+            .eq("company_id", company_id)
+            .eq("unit_number", cleanUnit)
+            .maybeSingle();
+          if (!existing.error && existing.data) {
+            // link to customer if needed
+            if (customer_id) {
+              try {
+                await supabase.from("company_customer_vehicles").insert([
+                  {
+                    company_id,
+                    customer_id,
+                    vehicle_id: existing.data.id,
+                  },
+                ]);
+              } catch {
+                // ignore
+              }
+            }
+            return NextResponse.json(existing.data, { status: 200 });
+          }
+        }
 
-    if (veh.error) {
-      // If it's still a unique violation, fetch the existing and proceed
-      // @ts-ignore - Supabase error has details but not typed
-      const code = (veh as any).error?.code || (veh as any).error?.details;
-      if (code === "23505" || String(veh.error.message || "").includes("duplicate")) {
-        const existing = await supabase
-          .from("vehicles")
-          .select("id, company_id, unit_number, plate, year, make, model, vin, created_at")
-          .eq("company_id", company_id)
-          .eq("unit_number", cleanUnit)
-          .maybeSingle();
-        if (!existing.error && existing.data) veh = existing as any;
-        else throw veh.error;
-      } else {
-        throw veh.error;
+        return NextResponse.json({ error: ins.error.message }, { status: 500 });
+      }
+    } else {
+      // NO unit_number: just insert a row with null unit
+      ins = await supabase.from("vehicles").insert(insertPayload).select(SELECT_COLS).single();
+      if (ins.error) {
+        return NextResponse.json({ error: ins.error.message }, { status: 500 });
       }
     }
 
-    const vehicle_id = veh.data!.id as string;
+    const newVehicle = ins.data;
 
-    // Step 2: ensure link (company_customer_vehicles), idempotent
-    try {
-      await supabase
-        .from("company_customer_vehicles")
-        .upsert(
-          [{ company_id, customer_id, vehicle_id }],
-          { onConflict: "company_id,customer_id,vehicle_id" }
-        )
-        .select("vehicle_id")
-        .single();
-    } catch {
-      // ignore linking errors (table may not exist)
+    // link to customer if we got one
+    if (customer_id && newVehicle?.id) {
+      try {
+        await supabase.from("company_customer_vehicles").insert([
+          {
+            company_id,
+            customer_id,
+            vehicle_id: newVehicle.id,
+          },
+        ]);
+      } catch {
+        // table might not exist — that's ok
+      }
     }
 
-    return NextResponse.json(veh.data, { status: 201 });
+    return NextResponse.json(newVehicle, { status: 201 });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || String(e) }, { status: 500 });
   }

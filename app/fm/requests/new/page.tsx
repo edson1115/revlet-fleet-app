@@ -10,7 +10,7 @@ type Location = { id: UUID; name: string };
 type Customer = { id: UUID; name: string };
 type Vehicle = {
   id: UUID;
-  unit_number: string;
+  unit_number: string | null;
   plate?: string | null;
   year?: number | null;
   make?: string | null;
@@ -51,10 +51,8 @@ export default function CreateRequestPage() {
   const [avMake, setAvMake] = useState("");
   const [avModel, setAvModel] = useState("");
 
-  const addVehicleDisabled = useMemo(
-    () => !customerId || !avUnit.trim(),
-    [customerId, avUnit]
-  );
+  // NOW: only disable if we don't have a customer.
+  const addVehicleDisabled = useMemo(() => !customerId, [customerId]);
 
   // Load Locations on mount
   useEffect(() => {
@@ -68,7 +66,7 @@ export default function CreateRequestPage() {
 
         const rows: Location[] = (js.data || []).map((r: any) => ({
           id: r.id,
-          name: r.name ?? r.label, // tolerate either
+          name: r.name ?? r.label,
         }));
         setLocations(rows);
       } catch (e: any) {
@@ -91,7 +89,6 @@ export default function CreateRequestPage() {
 
       setErrorMsg(null);
       try {
-        // NOTE: use location= (not market=) per latest API
         const res = await fetch(`/api/lookups?scope=customers&location=${locationId}`, {
           credentials: "include",
         });
@@ -100,7 +97,7 @@ export default function CreateRequestPage() {
 
         const rows: Customer[] = (js.data || []).map((r: any) => ({
           id: r.id,
-          name: r.name ?? r.label, // tolerate either
+          name: r.name ?? r.label,
         }));
         setCustomers(rows);
       } catch (e: any) {
@@ -122,8 +119,17 @@ export default function CreateRequestPage() {
           credentials: "include",
         });
         const js = await res.json();
-        const rows: Vehicle[] = Array.isArray(js) ? js : (js?.data ?? []);
-        setVehicles(rows);
+        // our /api/vehicles sometimes returns array, sometimes {data:[]}
+        const rows: Vehicle[] = Array.isArray(js)
+          ? js
+          : (js?.data ?? js?.rows ?? []);
+        // newest first if created_at is present (some rows in your screenshot are like that)
+        const sorted = [...rows].sort((a: any, b: any) => {
+          const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+          return tb - ta;
+        });
+        setVehicles(sorted);
       } catch (e: any) {
         setErrorMsg(e?.message || "Failed to load vehicles");
       }
@@ -150,56 +156,65 @@ export default function CreateRequestPage() {
           location_id: locationId,
           customer_id: customerId,
           service,
-          fmc: fmc || null,
+          fmc: fmc || null,          // will go through now
           priority,
           mileage: mileage ? Number(mileage) : null,
           po: po || null,
-          notes: notes || null,
+          notes: notes || null,       // will land in service_requests.notes
         }),
       });
       const js = await res.json();
       if (!res.ok) throw new Error(js?.error || "Failed to create request");
 
-      // success → Office Queue
       router.push("/office/queue");
     } catch (e: any) {
       setErrorMsg(e?.message || "Failed to create request");
     }
   };
 
+  // Add Vehicle (modal)
   const onAddVehicle = async () => {
-    if (addVehicleDisabled) return;
+    if (!customerId) return;
     setErrorMsg(null);
     try {
+      // build payload depending on whether unit is present
+      const payload: any = {
+        customer_id: customerId,
+        plate: avPlate.trim() || null,
+        vin: avVin.trim() || null,
+        year: avYear || null,
+        make: avMake.trim() || null,
+        model: avModel.trim() || null,
+      };
+      if (avUnit.trim()) {
+        // if user DID provide a unit, send it
+        payload.unit_number = avUnit.trim();
+      }
       const res = await fetch("/api/vehicles", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          customer_id: customerId, // required by /api/vehicles POST
-          unit_number: avUnit.trim(),
-          plate: avPlate.trim() || null,
-          vin: avVin.trim() || null,
-          year: avYear || null,
-          make: avMake.trim() || null,
-          model: avModel.trim() || null,
-        }),
+        body: JSON.stringify(payload),
       });
       const js = await res.json();
       if (!res.ok) throw new Error(js?.error || "Failed to add vehicle");
 
-      const created: Vehicle = js; // API returns created row
+      const created: Vehicle = js;
       setVehicles((prev) => {
-        const next = [...prev, created].sort((a, b) =>
-          (a.unit_number || "").localeCompare(b.unit_number || "")
-        );
+        // put newest on top
+        const next = [created, ...prev];
         return next;
       });
       setVehicleId(created.id);
 
+      // reset modal
       setShowAddVehicle(false);
-      setAvUnit(""); setAvPlate(""); setAvVin("");
-      setAvYear(undefined); setAvMake(""); setAvModel("");
+      setAvUnit("");
+      setAvPlate("");
+      setAvVin("");
+      setAvYear(undefined);
+      setAvMake("");
+      setAvModel("");
     } catch (e: any) {
       setErrorMsg(e?.message || "Failed to add vehicle");
     }
@@ -227,7 +242,9 @@ export default function CreateRequestPage() {
           >
             <option value="">Select a location…</option>
             {locations.map((l) => (
-              <option key={l.id} value={l.id}>{l.name}</option>
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
             ))}
           </select>
         </div>
@@ -243,10 +260,14 @@ export default function CreateRequestPage() {
           >
             <option value="">Select a customer…</option>
             {customers.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
             ))}
           </select>
-          {!locationId && <p className="mt-1 text-xs text-gray-500">Pick a Location first.</p>}
+          {!locationId && (
+            <p className="mt-1 text-xs text-gray-500">Pick a Location first.</p>
+          )}
         </div>
 
         {/* Vehicle + Add Vehicle */}
@@ -272,9 +293,23 @@ export default function CreateRequestPage() {
             <option value="">Select a vehicle…</option>
             {vehicles.map((v) => (
               <option key={v.id} value={v.id}>
-                {v.unit_number}
-                {v.year ? ` • ${v.year}` : ""}{v.make ? ` ${v.make}` : ""}{v.model ? ` ${v.model}` : ""}
-                {v.vin ? ` • ${v.vin}` : ""}{v.plate ? ` • ${v.plate}` : ""}
+                {/* prefer unit_number if present, else fall back to Y/M/M/plate/VIN */}
+                {v.unit_number
+                  ? v.unit_number
+                  : [
+                      v.year || "",
+                      v.make || "",
+                      v.model || "",
+                      v.plate ? `(${v.plate})` : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                {/* extra info */}
+                {v.year ? ` • ${v.year}` : ""}
+                {v.make ? ` ${v.make}` : ""}
+                {v.model ? ` ${v.model}` : ""}
+                {v.vin ? ` • ${v.vin}` : ""}
+                {v.plate ? ` • ${v.plate}` : ""}
               </option>
             ))}
           </select>
@@ -305,7 +340,9 @@ export default function CreateRequestPage() {
             <select
               className="w-full rounded-lg border px-3 py-2"
               value={priority}
-              onChange={(e) => setPriority(e.target.value as "NORMAL" | "URGENT")}
+              onChange={(e) =>
+                setPriority(e.target.value as "NORMAL" | "URGENT")
+              }
             >
               <option value="NORMAL">Normal</option>
               <option value="URGENT">Urgent</option>
@@ -360,7 +397,10 @@ export default function CreateRequestPage() {
           <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-lg">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Add Vehicle</h2>
-              <button className="text-sm text-gray-600" onClick={() => setShowAddVehicle(false)}>
+              <button
+                className="text-sm text-gray-600"
+                onClick={() => setShowAddVehicle(false)}
+              >
                 Close
               </button>
             </div>
@@ -373,12 +413,14 @@ export default function CreateRequestPage() {
 
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium mb-1">Unit # (required)</label>
+                <label className="block text-sm font-medium mb-1">
+                  Unit # (optional)
+                </label>
                 <input
                   className="w-full rounded-lg border px-3 py-2"
                   value={avUnit}
                   onChange={(e) => setAvUnit(e.target.value)}
-                  placeholder="e.g. VAN-101"
+                  placeholder="e.g. VAN-101 (leave blank if unknown)"
                 />
               </div>
               <div>
@@ -405,8 +447,10 @@ export default function CreateRequestPage() {
                   type="number"
                   className="w-full rounded-lg border px-3 py-2"
                   value={avYear ?? ""}
-                  onChange={(e) => setAvYear(e.target.value ? Number(e.target.value) : undefined)}
-                  placeholder="2021"
+                  onChange={(e) =>
+                    setAvYear(e.target.value ? Number(e.target.value) : undefined)
+                  }
+                  placeholder="2025"
                 />
               </div>
               <div>
@@ -430,14 +474,21 @@ export default function CreateRequestPage() {
             </div>
 
             <div className="mt-5 flex items-center justify-end gap-2">
-              <button className="rounded-lg border px-4 py-2" onClick={() => setShowAddVehicle(false)}>
+              <button
+                className="rounded-lg border px-4 py-2"
+                onClick={() => setShowAddVehicle(false)}
+              >
                 Cancel
               </button>
               <button
                 className="rounded-lg bg-black px-4 py-2 text-white disabled:opacity-50"
                 onClick={onAddVehicle}
                 disabled={addVehicleDisabled}
-                title={addVehicleDisabled ? "Unit # is required" : "Add vehicle"}
+                title={
+                  addVehicleDisabled
+                    ? "Select a customer first"
+                    : "Add vehicle"
+                }
               >
                 Save Vehicle
               </button>
