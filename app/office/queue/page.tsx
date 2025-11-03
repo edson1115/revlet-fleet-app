@@ -128,19 +128,22 @@ export default function OfficeQueuePage() {
   const [noteBusy, setNoteBusy] = useState(false);
   const [noteErr, setNoteErr] = useState("");
 
-  // FILTER TOGGLES (all separate now)
+  // FILTER TOGGLES
   const [showNew, setShowNew] = useState(true);
   const [showWaitingSched, setShowWaitingSched] = useState(true);
   const [showWaitingApproval, setShowWaitingApproval] = useState(true);
   const [showDeclined, setShowDeclined] = useState(true);
   const [showWaitingParts, setShowWaitingParts] = useState(true);
-  const [showScheduled, setShowScheduled] = useState(true);
+  const [showScheduled, setShowScheduled] = useState(true);    // we still allow viewing scheduled rows
   const [showInProgress, setShowInProgress] = useState(true);
-  const [showDispatched, setShowDispatched] = useState(true);
+  const [showDispatched, setShowDispatched] = useState(true);  // view only; Office cannot set this
   const [showCompleted, setShowCompleted] = useState(true);
 
-  // pull from lib so Office + Dispatch + Superadmin all see the same label list
-  const statusOptions = useMemo(() => UI_STATUSES, []);
+  // pull from lib then filter OUT statuses Office must not set
+  const statusOptions = useMemo(
+    () => UI_STATUSES.filter((s) => s !== "SCHEDULED" && s !== "DISPATCHED"),
+    []
+  );
 
   // initial load
   useEffect(() => {
@@ -175,13 +178,11 @@ export default function OfficeQueuePage() {
       const matchWaitingApproval = showWaitingApproval && s === "WAITING_APPROVAL";
       const matchDeclined = showDeclined && s === "DECLINED";
       const matchWaitingParts = showWaitingParts && s === "WAITING_FOR_PARTS";
-      // treat real SCHEDULED + "has a scheduled_at" as scheduled
       const matchScheduled = showScheduled && (s === "SCHEDULED" || isScheduled);
       const matchInProgress = showInProgress && s === "IN_PROGRESS";
       const matchDispatched = showDispatched && s === "DISPATCHED";
       const matchCompleted = showCompleted && (s === "COMPLETED" || s === "DONE");
 
-      // if EVERYTHING is off → show all (makes your SUPERADMIN view safer)
       if (
         !showNew &&
         !showWaitingSched &&
@@ -268,8 +269,14 @@ export default function OfficeQueuePage() {
     setDrawerBusy(true);
     setDrawerErr("");
     try {
+      // HARD GUARD: Office cannot set SCHEDULED or DISPATCHED
+      const forbidden = new Set(["SCHEDULED", "DISPATCHED"]);
+      const safeStatus = dStatus && forbidden.has(String(dStatus).toUpperCase() as UiStatus)
+        ? undefined
+        : dStatus;
+
       const body: any = {
-        status: dStatus || null,
+        status: safeStatus ?? null,
         service: dService || null,
         fmc: dFmc || null,
         po: dPo || null,
@@ -534,6 +541,9 @@ export default function OfficeQueuePage() {
                         </option>
                       ))}
                     </select>
+                    <span className="text-xs text-gray-500">
+                      Office cannot set <strong>SCHEDULED</strong> or <strong>DISPATCHED</strong>. Use Dispatch.
+                    </span>
                   </label>
 
                   <label className="block text-sm">
@@ -609,7 +619,6 @@ export default function OfficeQueuePage() {
                   </div>
                   <div className="text-sm">
                     <div className="text-gray-500">Technician</div>
-                    {/* this is the spot you wanted so Office can SEE what Dispatch picked */}
                     <div>{drawerRow.technician?.name || drawerRow.technician?.id || "—"}</div>
                   </div>
                 </div>

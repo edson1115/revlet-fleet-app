@@ -76,7 +76,7 @@ function toUiRow(
         }
       : null,
     location: location ? { id: location.id, name: location.name ?? null } : null,
-    technician: tech ? { id: tech.id ?? null } : null,
+    technician: tech ? { id: tech.id ?? null, name: tech.name ?? null } : null,
     notes_list: notes ?? null,
   };
 }
@@ -222,6 +222,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       mileage = undefined,
       priority = undefined,
       scheduled_at = undefined,
+      technician_id = undefined as string | null | undefined, // ← NEW: accept technician_id
       add_note = undefined as string | undefined,
       remove_note_id = undefined as string | undefined,
     } = body || {};
@@ -258,6 +259,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     if (typeof priority !== "undefined") patch.priority = priority || null;
     if (typeof scheduled_at !== "undefined") {
       patch.scheduled_at = scheduled_at ? new Date(scheduled_at).toISOString() : null;
+    }
+    // NEW: allow assigning/unassigning a technician
+    if (typeof technician_id !== "undefined") {
+      patch.technician_id = technician_id || null;
     }
 
     if (Object.keys(patch).length > 0) {

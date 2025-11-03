@@ -1,9 +1,14 @@
 // app/api/requests/batch/route.ts
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import { UI_TO_DB_STATUS } from "@/lib/status";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+function httpErr(msg: string, code = 400) {
+  return NextResponse.json({ success: false, error: msg }, { status: code });
+}
 
 async function resolveCompanyId() {
   const supabase = await supabaseServer();
@@ -11,15 +16,10 @@ async function resolveCompanyId() {
     const { data: auth } = await supabase.auth.getUser();
     const uid = auth.user?.id || null;
     if (uid) {
-      const { data: prof, error } = await supabase
-        .from("profiles")
-        .select("company_id")
-        .eq("id", uid)
-        .maybeSingle();
+      const { data: prof, error } = await supabase.from("profiles").select("company_id").eq("id", uid).maybeSingle();
       if (!error && prof?.company_id) return prof.company_id as string;
     }
   } catch {}
-
   try {
     const { data: v } = await supabase
       .from("vehicles")
@@ -30,26 +30,34 @@ async function resolveCompanyId() {
       .maybeSingle();
     if (v?.company_id) return v.company_id as string;
   } catch {}
-
   return null;
+}
+
+function toDbStatus(input?: string | null): string | null {
+  if (!input) return null;
+  const u = String(input).trim().toUpperCase();
+  return (UI_TO_DB_STATUS as any)[u] ?? u;
+}
+
+function nextBusinessDay4amISO(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  const day = d.getDay(); // 0 Sun, 6 Sat
+  if (day === 6) d.setDate(d.getDate() + 2);
+  if (day === 0) d.setDate(d.getDate() + 1);
+  d.setHours(4, 0, 0, 0);
+  return d.toISOString();
 }
 
 /**
  * POST /api/requests/batch
- * Body:
- * {
- *   op: "assign" | "unassign" | "reschedule" | "status",
- *   ids: string[],
- *   technician_id?: string,           // assign
- *   scheduled_at?: string,            // ISO, reschedule
- *   status?: "NEW" | "SCHEDULED" | "IN_PROGRESS" | "COMPLETED" // reschedule/status
- * }
+ * Body: { op: "assign" | "unassign" | "reschedule" | "status",
+ *         ids: string[], technician_id?, scheduled_at?, status? }
  */
 export async function POST(req: Request) {
   const supabase = await supabaseServer();
   const company_id = await resolveCompanyId();
-  if (!company_id)
-    return NextResponse.json({ success: false, error: "No company." }, { status: 400 });
+  if (!company_id) return httpErr("No company.", 400);
 
   const body = await req.json().catch(() => ({} as any));
   const { op, ids } = body as {
@@ -57,85 +65,98 @@ export async function POST(req: Request) {
     ids?: string[];
     technician_id?: string;
     scheduled_at?: string;
-    status?: "NEW" | "SCHEDULED" | "IN_PROGRESS" | "COMPLETED";
+    status?: string;
+    require_assigned?: boolean;
   };
 
   if (!op || !Array.isArray(ids) || ids.length === 0) {
-    return NextResponse.json(
-      { success: false, error: "Missing op or ids." },
-      { status: 400 }
-    );
+    return httpErr("Missing op or ids.", 400);
   }
 
+  // assign technician
   if (op === "assign") {
     const technician_id = (body.technician_id || "").trim();
-    if (!technician_id) {
-      return NextResponse.json(
-        { success: false, error: "technician_id is required for assign." },
-        { status: 400 }
-      );
-    }
+    if (!technician_id) return httpErr("technician_id is required for assign.", 400);
+
+    // (optional) verify tech belongs to same company & is active
+    const { data: tech } = await supabase
+      .from("technicians")
+      .select("id, company_id, active")
+      .eq("id", technician_id)
+      .maybeSingle();
+    if (!tech || tech.company_id !== company_id) return httpErr("invalid_technician", 400);
+
     const { error } = await supabase
       .from("service_requests")
       .update({ technician_id })
       .in("id", ids)
       .eq("company_id", company_id);
-    if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    if (error) return httpErr(error.message, 500);
     return NextResponse.json({ success: true, op, updated: ids.length });
   }
 
+  // unassign technician
   if (op === "unassign") {
     const { error } = await supabase
       .from("service_requests")
       .update({ technician_id: null })
       .in("id", ids)
       .eq("company_id", company_id);
-    if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    if (error) return httpErr(error.message, 500);
     return NextResponse.json({ success: true, op, updated: ids.length });
   }
 
+  // reschedule (optionally flip status)
   if (op === "reschedule") {
-    const scheduled_at = body.scheduled_at ? String(body.scheduled_at) : null;
-    if (!scheduled_at) {
-      return NextResponse.json(
-        { success: false, error: "scheduled_at is required for reschedule." },
-        { status: 400 }
-      );
+    let iso = body.scheduled_at ? new Date(String(body.scheduled_at)).toISOString() : "";
+    if (!iso) iso = nextBusinessDay4amISO();
+
+    const dbStatus = toDbStatus(body.status);
+    const requireAssigned = !!body.require_assigned || dbStatus === "SCHEDULED";
+
+    if (requireAssigned) {
+      // ensure each request already has a technician assigned
+      const { data: rs } = await supabase
+        .from("service_requests")
+        .select("id, technician_id")
+        .in("id", ids)
+        .eq("company_id", company_id);
+      const missing = (rs ?? []).filter(r => !r.technician_id).map(r => r.id);
+      if (missing.length) {
+        return httpErr(`Technician required before scheduling. Missing for: ${missing.join(", ")}`, 400);
+      }
     }
-    const patch: Record<string, any> = { scheduled_at };
-    if (body.status) patch.status = body.status;
+
+    const patch: Record<string, any> = { scheduled_at: iso };
+    if (dbStatus) patch.status = dbStatus;
 
     const { error } = await supabase
       .from("service_requests")
       .update(patch)
       .in("id", ids)
       .eq("company_id", company_id);
-    if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    if (error) return httpErr(error.message, 500);
     return NextResponse.json({ success: true, op, updated: ids.length });
   }
 
+  // direct status set
   if (op === "status") {
-    const status = body.status;
-    if (!status) {
-      return NextResponse.json(
-        { success: false, error: "status is required for status op." },
-        { status: 400 }
-      );
+    const dbStatus = toDbStatus(body.status);
+    if (!dbStatus) return httpErr("status is required for status op.", 400);
+
+    const patch: Record<string, any> = { status: dbStatus };
+    if (dbStatus === "SCHEDULED" && !body.scheduled_at) {
+      patch.scheduled_at = nextBusinessDay4amISO();
     }
-    const patch: Record<string, any> = { status };
-    // Auto-set timestamps if you want: (kept conservative)
-    if (status === "SCHEDULED") patch.scheduled_at = new Date().toISOString();
-    if (status === "IN_PROGRESS") patch.started_at = new Date().toISOString();
-    if (status === "COMPLETED") patch.completed_at = new Date().toISOString();
 
     const { error } = await supabase
       .from("service_requests")
       .update(patch)
       .in("id", ids)
       .eq("company_id", company_id);
-    if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    if (error) return httpErr(error.message, 500);
     return NextResponse.json({ success: true, op, updated: ids.length });
   }
 
-  return NextResponse.json({ success: false, error: "Unsupported op." }, { status: 400 });
+  return httpErr("Unsupported op.", 400);
 }

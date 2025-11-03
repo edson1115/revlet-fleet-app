@@ -1,52 +1,71 @@
-// app/api/technicians/[id]/route.ts
-import { NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabaseServer";
+import { NextRequest, NextResponse } from "next/server";
+import { supabaseServer } from "@/lib/supabase/server";
 
-export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-type Params = { id: string };
+function httpErr(msg: string, code = 400) {
+  return NextResponse.json({ error: msg }, { status: code });
+}
 
-// PATCH /api/technicians/:id  { full_name?, phone?, email?, active? }
-export async function PATCH(req: Request, ctx: { params: Promise<Params> }) {
+// PATCH name/phone/email/active
+export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params;
-    const body = await req.json().catch(() => ({}));
-    const patch: Record<string, any> = {};
-    if (body.full_name !== undefined) patch.full_name = String(body.full_name).trim() || null;
-    if (body.phone !== undefined) patch.phone = body.phone || null;
-    if (body.email !== undefined) patch.email = body.email || null;
-    if (body.active !== undefined) patch.active = !!body.active;
-
-    if (Object.keys(patch).length === 0) {
-      return NextResponse.json({ error: "no fields" }, { status: 400 });
-    }
-
     const sb = await supabaseServer();
-    const { data, error } = await sb
+    const body = await req.json().catch(() => ({} as any));
+
+    const patch: any = {};
+    if (typeof body.full_name !== "undefined") patch.full_name = body.full_name || null;
+    if (typeof body.name !== "undefined") patch.full_name = body.name || null; // also accept `name`
+    if (typeof body.phone !== "undefined") patch.phone = body.phone || null;
+    if (typeof body.email !== "undefined") patch.email = body.email || null;
+    if (typeof body.active !== "undefined") patch.active = !!body.active;
+
+    const { data: auth } = await sb.auth.getUser();
+    const uid = auth.user?.id || null;
+    if (!uid) return httpErr("unauthorized", 401);
+
+    const { data: me } = await sb.from("profiles").select("company_id").eq("id", uid).maybeSingle();
+    const company_id = (me?.company_id as string) || null;
+    if (!company_id) return httpErr("no_company", 400);
+
+    const upd = await sb
       .from("technicians")
       .update(patch)
       .eq("id", id)
-      .select("id, full_name, phone, email, active, created_at")
-      .single();
+      .eq("company_id", company_id)
+      .select("id, full_name, phone, email, active")
+      .maybeSingle();
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-    return NextResponse.json({ tech: data });
+    if (upd.error) return httpErr(upd.error.message, 500);
+    if (!upd.data) return httpErr("not_found", 404);
+
+    return NextResponse.json(upd.data);
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || String(e) }, { status: 500 });
+    return httpErr(e?.message || "update_failed", 500);
   }
 }
 
-// DELETE /api/technicians/:id
-// Hard delete; if you prefer soft, just PATCH active=false instead.
-export async function DELETE(_req: Request, ctx: { params: Promise<Params> }) {
+// DELETE /api/techs/[id]
+export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params;
     const sb = await supabaseServer();
-    const { error } = await sb.from("technicians").delete().eq("id", id);
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+    const { data: auth } = await sb.auth.getUser();
+    const uid = auth.user?.id || null;
+    if (!uid) return httpErr("unauthorized", 401);
+
+    const { data: me } = await sb.from("profiles").select("company_id").eq("id", uid).maybeSingle();
+    const company_id = (me?.company_id as string) || null;
+    if (!company_id) return httpErr("no_company", 400);
+
+    const del = await sb.from("technicians").delete().eq("id", id).eq("company_id", company_id);
+    if (del.error) return httpErr(del.error.message, 500);
+
     return NextResponse.json({ ok: true });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || String(e) }, { status: 500 });
+    return httpErr(e?.message || "delete_failed", 500);
   }
 }

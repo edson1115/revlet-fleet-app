@@ -60,7 +60,8 @@ function toUiRow(
         }
       : null,
     location: location ? { id: location.id, name: location.name ?? null } : null,
-    technician: tech ? { id: tech.id ?? null, name: tech.name ?? null } : null,
+    // include technician name (from technicians.full_name)
+    technician: tech ? { id: tech.id ?? null, name: tech.full_name ?? null } : null,
   };
 }
 
@@ -81,7 +82,7 @@ async function fetchRelations(
     columns: string,
     idList: string[]
   ) {
-    if (idList.length === 0) return {};
+    if (!idList || idList.length === 0) return {};
     let q = supabase.from(table).select(columns).in("id", idList);
     if (!isAdmin && company_id && table !== "technicians") q = q.eq("company_id", company_id);
     const { data } = await q;
@@ -91,10 +92,11 @@ async function fetchRelations(
   }
 
   const [customers, vehicles, locations, technicians] = await Promise.all([
-    load("company_customers", "id, name, company_id", ids.customerIds),
-    load("vehicles", "id, year, make, model, plate, unit_number, company_id", ids.vehicleIds),
-    load("company_locations", "id, name, company_id", ids.locationIds),
-    load("technicians", "id, name, company_id", ids.technicianIds),
+    load("company_customers", "id, name, company_id", ids.customerIds || []),
+    load("vehicles", "id, year, make, model, plate, unit_number, company_id", ids.vehicleIds || []),
+    load("company_locations", "id, name, company_id", ids.locationIds || []),
+    // NOTE: select full_name here
+    load("technicians", "id, full_name, company_id", ids.technicianIds || []),
   ]);
 
   return { customers, vehicles, locations, technicians };
@@ -111,6 +113,7 @@ export async function GET(req: NextRequest) {
     const sortDirAsc = (url.searchParams.get("sortDir") || "desc").toLowerCase() === "asc";
     const mine = url.searchParams.get("mine") === "1";
     const statusParam = url.searchParams.get("status") || undefined;
+    const technicianIdParam = url.searchParams.get("technician_id") || undefined; // <- added
 
     const { data: auth } = await supabase.auth.getUser();
     const uid = auth?.user?.id || null;
@@ -156,22 +159,18 @@ export async function GET(req: NextRequest) {
       q = q.eq("customer_id", customer_id);
     }
 
-    // NEW: multi-status filter
+    // Multi-status filter (supports comma-separated UI statuses)
     if (statusParam) {
-      // e.g. "NEW,WAITING TO BE SCHEDULED"
       const rawParts = statusParam.split(",").map((s) => s.trim()).filter(Boolean);
-      const dbStatuses = rawParts.map((ui) => {
-        // UI might have spaces ("WAITING TO BE SCHEDULED") so map it
-        const mapped = UI_TO_DB_STATUS[ui as keyof typeof UI_TO_DB_STATUS];
-        return mapped ?? ui; // fallback: use as-is
-      });
-      if (dbStatuses.length === 1) {
-        q = q.eq("status", dbStatuses[0]);
-      } else if (dbStatuses.length > 1) {
-        q = q.in("status", dbStatuses);
-      }
+      const dbStatuses = rawParts.map((ui) => UI_TO_DB_STATUS[ui as keyof typeof UI_TO_DB_STATUS] ?? ui);
+      if (dbStatuses.length === 1) q = q.eq("status", dbStatuses[0]);
+      else if (dbStatuses.length > 1) q = q.in("status", dbStatuses);
     }
 
+    // Technician filter
+    if (technicianIdParam) q = q.eq("technician_id", technicianIdParam);
+
+    // sorting
     if (sortByParam === "scheduled_at") {
       q = q.order("scheduled_at", { ascending: sortDirAsc }).limit(limit);
     } else {
@@ -210,7 +209,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-/** POST /api/requests (create) — unchanged from your last version except FMC is nullable */
+/** POST /api/requests (create) — tolerant notes handling */
 export async function POST(req: NextRequest) {
   try {
     const supabase = await supabaseServer();
@@ -232,6 +231,9 @@ export async function POST(req: NextRequest) {
     const isAdmin = String(role || "").toUpperCase() === "ADMIN" || isSuperAdminEmail(email);
     const company_id = prof?.company_id ?? meta?.company_id ?? null;
 
+    // tolerate multiple possible note keys from front-end
+    const incomingNotes = body?.notes ?? body?.note ?? body?.add_note ?? null;
+
     const {
       customer_id = null,
       location_id = null,
@@ -245,7 +247,7 @@ export async function POST(req: NextRequest) {
         vin?: string | null;
       },
       service = null,
-      notes = null,
+      // notes handled via incomingNotes
       fmc = null,
       po = null,
       mileage = null,
@@ -253,7 +255,7 @@ export async function POST(req: NextRequest) {
       scheduled_at = null as null | string,
     } = body || {};
 
-    // ensure vehicle if inline
+    // ensure vehicle if inline (same logic as before)
     let finalVehicleId: string | null = vehicle_id ?? null;
     if (!finalVehicleId && vehicle && (vehicle.unit_number || vehicle.plate || vehicle.vin)) {
       const unit = (vehicle.unit_number || "").trim();
@@ -291,7 +293,7 @@ export async function POST(req: NextRequest) {
     const insertRow: any = {
       status: "NEW",
       service,
-      notes,
+      notes: incomingNotes ?? null, // tolerant notes
       fmc: fmc || null,
       po,
       mileage,
