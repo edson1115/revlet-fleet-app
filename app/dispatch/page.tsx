@@ -1,319 +1,542 @@
-'use client';
+// app/dispatch/page.tsx
+"use client";
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 
-type Technician = { id: string; label?: string | null; name?: string | null };
-type RequestRow = {
-  id: string;
-  status: string;
-  created_at?: string | null;
-  scheduled_at?: string | null;
-  service?: string | null;
-  customer?: { id: string; name?: string | null } | null;
-  location?: { id: string; name?: string | null } | null;
-  vehicle?: {
-    id: string;
-    unit_number?: string | null;
-    year?: number | null;
-    make?: string | null;
-    model?: string | null;
-  } | null;
-  technician?: { id: string | null } | null;
+type UUID = string;
+
+type Technician = {
+  id: UUID;
+  name?: string | null;
+  full_name?: string | null;
+  active?: boolean | null;
 };
 
-async function fetchJSON<T>(url: string) {
-  const res = await fetch(url, { credentials: 'include' });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`HTTP ${res.status} ${res.statusText}${text ? ` – ${text}` : ''}`);
-  }
-  return res.json() as Promise<T>;
-}
+type Customer = { id: UUID; name?: string | null } | null;
+type Location = { id: UUID; name?: string | null } | null;
+type Vehicle = {
+  id: UUID;
+  unit_number?: string | null;
+  year?: number | null;
+  make?: string | null;
+  model?: string | null;
+  plate?: string | null;
+} | null;
 
+type RequestRow = {
+  id: UUID;
+  status: string;
+  service?: string | null;
+  fmc?: string | null;
+  po?: string | null;
+  notes?: string | null; // Office notes
+  dispatch_notes?: string | null; // Dispatcher notes
+  mileage?: number | null;
+  priority?: string | null;
+  created_at?: string;
+  scheduled_at?: string | null;
+  customer?: Customer;
+  vehicle?: Vehicle;
+  location?: Location;
+  technician?: { id: UUID; name?: string | null } | null;
+};
+
+async function getJSON<T>(url: string) {
+  const res = await fetch(url, { credentials: "include" });
+  if (!res.ok) throw new Error(await res.text().catch(() => res.statusText));
+  return (await res.json()) as T;
+}
 async function postJSON<T>(url: string, body: any) {
   const res = await fetch(url, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`HTTP ${res.status} ${res.statusText}${text ? ` – ${text}` : ''}`);
-  }
-  return res.json() as Promise<T>;
+  if (!res.ok) throw new Error(await res.text().catch(() => res.statusText));
+  return (await res.json()) as T;
 }
-
-/** Next weekday (Mon–Fri) at 04:00 local, formatted for datetime-local input (YYYY-MM-DDTHH:MM) */
-function nextWeekday4amLocal(): string {
-  const d = new Date();
-  // start from tomorrow
-  d.setDate(d.getDate() + 1);
-  // 0 = Sun, 6 = Sat → push to Monday
-  const dow = d.getDay();
-  if (dow === 0) d.setDate(d.getDate() + 1); // Sunday → Monday
-  if (dow === 6) d.setDate(d.getDate() + 2); // Saturday → Monday
-  d.setHours(4, 0, 0, 0);
-  // format to YYYY-MM-DDTHH:MM (local)
-  const pad = (n: number) => String(n).padStart(2, '0');
+function fmtDateTime(dt?: string | null) {
+  if (!dt) return "—";
+  const d = new Date(dt);
+  if (Number.isNaN(d.getTime())) return dt || "—";
+  return d.toLocaleString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+function toLocalDateTimeInputValue(dt?: string | null) {
+  if (!dt) return "";
+  const d = new Date(dt);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
   const yyyy = d.getFullYear();
   const mm = pad(d.getMonth() + 1);
   const dd = pad(d.getDate());
   const hh = pad(d.getHours());
-  const min = pad(d.getMinutes());
-  return `${yyyy}-${mm}-${dd}T${hh}:${min}`;
+  const mi = pad(d.getMinutes());
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+}
+function fromLocalDateTimeInputValue(val: string) {
+  if (!val) return null;
+  const d = new Date(val);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
+// Tiny debounce
+function useDebounced(fn: () => void, delay = 350) {
+  const t = useRef<ReturnType<typeof setTimeout> | null>(null);
+  return useCallback(() => {
+    if (t.current) clearTimeout(t.current);
+    t.current = setTimeout(() => fn(), delay);
+  }, [fn, delay]);
+}
+
+// Lazy Supabase client
+function useSupabaseClient() {
+  const ref = useRef<any>(null);
+  if (typeof window !== "undefined" && !ref.current) {
+    const { createClient } = require("@supabase/supabase-js");
+    ref.current = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { realtime: { params: { eventsPerSecond: 5 } } }
+    );
+  }
+  return ref.current;
+}
+
+/* ============================
+   Inline editor: Dispatcher Notes
+   ============================ */
+function DispatchNotesEditor({
+  requestId,
+  initial,
+  onSaved,
+}: {
+  requestId: string;
+  initial?: string | null;
+  onSaved?: (next: string | null) => void;
+}) {
+  const [notes, setNotes] = useState(initial ?? "");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function save() {
+    setSaving(true);
+    setErr(null);
+    try {
+      await postJSON("/api/requests", { op: "notes", id: requestId, dispatch_notes: notes });
+      onSaved?.(notes.trim() ? notes : null);
+    } catch (e: any) {
+      setErr(e?.message || "Failed to save notes");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-2">
+      <label className="text-sm font-medium">Dispatcher Notes</label>
+      <textarea
+        className="mt-1 w-full border rounded-lg p-2 text-sm"
+        rows={3}
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        placeholder="Add instructions for the technician…"
+      />
+      <div className="mt-1 flex items-center gap-2">
+        <button
+          onClick={save}
+          disabled={saving}
+          className="border rounded-lg px-3 py-1.5 text-sm hover:bg-gray-50"
+        >
+          {saving ? "Saving…" : "Save notes"}
+        </button>
+        {err && <span className="text-xs text-red-600">{err}</span>}
+      </div>
+    </div>
+  );
+}
+
+/* ============================
+   Inline scheduler
+   ============================ */
+function Scheduler({
+  request,
+  techs,
+  onScheduled,
+}: {
+  request: RequestRow;
+  techs: Technician[];
+  onScheduled: (updated: Partial<RequestRow>) => void;
+}) {
+  const [techId, setTechId] = useState(request.technician?.id || "");
+  const [dt, setDt] = useState(toLocalDateTimeInputValue(request.scheduled_at));
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function save() {
+    setSaving(true);
+    setErr(null);
+    try {
+      const payload: any = {
+        id: request.id,
+        technician_id: techId || null,
+        scheduled_at: fromLocalDateTimeInputValue(dt),
+      };
+      await postJSON("/api/requests/schedule", payload);
+      const techName =
+        techId
+          ? (techs.find((t) => t.id === techId)?.full_name ||
+             techs.find((t) => t.id === techId)?.name ||
+             null)
+          : null;
+      onScheduled({
+        technician: techId ? { id: techId, name: techName } : null,
+        scheduled_at: payload.scheduled_at,
+        status: techId ? "SCHEDULED" : request.status,
+      });
+    } catch (e: any) {
+      setErr(e?.message || "Failed to schedule");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const picked =
+    techId
+      ? (techs.find((t) => t.id === techId)?.full_name ||
+         techs.find((t) => t.id === techId)?.name ||
+         "Technician")
+      : "Technician";
+
+  return (
+    <div className="mt-3 grid gap-2 sm:grid-cols-[1fr,220px,200px]">
+      <select
+        className="border rounded-lg px-3 py-2 text-sm"
+        value={techId}
+        onChange={(e) => setTechId(e.target.value)}
+      >
+        <option value="">Assign technician…</option>
+        {techs.map((t) => (
+          <option key={t.id} value={t.id}>
+            {t.full_name || t.name || "Unnamed"}
+          </option>
+        ))}
+      </select>
+
+      <input
+        type="datetime-local"
+        className="border rounded-lg px-3 py-2 text-sm"
+        value={dt}
+        onChange={(e) => setDt(e.target.value)}
+      />
+
+      <button
+        onClick={save}
+        disabled={saving}
+        className="border rounded-lg px-3 py-2 text-sm hover:bg-gray-50"
+        title={techId ? `Save to ${picked} Schedule` : "Save to Technician Schedule"}
+      >
+        {saving ? "Saving…" : techId ? `Save to ${picked} Schedule` : "Save to Technician Schedule"}
+      </button>
+
+      {err && <div className="sm:col-span-3 text-xs text-red-600">{err}</div>}
+    </div>
+  );
 }
 
 export default function DispatchPage() {
   const [rows, setRows] = useState<RequestRow[]>([]);
   const [techs, setTechs] = useState<Technician[]>([]);
-  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string>(
+    "WAITING TO BE SCHEDULED,SCHEDULED,RESCHEDULE"
+  );
 
-  // Scheduling controls
-  const [assignTechId, setAssignTechId] = useState<string>('');
-  const [reschedAt, setReschedAt] = useState<string>(nextWeekday4amLocal());
+  const supabase = useSupabaseClient();
 
-  const [loading, setLoading] = useState<boolean>(true);
-  const [err, setErr] = useState<string>('');
-  const [toast, setToast] = useState<string>('');
-
-  // Load technicians (primary: /api/techs; fallback: /api/lookups?scope=technicians)
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const data = await fetchJSON<{ rows?: Technician[]; data?: Technician[] }>('/api/techs?active=1');
-        const list = (data.rows ?? data.data) ?? [];
-        if (mounted) {
-          // normalize label
-          const normalized = list.map(t => ({ ...t, label: t.label ?? t.name ?? t.id }));
-          setTechs(normalized);
-        }
-      } catch {
-        try {
-          const fb = await fetchJSON<{ data?: Technician[]; rows?: Technician[] }>('/api/lookups?scope=technicians');
-          const list = (fb.rows ?? fb.data) ?? [];
-          const normalized = list.map(t => ({ ...t, label: t.label ?? (t as any).name ?? t.id }));
-          if (mounted) setTechs(normalized);
-        } catch {
-          if (mounted) setTechs([]);
-        }
-      }
-    })();
-    return () => { mounted = false; };
-  }, []);
-
-  // Load ONLY “WAITING TO BE SCHEDULED”
-  async function refresh() {
-    const q = new URLSearchParams({ status: 'WAITING TO BE SCHEDULED' });
-    const data = await fetchJSON<{ rows: RequestRow[] }>(`/api/requests?${q.toString()}`);
-    setRows(data.rows ?? []);
-  }
-
-  useEffect(() => {
-    let mounted = true;
+  // Load function as stable callback (so debounce + effects are tidy)
+  const load = useCallback(async () => {
     setLoading(true);
-    setErr('');
-    setSelected({});
+    setError(null);
+    try {
+      const qs = new URLSearchParams();
+      qs.set("status", statusFilter);
+      qs.set("sortBy", "scheduled_at");
+      qs.set("sortDir", "asc");
+      const out = await getJSON<{ rows: RequestRow[] }>(`/api/requests?${qs.toString()}`);
+      const data = out?.rows || [];
+      data.sort((a, b) => {
+        const da = a.scheduled_at ? new Date(a.scheduled_at).getTime() : Number.POSITIVE_INFINITY;
+        const db = b.scheduled_at ? new Date(b.scheduled_at).getTime() : Number.POSITIVE_INFINITY;
+        return da - db;
+      });
+      setRows(data);
+    } catch (e: any) {
+      setError(e?.message || "Failed to load");
+    } finally {
+      setLoading(false);
+    }
+  }, [statusFilter]);
+
+  const debouncedReload = useDebounced(load, 300);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  useEffect(() => {
     (async () => {
       try {
-        await refresh();
-      } catch (e: any) {
-        if (mounted) setErr(e?.message || 'Failed to load requests.');
-      } finally {
-        if (mounted) setLoading(false);
+        const list = await getJSON<{ rows?: Technician[] } | Technician[]>("/api/techs?active=1");
+        const rows = Array.isArray(list) ? list : list?.rows || [];
+        setTechs((rows || []).filter((t) => t && (t.active ?? true)));
+      } catch {
+        // ignore
       }
     })();
-    return () => { mounted = false; };
   }, []);
 
-  const allChecked = useMemo(() => {
-    const ids = rows.map(r => r.id);
-    return ids.length > 0 && ids.every(id => selected[id]);
-  }, [rows, selected]);
+  // Realtime: refresh on any service_requests change the user is allowed to see by RLS
+  useEffect(() => {
+    if (!supabase) return;
+    const channel = supabase
+      .channel("dispatch-requests")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "service_requests" },
+        () => debouncedReload()
+      )
+      .subscribe();
 
-  const anyChecked = useMemo(() => Object.values(selected).some(Boolean), [selected]);
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [supabase, debouncedReload]);
 
-  const techMap = useMemo(() => new Map(techs.map(t => [t.id, t.label ?? t.id])), [techs]);
-
-  function toggleAll() {
-    const next: Record<string, boolean> = {};
-    if (!allChecked) rows.forEach(r => { next[r.id] = true; });
-    setSelected(next);
-  }
-  function toggleOne(id: string) {
-    setSelected(prev => ({ ...prev, [id]: !prev[id] }));
-  }
-
-  async function run(op: string, payload: Record<string, any> = {}) {
-    const ids = Object.entries(selected).filter(([, v]) => v).map(([k]) => k);
-    if (ids.length === 0) throw new Error('Select at least one request.');
-    await postJSON('/api/requests/batch', { op, ids, ...payload });
-  }
-
-  /** One-click schedule: requires a technician + datetime → assign then reschedule with status=SCHEDULED */
-  async function scheduleSelected() {
-    try {
-      setErr('');
-      setToast('');
-      if (!assignTechId) throw new Error('Pick a technician before scheduling.');
-      if (!reschedAt) throw new Error('Pick a date/time before scheduling.');
-
-      const iso = new Date(reschedAt).toISOString();
-      // 1) assign tech
-      await run('assign', { technician_id: assignTechId });
-      // 2) set scheduled_at and flip to SCHEDULED (text-only for others, and moves to Tech view)
-      await run('reschedule', { scheduled_at: iso, status: 'SCHEDULED' });
-
-      setToast('Scheduled successfully.');
-      setSelected({});
-      setReschedAt(nextWeekday4amLocal()); // reset to next business day 4am
-      await refresh();
-    } catch (e: any) {
-      setErr(e?.message || 'Scheduling failed.');
-    }
-  }
-
-  // Optional helpers still available:
-  async function unassignSelected() {
-    try {
-      setErr(''); setToast('');
-      await run('unassign');
-      setToast('Unassigned.');
-      setSelected({});
-      await refresh();
-    } catch (e: any) {
-      setErr(e?.message || 'Unassign failed.');
-    }
-  }
+  const grouped = useMemo(() => {
+    const waiting = rows.filter((r) => r.status === "WAITING TO BE SCHEDULED");
+    const scheduled = rows.filter((r) => r.status === "SCHEDULED");
+    const needsReschedule = rows.filter((r) => r.status === "RESCHEDULE");
+    return { waiting, scheduled, needsReschedule };
+  }, [rows]);
 
   return (
-    <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold">Dispatch</h1>
-        <div className="text-sm text-gray-600">Showing: <span className="font-medium">WAITING TO BE SCHEDULED</span></div>
-      </div>
-
-      {err ? (
-        <div className="rounded-md border border-red-300 bg-red-50 text-red-800 p-3">
-          <div className="font-medium">Action failed</div>
-          <div className="text-sm opacity-90 mt-1">{err}</div>
+    <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Dispatch</h1>
+          <p className="text-sm text-gray-600">
+            Assign technicians, set dates, and leave dispatcher notes for the Tech app.
+          </p>
         </div>
-      ) : null}
 
-      {toast ? (
-        <div className="rounded-md border border-green-300 bg-green-50 text-green-800 p-3">
-          <div className="text-sm">{toast}</div>
-        </div>
-      ) : null}
-
-      {/* Primary scheduling controls */}
-      <div className="border rounded-xl p-4 space-y-3">
-        <div className="font-medium">Assign & Schedule</div>
-        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-gray-700">Filter</label>
           <select
-            value={assignTechId}
-            onChange={(e) => setAssignTechId(e.target.value)}
-            className="border rounded-md px-3 py-2 min-w-56"
-            aria-label="Technician"
+            className="border rounded-lg px-3 py-2 text-sm"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
           >
-            <option value="">Select technician…</option>
-            {techs.map(t => (
-              <option key={t.id} value={t.id}>
-                {(t.label ?? t.name ?? t.id) as string}
-              </option>
-            ))}
+            <option value="WAITING TO BE SCHEDULED,SCHEDULED,RESCHEDULE">
+              Waiting + Scheduled + Reschedule
+            </option>
+            <option value="WAITING TO BE SCHEDULED,SCHEDULED">Waiting + Scheduled</option>
+            <option value="WAITING TO BE SCHEDULED">Waiting only</option>
+            <option value="SCHEDULED">Scheduled only</option>
+            <option value="RESCHEDULE">Reschedule only</option>
           </select>
-
-          <input
-            type="datetime-local"
-            value={reschedAt}
-            onChange={(e) => setReschedAt(e.target.value)}
-            className="border rounded-md px-3 py-2"
-            aria-label="Schedule at"
-          />
-
-          <button
-            onClick={scheduleSelected}
-            disabled={!anyChecked}
-            className="px-4 py-2 rounded-md border bg-black text-white disabled:opacity-40"
-          >
-            Schedule Selected
-          </button>
-
-          <button
-            onClick={unassignSelected}
-            disabled={!anyChecked}
-            className="px-4 py-2 rounded-md border bg-white text-black disabled:opacity-40"
-          >
-            Unassign
+          <button onClick={load} className="border rounded-lg px-3 py-2 text-sm hover:bg-gray-50" disabled={loading}>
+            Refresh
           </button>
         </div>
-        <p className="text-xs text-gray-500">
-          Select rows below → pick a technician → confirm the date/time (defaults to next weekday at 4:00 AM) → “Schedule Selected”.
-        </p>
-      </div>
+      </header>
 
-      {/* Table */}
-      {loading ? (
-        <div className="animate-pulse text-sm text-gray-600">Loading…</div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="text-left border-b">
-                <th className="py-2 pr-4">
-                  <input
-                    type="checkbox"
-                    checked={allChecked}
-                    onChange={toggleAll}
-                    aria-label="Select all"
-                  />
-                </th>
-                <th className="py-2 pr-4">Created</th>
-                <th className="py-2 pr-4">Customer</th>
-                <th className="py-2 pr-4">Vehicle</th>
-                <th className="py-2 pr-4">Location</th>
-                <th className="py-2 pr-4">Service</th>
-                <th className="py-2 pr-4">Technician</th>
-                <th className="py-2 pr-4">Scheduled</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 ? (
-                <tr>
-                  <td className="py-4 text-gray-500" colSpan={8}>No requests.</td>
-                </tr>
-              ) : rows.map((r) => {
-                const ymk = [r.vehicle?.year, r.vehicle?.make, r.vehicle?.model].filter(Boolean).join(' ');
-                const vehicleLabel = r.vehicle?.unit_number
-                  ? `${r.vehicle.unit_number}${ymk ? ` — ${ymk}` : ''}`
-                  : (ymk || '—');
-                const techLabel = r.technician?.id ? (techMap.get(r.technician.id) ?? r.technician.id) : '—';
-                return (
-                  <tr key={r.id} className="border-b hover:bg-gray-50">
-                    <td className="py-2 pr-4">
-                      <input
-                        type="checkbox"
-                        checked={!!selected[r.id]}
-                        onChange={() => toggleOne(r.id)}
-                        aria-label={`Select ${r.id}`}
-                      />
-                    </td>
-                    <td className="py-2 pr-4">{r.created_at ? new Date(r.created_at).toLocaleString() : '—'}</td>
-                    <td className="py-2 pr-4">{r.customer?.name || '—'}</td>
-                    <td className="py-2 pr-4">{vehicleLabel}</td>
-                    <td className="py-2 pr-4">{r.location?.name || '—'}</td>
-                    <td className="py-2 pr-4">{r.service || '—'}</td>
-                    <td className="py-2 pr-4">{techLabel}</td>
-                    <td className="py-2 pr-4">{r.scheduled_at ? new Date(r.scheduled_at).toLocaleString() : '—'}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
       )}
+
+      {/* Waiting */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-medium">Waiting to be scheduled</h2>
+        {grouped.waiting.length === 0 ? (
+          <div className="text-gray-500 text-sm">Nothing waiting.</div>
+        ) : (
+          <ul className="grid md:grid-cols-2 gap-3">
+            {grouped.waiting.map((r) => (
+              <li key={r.id} className="rounded-2xl border p-4 shadow-sm">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-sm font-semibold">{fmtDateTime(r.scheduled_at)}</div>
+                  <span className="text-xs rounded-full border px-2 py-1">{r.status}</span>
+                </div>
+
+                <div className="space-y-1 text-sm">
+                  <div><span className="font-medium">Service:</span> {r.service || "—"}</div>
+                  <div><span className="font-medium">Customer:</span> {r.customer?.name || "—"}</div>
+                  <div><span className="font-medium">Location:</span> {r.location?.name || "—"}</div>
+                  <div>
+                    <span className="font-medium">Vehicle:</span>{" "}
+                    {r.vehicle
+                      ? [
+                          r.vehicle.unit_number && `#${r.vehicle.unit_number}`,
+                          r.vehicle.year,
+                          r.vehicle.make,
+                          r.vehicle.model,
+                          r.vehicle.plate && `(${r.vehicle.plate})`,
+                        ].filter(Boolean).join(" ") || "—"
+                      : "—"}
+                  </div>
+                  {r.notes ? (
+                    <div className="text-gray-700"><span className="font-medium">Office Notes:</span> {r.notes}</div>
+                  ) : null}
+                  {r.dispatch_notes ? (
+                    <div className="text-gray-700"><span className="font-medium">Dispatcher Notes:</span> {r.dispatch_notes}</div>
+                  ) : null}
+                </div>
+
+                <Scheduler
+                  request={r}
+                  techs={techs}
+                  onScheduled={(upd) =>
+                    setRows((prev) => prev.map((x) => (x.id === r.id ? { ...x, ...upd } as RequestRow : x)))
+                  }
+                />
+                <DispatchNotesEditor
+                  requestId={r.id}
+                  initial={r.dispatch_notes}
+                  onSaved={(next) =>
+                    setRows((prev) => prev.map((x) => (x.id === r.id ? { ...x, dispatch_notes: next } : x)))
+                  }
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* Needs Reschedule */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-medium">Needs reschedule</h2>
+        {grouped.needsReschedule.length === 0 ? (
+          <div className="text-gray-500 text-sm">No reschedule requests.</div>
+        ) : (
+          <ul className="grid md:grid-cols-2 gap-3">
+            {grouped.needsReschedule.map((r) => (
+              <li key={r.id} className="rounded-2xl border p-4 shadow-sm">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-sm font-semibold">—</div>
+                  <span className="text-xs rounded-full border px-2 py-1">{r.status}</span>
+                </div>
+
+                <div className="space-y-1 text-sm">
+                  <div><span className="font-medium">Service:</span> {r.service || "—"}</div>
+                  <div><span className="font-medium">Customer:</span> {r.customer?.name || "—"}</div>
+                  <div><span className="font-medium">Location:</span> {r.location?.name || "—"}</div>
+                  <div>
+                    <span className="font-medium">Vehicle:</span>{" "}
+                    {r.vehicle
+                      ? [
+                          r.vehicle.unit_number && `#${r.vehicle.unit_number}`,
+                          r.vehicle.year,
+                          r.vehicle.make,
+                          r.vehicle.model,
+                          r.vehicle.plate && `(${r.vehicle.plate})`,
+                        ].filter(Boolean).join(" ") || "—"
+                      : "—"}
+                  </div>
+                  {r.notes ? (
+                    <div className="text-gray-700"><span className="font-medium">Office Notes:</span> {r.notes}</div>
+                  ) : null}
+                  {r.dispatch_notes ? (
+                    <div className="text-gray-700"><span className="font-medium">Dispatcher Notes:</span> {r.dispatch_notes}</div>
+                  ) : null}
+                </div>
+
+                <Scheduler
+                  request={r}
+                  techs={techs}
+                  onScheduled={(upd) =>
+                    setRows((prev) => prev.map((x) => (x.id === r.id ? { ...x, ...upd } as RequestRow : x)))
+                  }
+                />
+                <DispatchNotesEditor
+                  requestId={r.id}
+                  initial={r.dispatch_notes}
+                  onSaved={(next) =>
+                    setRows((prev) => prev.map((x) => (x.id === r.id ? { ...x, dispatch_notes: next } : x)))
+                  }
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* Scheduled */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-medium">Scheduled</h2>
+        {grouped.scheduled.length === 0 ? (
+          <div className="text-gray-500 text-sm">No scheduled jobs.</div>
+        ) : (
+          <ul className="grid md:grid-cols-2 gap-3">
+            {grouped.scheduled.map((r) => (
+              <li key={r.id} className="rounded-2xl border p-4 shadow-sm">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-sm font-semibold">{fmtDateTime(r.scheduled_at)}</div>
+                  <span className="text-xs rounded-full border px-2 py-1">{r.status}</span>
+                </div>
+
+                <div className="space-y-1 text-sm">
+                  <div><span className="font-medium">Technician:</span> {r.technician?.name || "Unassigned"}</div>
+                  <div><span className="font-medium">Service:</span> {r.service || "—"}</div>
+                  <div><span className="font-medium">Customer:</span> {r.customer?.name || "—"}</div>
+                  <div><span className="font-medium">Location:</span> {r.location?.name || "—"}</div>
+                  <div>
+                    <span className="font-medium">Vehicle:</span>{" "}
+                    {r.vehicle
+                      ? [
+                          r.vehicle.unit_number && `#${r.vehicle.unit_number}`,
+                          r.vehicle.year,
+                          r.vehicle.make,
+                          r.vehicle.model,
+                          r.vehicle.plate && `(${r.vehicle.plate})`,
+                        ].filter(Boolean).join(" ") || "—"
+                      : "—"}
+                  </div>
+                  {r.notes ? (
+                    <div className="text-gray-700"><span className="font-medium">Office Notes:</span> {r.notes}</div>
+                  ) : null}
+                  {r.dispatch_notes ? (
+                    <div className="text-gray-700"><span className="font-medium">Dispatcher Notes:</span> {r.dispatch_notes}</div>
+                  ) : null}
+                </div>
+
+                <Scheduler
+                  request={r}
+                  techs={techs}
+                  onScheduled={(upd) =>
+                    setRows((prev) => prev.map((x) => (x.id === r.id ? { ...x, ...upd } as RequestRow : x)))
+                  }
+                />
+                <DispatchNotesEditor
+                  requestId={r.id}
+                  initial={r.dispatch_notes}
+                  onSaved={(next) =>
+                    setRows((prev) => prev.map((x) => (x.id === r.id ? { ...x, dispatch_notes: next } : x)))
+                  }
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }
