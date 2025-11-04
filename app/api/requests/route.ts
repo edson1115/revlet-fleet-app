@@ -209,7 +209,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-/** POST /api/requests (create) — tolerant notes handling */
+/** POST /api/requests (create) — also saves initial note into service_request_notes */
 export async function POST(req: NextRequest) {
   try {
     const supabase = await supabaseServer();
@@ -231,8 +231,10 @@ export async function POST(req: NextRequest) {
     const isAdmin = String(role || "").toUpperCase() === "ADMIN" || isSuperAdminEmail(email);
     const company_id = prof?.company_id ?? meta?.company_id ?? null;
 
-    // tolerate multiple possible note keys from front-end
-    const incomingNotes = body?.notes ?? body?.note ?? body?.add_note ?? null;
+    // Accept multiple possible keys from CSR form
+    const incomingNotes: string | null =
+      String(body?.notes ?? body?.note ?? body?.initial_note ?? body?.add_note ?? "")
+        .trim() || null;
 
     const {
       customer_id = null,
@@ -247,7 +249,6 @@ export async function POST(req: NextRequest) {
         vin?: string | null;
       },
       service = null,
-      // notes handled via incomingNotes
       fmc = null,
       po = null,
       mileage = null,
@@ -255,7 +256,7 @@ export async function POST(req: NextRequest) {
       scheduled_at = null as null | string,
     } = body || {};
 
-    // ensure vehicle if inline (same logic as before)
+    // optional inline vehicle upsert (your existing logic kept)
     let finalVehicleId: string | null = vehicle_id ?? null;
     if (!finalVehicleId && vehicle && (vehicle.unit_number || vehicle.plate || vehicle.vin)) {
       const unit = (vehicle.unit_number || "").trim();
@@ -290,10 +291,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // create the request (keep a copy of notes in the row if you want)
     const insertRow: any = {
       status: "NEW",
       service,
-      notes: incomingNotes ?? null, // tolerant notes
+      notes: incomingNotes ?? null, // still store on request if you like
       fmc: fmc || null,
       po,
       mileage,
@@ -309,25 +311,47 @@ export async function POST(req: NextRequest) {
       .from("service_requests")
       .insert(insertRow)
       .select(
-        "id, status, service, fmc, po, notes, mileage, priority, created_at, scheduled_at, customer_id, vehicle_id, location_id, technician_id"
+        "id, status, service, fmc, po, notes, mileage, priority, created_at, scheduled_at, customer_id, vehicle_id, location_id, company_id, technician_id"
       )
       .single();
 
     if (ins.error) return NextResponse.json({ error: ins.error.message }, { status: 500 });
 
-    const r = ins.data;
+    const reqRow = ins.data;
+
+    // Insert initial note into service_request_notes so the Office drawer sees it
+    if (incomingNotes) {
+      // Try with author_id first; if schema doesn't have it, fall back without
+      const withAuthor = await supabase
+        .from("service_request_notes")
+        .insert([{ request_id: reqRow.id, text: incomingNotes, author_id: uid }])
+        .select("id")
+        .single();
+
+      if (withAuthor.error) {
+        const msg = (withAuthor.error.message || "").toLowerCase();
+        if (msg.includes("author_id") || msg.includes("column") || msg.includes("does not exist")) {
+          await supabase.from("service_request_notes").insert([{ request_id: reqRow.id, text: incomingNotes }]);
+        } else {
+          // Don’t fail the request creation if note insert fails
+          // (you can log this message if you like)
+        }
+      }
+    }
+
+    // hydrate UI row like your GET does
     const rel = await fetchRelations(
       supabase,
       {
-        customerIds: r.customer_id ? [r.customer_id] : [],
-        vehicleIds: r.vehicle_id ? [r.vehicle_id] : [],
-        locationIds: r.location_id ? [r.location_id] : [],
-        technicianIds: r.technician_id ? [r.technician_id] : [],
+        customerIds: reqRow.customer_id ? [reqRow.customer_id] : [],
+        vehicleIds: reqRow.vehicle_id ? [reqRow.vehicle_id] : [],
+        locationIds: reqRow.location_id ? [reqRow.location_id] : [],
+        technicianIds: reqRow.technician_id ? [reqRow.technician_id] : [],
       },
       { company_id, isAdmin }
     );
 
-    return NextResponse.json(toUiRow(r, rel), { status: 201 });
+    return NextResponse.json(toUiRow(reqRow, rel), { status: 201 });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "create_failed" }, { status: 500 });
   }
