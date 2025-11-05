@@ -135,7 +135,7 @@ function useSupabaseClient() {
 }
 
 /* ============================
-   Inline editor: Dispatcher Notes
+   Inline editor: Dispatcher Notes (fixed -> /api/requests/batch)
    ============================ */
 function DispatchNotesEditor({
   requestId,
@@ -154,7 +154,7 @@ function DispatchNotesEditor({
     setSaving(true);
     setErr(null);
     try {
-      await postJSON("/api/requests", { op: "notes", id: requestId, dispatch_notes: notes });
+      await postJSON("/api/requests/batch", { op: "notes", ids: [requestId], dispatch_notes: notes || null });
       onSaved?.(notes.trim() ? notes : null);
     } catch (e: any) {
       setErr(e?.message || "Failed to save notes");
@@ -213,7 +213,13 @@ function Scheduler({
         technician_id: techId || null,
         scheduled_at: fromLocalDateTimeInputValue(dt),
       };
-      await postJSON("/api/requests/schedule", payload);
+      await postJSON("/api/requests/batch", {
+        op: "assign",
+        ids: [request.id],
+        technician_id: payload.technician_id,
+        scheduled_at: payload.scheduled_at,
+        status: "SCHEDULED",
+      });
       const techName =
         techId
           ? (techs.find((t) => t.id === techId)?.full_name ||
@@ -275,6 +281,9 @@ function Scheduler({
   );
 }
 
+/* ============================
+   Page
+   ============================ */
 export default function DispatchPage() {
   const [rows, setRows] = useState<RequestRow[]>([]);
   const [techs, setTechs] = useState<Technician[]>([]);
@@ -375,7 +384,7 @@ export default function DispatchPage() {
     })();
   }, []);
 
-  // Realtime: refresh on any service_requests change the user is allowed to see by RLS
+  // Realtime: refresh on any service_requests change
   useEffect(() => {
     if (!supabase) return;
     const channel = supabase
@@ -408,6 +417,50 @@ export default function DispatchPage() {
   }
   function selectAll(list: RequestRow[]) {
     setSelected((prev) => ({ ...prev, ...Object.fromEntries(list.map((r) => [r.id, true])) }));
+  }
+
+  // ===== Bundle opportunities (unscheduled + unassigned, same customer+location) =====
+  type Bundle = {
+    key: string;
+    customerName: string;
+    locationName: string;
+    ids: string[];
+    labels: string[]; // vehicle label or service label
+  };
+
+  const bundles = useMemo<Bundle[]>(() => {
+    const candidates = rows.filter(
+      (r) =>
+        r.status === "WAITING_TO_BE_SCHEDULED" &&
+        (!r.technician || !r.technician.id)
+    );
+    const map = new Map<string, Bundle>();
+    for (const r of candidates) {
+      const c = r.customer?.name || "Unknown Customer";
+      const l = r.location?.name || "—";
+      const key = `${c}@@${l}`;
+      const label = r.vehicle
+        ? [
+            r.vehicle.unit_number && `#${r.vehicle.unit_number}`,
+            r.vehicle.year,
+            r.vehicle.make,
+            r.vehicle.model,
+            r.vehicle.plate && `(${r.vehicle.plate})`,
+          ]
+            .filter(Boolean)
+            .join(" ")
+        : (r.service || "Request");
+      const b = map.get(key) || { key, customerName: c, locationName: l, ids: [], labels: [] };
+      b.ids.push(r.id);
+      b.labels.push(label || r.id);
+      map.set(key, b);
+    }
+    // Only show real “opportunities” (2+)
+    return Array.from(map.values()).filter((b) => b.ids.length >= 2);
+  }, [rows]);
+
+  function selectBundle(b: Bundle) {
+    setSelected((prev) => ({ ...prev, ...Object.fromEntries(b.ids.map((id) => [id, true])) }));
   }
 
   // ===== Batch actions (uses /api/requests/batch) =====
@@ -449,6 +502,40 @@ export default function DispatchPage() {
       await load();
     } catch (e: any) {
       setBanner(e?.message || "Failed to schedule");
+    }
+  }
+
+  async function quickAssignBundle(b: Bundle) {
+    if (!toolbarTechId) return setBanner("Choose a technician first.");
+    try {
+      await postJSON("/api/requests/batch", {
+        op: "assign",
+        ids: b.ids,
+        technician_id: toolbarTechId,
+      });
+      setBanner(`Assigned bundle (${b.customerName} • ${b.locationName}) to technician.`);
+      await load();
+    } catch (e: any) {
+      setBanner(e?.message || "Failed to quick-assign bundle");
+    }
+  }
+
+  async function quickScheduleBundle(b: Bundle) {
+    if (!toolbarTechId) return setBanner("Choose a technician first.");
+    try {
+      // assign
+      await postJSON("/api/requests/batch", { op: "assign", ids: b.ids, technician_id: toolbarTechId });
+      // schedule
+      await postJSON("/api/requests/batch", {
+        op: "reschedule",
+        ids: b.ids,
+        scheduled_at: toolbarDtLocal,
+        status: "SCHEDULED",
+      });
+      setBanner(`Scheduled bundle (${b.customerName} • ${b.locationName}) for ${new Date(toolbarDtLocal).toLocaleString()}.`);
+      await load();
+    } catch (e: any) {
+      setBanner(e?.message || "Failed to quick-schedule bundle");
     }
   }
 
@@ -537,6 +624,46 @@ export default function DispatchPage() {
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
       )}
+
+      {/* Bundle opportunities */}
+      <section className="space-y-2">
+        <h2 className="text-lg font-medium">Bundle opportunities</h2>
+        {bundles.length === 0 ? (
+          <div className="text-gray-500 text-sm">No bundle opportunities.</div>
+        ) : (
+          <ul className="space-y-3">
+            {bundles.map((b) => (
+              <li key={b.key} className="rounded-2xl border p-4 shadow-sm">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="font-medium">
+                    {b.customerName} • <span className="text-gray-600">{b.locationName}</span>
+                    <span className="ml-2 text-xs rounded-full border px-2 py-0.5">{b.ids.length} requests</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button className="px-3 py-1.5 text-sm rounded-lg border" onClick={() => selectBundle(b)}>
+                      Select bundle
+                    </button>
+                    <button className="px-3 py-1.5 text-sm rounded-lg border" onClick={() => quickAssignBundle(b)}>
+                      Quick Assign
+                    </button>
+                    <button className="px-3 py-1.5 text-sm rounded-lg bg-black text-white hover:bg-gray-800" onClick={() => quickScheduleBundle(b)}>
+                      Quick Schedule
+                    </button>
+                  </div>
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  {b.labels.slice(0, 6).map((tag, i) => (
+                    <span key={i} className="text-xs rounded-full border px-2 py-0.5">{tag}</span>
+                  ))}
+                  {b.labels.length > 6 && (
+                    <span className="text-xs text-gray-600">+ {b.labels.length - 6} more</span>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       {/* Waiting */}
       <section className="space-y-3">

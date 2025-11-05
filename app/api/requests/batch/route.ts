@@ -24,7 +24,8 @@ type OpBody =
   | { op: "status"; ids: string[]; status: "SCHEDULED" | "IN_PROGRESS" | "COMPLETED" | "RESCHEDULE" }
   | { op: "reschedule"; ids: string[]; scheduled_at: string; status?: "RESCHEDULE"; note?: string }
   | { op: "complete"; ids: string[]; note?: string }
-  | { op: "assign"; ids: string[]; technician_id?: string | null; scheduled_at?: string | null; status?: "SCHEDULED" };
+  | { op: "assign"; ids: string[]; technician_id?: string | null; scheduled_at?: string | null; status?: "SCHEDULED" }
+  | { op: "notes"; ids: string[]; dispatch_notes: string | null }; // NEW
 
 export async function POST(req: NextRequest) {
   try {
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest) {
         status: body.status || "RESCHEDULE",
       };
       if (body.note) {
-        // Append or set notes (safe for schema without a dedicated tech_notes column)
+        // if you want separate column (e.g. tech_notes), change here
         patch.notes = body.note;
       }
       const { error } = await sb.from("service_requests").update(patch).in("id", ids);
@@ -77,6 +78,13 @@ export async function POST(req: NextRequest) {
       if (typeof body.scheduled_at !== "undefined") patch.scheduled_at = body.scheduled_at;
       patch.status = body.status || "SCHEDULED";
 
+      const { error } = await sb.from("service_requests").update(patch).in("id", ids);
+      if (error) throw new Error(error.message);
+      return NextResponse.json({ ok: true });
+    }
+
+    if (body.op === "notes") {
+      const patch: any = { dispatch_notes: body.dispatch_notes ?? null };
       const { error } = await sb.from("service_requests").update(patch).in("id", ids);
       if (error) throw new Error(error.message);
       return NextResponse.json({ ok: true });

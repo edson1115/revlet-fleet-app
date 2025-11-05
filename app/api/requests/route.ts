@@ -17,7 +17,6 @@ async function supa() {
     cookies: {
       get: (name: string) => jar.get(name)?.value,
       set: (name: string, value: string, opts: any) => {
-        // Next 15: use cookie jar to set/remove
         jar.set({ name, value, ...opts });
       },
       remove: (name: string, opts: any) => {
@@ -74,7 +73,6 @@ export async function GET(req: NextRequest) {
     const sortBy = (searchParams.get("sortBy") || "scheduled_at").trim();
     const sortDir = (searchParams.get("sortDir") || "asc").toLowerCase() === "desc" ? "desc" : "asc";
 
-    // IMPORTANT: relationship keys must match your schema table names
     const select = `
       id, status, created_at, scheduled_at, started_at, completed_at, service, dispatch_notes, notes,
       customer:customer_id ( id, name ),
@@ -88,7 +86,6 @@ export async function GET(req: NextRequest) {
     if (statuses.length) q = q.in("status", statuses);
 
     if (technicianId) {
-      // For debugging, allow pulling unassigned rows too
       if (includeUnassigned) {
         q = q.or(`technician_id.eq.${technicianId},technician_id.is.null`);
       } else {
@@ -104,5 +101,44 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ rows: (data || []).map(toUiRow) });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Failed to fetch requests" }, { status: 400 });
+  }
+}
+
+/** POST /api/requests
+ * Body variants:
+ *   { op: "notes", id: string, dispatch_notes: string|null }
+ *   (room to add more ops later)
+ */
+export async function POST(req: NextRequest) {
+  try {
+    const sb = await supa();
+    const body = await req.json().catch(() => ({} as any));
+    const op = String(body?.op || "").toLowerCase();
+
+    if (op === "notes") {
+      const id = String(body?.id || "").trim();
+      if (!id) return NextResponse.json({ error: "id_required" }, { status: 400 });
+
+      // allow null to clear notes
+      const dispatch_notes =
+        typeof body?.dispatch_notes === "string" && body.dispatch_notes.trim() === ""
+          ? null
+          : (body?.dispatch_notes ?? null);
+
+      const { data, error } = await sb
+        .from("service_requests")
+        .update({ dispatch_notes })
+        .eq("id", id)
+        .select("id, dispatch_notes")
+        .single();
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+      return NextResponse.json({ ok: true, row: data });
+    }
+
+    return NextResponse.json({ error: "unsupported_op" }, { status: 400 });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || "request_update_failed" }, { status: 400 });
   }
 }

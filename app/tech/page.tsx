@@ -1,7 +1,7 @@
 // app/tech/page.tsx
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Lightbox from "@/components/common/Lightbox";
 
 type UUID = string;
@@ -67,33 +67,6 @@ function fmtDateTime(dt?: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-function toLocalDateTimeInputValue(dt?: string | null) {
-  if (!dt) return "";
-  const d = new Date(dt);
-  if (Number.isNaN(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function defaultNextBusinessDay4amLocal(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  const day = d.getDay();
-  if (day === 6) d.setDate(d.getDate() + 2);
-  if (day === 0) d.setDate(d.getDate() + 1);
-  d.setHours(4, 0, 0, 0);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function useDebounced(fn: () => void, delay = 350) {
-  const t = useRef<ReturnType<typeof setTimeout> | null>(null);
-  return useCallback(() => {
-    if (t.current) clearTimeout(t.current);
-    t.current = setTimeout(() => fn(), delay);
-  }, [fn, delay]);
 }
 
 function countKinds(arr: Thumb[] | undefined) {
@@ -174,16 +147,13 @@ export default function TechPage() {
   const [lbImages, setLbImages] = useState<{ url_work: string; alt?: string }[]>([]);
   const [lbIndex, setLbIndex] = useState(0);
 
-  // Reschedule modal
+  // Reschedule (return-to-dispatch) modal
   const [rescheduleFor, setRescheduleFor] = useState<string | null>(null);
-  const [reschedDt, setReschedDt] = useState<string>(defaultNextBusinessDay4amLocal());
   const [reschedNote, setReschedNote] = useState<string>("");
 
   // Complete modal
   const [completeFor, setCompleteFor] = useState<string | null>(null);
   const [completeNote, setCompleteNote] = useState<string>("");
-
-  const debouncedReload = useDebounced(load, 300);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("tech:selected_id");
@@ -207,6 +177,7 @@ export default function TechPage() {
 
   useEffect(() => {
     if (techId) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [techId]);
 
   async function load() {
@@ -218,7 +189,8 @@ export default function TechPage() {
     setLoading(true);
     setErr(null);
     try {
-      const statuses = "SCHEDULED,IN_PROGRESS,RESCHEDULE";
+      // Only SCHEDULED + IN_PROGRESS should be visible to a tech
+      const statuses = "SCHEDULED,IN_PROGRESS";
       const qs = new URLSearchParams();
       qs.set("technician_id", techId);
       qs.set("status", statuses);
@@ -264,7 +236,10 @@ export default function TechPage() {
   async function startJob(id: string) {
     try {
       await postJSON("/api/requests/batch", { op: "status", ids: [id], status: "IN_PROGRESS" });
-      await load();
+      // Light local update rather than full reload
+      setRows((prev) =>
+        prev.map((x) => (x.id === id ? { ...x, status: "IN_PROGRESS", created_at: x.created_at } : x))
+      );
     } catch (e: any) {
       alert(e?.message || "Failed to start job");
     }
@@ -280,7 +255,8 @@ export default function TechPage() {
     try {
       await postJSON("/api/requests/batch", { op: "complete", ids: [completeFor], note: completeNote || undefined });
       setCompleteFor(null);
-      await load();
+      // Remove from tech view on completion
+      setRows((prev) => prev.filter((x) => x.id !== completeFor));
     } catch (e: any) {
       alert(e?.message || "Failed to complete");
     }
@@ -288,30 +264,28 @@ export default function TechPage() {
 
   function openReschedule(id: string) {
     setRescheduleFor(id);
-    setReschedDt(defaultNextBusinessDay4amLocal());
     setReschedNote("");
   }
 
+  // 🔴 Core change: send back to Dispatch (unassign + clear date + RESCHEDULE) and remove from Tech view
   async function submitReschedule() {
     if (!rescheduleFor) return;
     try {
       await postJSON("/api/requests/batch", {
-        op: "reschedule",
+        op: "return_to_dispatch",
         ids: [rescheduleFor],
-        scheduled_at: reschedDt,
-        status: "RESCHEDULE",
         note: reschedNote || undefined,
       });
       setRescheduleFor(null);
-      await load();
+      // Immediately remove from the tech's list
+      setRows((prev) => prev.filter((x) => x.id !== rescheduleFor));
     } catch (e: any) {
-      alert(e?.message || "Failed to reschedule");
+      alert(e?.message || "Failed to send back to Dispatch");
     }
   }
 
   const scheduled = useMemo(() => rows.filter((r) => r.status === "SCHEDULED"), [rows]);
   const inProgress = useMemo(() => rows.filter((r) => r.status === "IN_PROGRESS"), [rows]);
-  const needsReschedule = useMemo(() => rows.filter((r) => r.status === "RESCHEDULE"), [rows]);
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
@@ -379,46 +353,26 @@ export default function TechPage() {
         showUploadAfter
       />
 
-      <Section
-        title="Needs Reschedule"
-        emptyText="Nothing marked for reschedule."
-        items={needsReschedule}
-        thumbsByReq={thumbsByReq}
-        onOpenLightbox={openLightbox}
-        onUploaded={load}
-        onStart={startJob}
-        onComplete={openComplete}
-        onReschedule={openReschedule}
-        showStart
-      />
-
-      {/* Reschedule modal */}
+      {/* Reschedule (send back) modal */}
       {rescheduleFor && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-lg w-full max-w-md p-4 space-y-3">
-            <h3 className="text-lg font-semibold">Request reschedule</h3>
-            <div className="space-y-2">
-              <label className="block text-sm font-medium">New date &amp; time</label>
-              <input
-                type="datetime-local"
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-                value={reschedDt}
-                onChange={(e) => setReschedDt(e.target.value)}
-                min={toLocalDateTimeInputValue(new Date().toISOString())}
-              />
-              <label className="block text-sm font-medium mt-2">Reason (optional)</label>
-              <textarea
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-                rows={3}
-                value={reschedNote}
-                onChange={(e) => setReschedNote(e.target.value)}
-                placeholder="Why are we rescheduling?"
-              />
-            </div>
+            <h3 className="text-lg font-semibold">Send back to Dispatch</h3>
+            <p className="text-sm text-gray-600">
+              This will remove the job from your screen and return it to Dispatch to reschedule (possibly with a different technician).
+            </p>
+            <label className="block text-sm font-medium mt-2">Reason (optional)</label>
+            <textarea
+              className="w-full border rounded-lg px-3 py-2 text-sm"
+              rows={3}
+              value={reschedNote}
+              onChange={(e) => setReschedNote(e.target.value)}
+              placeholder="Why should Dispatch reschedule this job?"
+            />
             <div className="flex justify-end gap-2">
               <button className="px-3 py-2 text-sm rounded-lg border" onClick={() => setRescheduleFor(null)}>Cancel</button>
               <button className="px-3 py-2 text-sm rounded-lg bg-black text-white hover:bg-gray-800" onClick={submitReschedule}>
-                Submit reschedule
+                Send back
               </button>
             </div>
           </div>
