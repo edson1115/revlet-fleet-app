@@ -1,8 +1,10 @@
+// app/office/queue/page.tsx (or wherever your Office Queue page lives)
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { InviteUserButton } from "@/components/InviteUserButton";
 import { UI_STATUSES, type UiStatus } from "@/lib/status";
+import ReadonlyScheduled from "@/components/office/ReadonlyScheduled"; // read-only display
 
 type RequestRow = {
   id: string;
@@ -114,13 +116,12 @@ export default function OfficeQueuePage() {
   const [drawerErr, setDrawerErr] = useState("");
   const [drawerBusy, setDrawerBusy] = useState(false);
 
-  // drawer editable fields
+  // drawer editable fields (NO scheduled_at here)
   const [dStatus, setDStatus] = useState<UiStatus>("NEW");
   const [dService, setDService] = useState<string>("");
   const [dFmc, setDFmc] = useState<string>("");
   const [dPo, setDPo] = useState<string>("");
   const [dMileage, setDMileage] = useState<string>("");
-  const [dScheduledAt, setDScheduledAt] = useState<string>("");
 
   // notes in drawer
   const [notes, setNotes] = useState<Array<{ id: string; text: string; created_at?: string | null }>>([]);
@@ -134,12 +135,12 @@ export default function OfficeQueuePage() {
   const [showWaitingApproval, setShowWaitingApproval] = useState(true);
   const [showDeclined, setShowDeclined] = useState(true);
   const [showWaitingParts, setShowWaitingParts] = useState(true);
-  const [showScheduled, setShowScheduled] = useState(true);    // we still allow viewing scheduled rows
+  const [showScheduled, setShowScheduled] = useState(true);    // view-only is fine
   const [showInProgress, setShowInProgress] = useState(true);
-  const [showDispatched, setShowDispatched] = useState(true);  // view only; Office cannot set this
+  const [showDispatched, setShowDispatched] = useState(true);  // view-only
   const [showCompleted, setShowCompleted] = useState(true);
 
-  // pull from lib then filter OUT statuses Office must not set
+  // pull from lib and filter OUT statuses Office must not set
   const statusOptions = useMemo(
     () => UI_STATUSES.filter((s) => s !== "SCHEDULED" && s !== "DISPATCHED"),
     []
@@ -167,21 +168,20 @@ export default function OfficeQueuePage() {
     };
   }, []);
 
-  // client-side filter
+  // client-side filter (compare using UI labels)
   const filteredRows = useMemo(() => {
     return rows.filter((r) => {
-      const s = (r.status || "").toUpperCase();
-      const isScheduled = !!r.scheduled_at;
+      const s = String(r.status || "").toUpperCase();
 
       const matchNew = showNew && s === "NEW";
-      const matchWaitingSched = showWaitingSched && s === "WAITING_TO_BE_SCHEDULED";
-      const matchWaitingApproval = showWaitingApproval && s === "WAITING_APPROVAL";
+      const matchWaitingSched = showWaitingSched && s === "WAITING TO BE SCHEDULED";
+      const matchWaitingApproval = showWaitingApproval && s === "WAITING APPROVAL";
       const matchDeclined = showDeclined && s === "DECLINED";
-      const matchWaitingParts = showWaitingParts && s === "WAITING_FOR_PARTS";
-      const matchScheduled = showScheduled && (s === "SCHEDULED" || isScheduled);
-      const matchInProgress = showInProgress && s === "IN_PROGRESS";
+      const matchWaitingParts = showWaitingParts && s === "WAITING FOR PARTS";
+      const matchScheduled = showScheduled && s === "SCHEDULED";
+      const matchInProgress = showInProgress && s === "IN PROGRESS";
       const matchDispatched = showDispatched && s === "DISPATCHED";
-      const matchCompleted = showCompleted && (s === "COMPLETED" || s === "DONE");
+      const matchCompleted = showCompleted && s === "COMPLETED";
 
       if (
         !showNew &&
@@ -238,7 +238,6 @@ export default function OfficeQueuePage() {
       setDFmc(String(data.fmc || ""));
       setDPo(String(data.po || ""));
       setDMileage(data.mileage != null ? String(data.mileage) : "");
-      setDScheduledAt(data.scheduled_at ? new Date(data.scheduled_at).toISOString().slice(0, 16) : "");
 
       const n = (data.notes_list || []).map((n) => ({
         id: n.id,
@@ -263,7 +262,7 @@ export default function OfficeQueuePage() {
     setDrawerErr("");
   }
 
-  // save drawer
+  // save drawer (NO scheduled_at write from Office)
   async function saveDetails() {
     if (!drawerId) return;
     setDrawerBusy(true);
@@ -271,9 +270,10 @@ export default function OfficeQueuePage() {
     try {
       // HARD GUARD: Office cannot set SCHEDULED or DISPATCHED
       const forbidden = new Set(["SCHEDULED", "DISPATCHED"]);
-      const safeStatus = dStatus && forbidden.has(String(dStatus).toUpperCase() as UiStatus)
-        ? undefined
-        : dStatus;
+      const safeStatus =
+        dStatus && forbidden.has(String(dStatus).toUpperCase() as UiStatus)
+          ? undefined
+          : dStatus;
 
       const body: any = {
         status: safeStatus ?? null,
@@ -281,8 +281,11 @@ export default function OfficeQueuePage() {
         fmc: dFmc || null,
         po: dPo || null,
         mileage: dMileage ? Number(dMileage) : null,
-        scheduled_at: dScheduledAt ? new Date(dScheduledAt).toISOString() : null,
       };
+
+      // safety: scrub any accidental schedule fields
+      delete body.scheduled_at;
+      delete (body as any).technician_id;
 
       const updated = await patchJSON<RequestDetails>(
         `/api/requests/${encodeURIComponent(drawerId)}`,
@@ -301,6 +304,7 @@ export default function OfficeQueuePage() {
                 fmc: updated.fmc,
                 po: updated.po,
                 mileage: updated.mileage,
+                // keep scheduled_at from server (unchanged here)
                 scheduled_at: updated.scheduled_at,
                 vehicle: updated.vehicle ?? r.vehicle,
                 technician: updated.technician ?? r.technician,
@@ -525,7 +529,7 @@ export default function OfficeQueuePage() {
               <div>Loading…</div>
             ) : (
               <div className="space-y-6">
-                {/* Editable top */}
+                {/* Editable top (NO schedule editor here) */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <label className="block text-sm">
                     <span className="block mb-1">Status</span>
@@ -587,16 +591,10 @@ export default function OfficeQueuePage() {
                     />
                   </label>
 
-                  <label className="block text-sm">
-                    <span className="block mb-1">Scheduled (optional)</span>
-                    <input
-                      type="datetime-local"
-                      className="border rounded-md px-3 py-2 w-full"
-                      value={dScheduledAt}
-                      onChange={(e) => setDScheduledAt(e.target.value)}
-                      disabled={drawerBusy}
-                    />
-                  </label>
+                  {/* Read-only Scheduled (no inputs) */}
+                  <div className="mt-3">
+                    <ReadonlyScheduled value={drawerRow?.scheduled_at ?? null} className="mt-2" />
+                  </div>
                 </div>
 
                 {/* Readonly context */}

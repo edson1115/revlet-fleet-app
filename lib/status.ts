@@ -11,6 +11,7 @@ export const UI_STATUSES = [
   "IN PROGRESS",
   "COMPLETED",
   "DECLINED",
+  "RESCHEDULE",           // ← added
 ] as const;
 
 export type UiStatus = (typeof UI_STATUSES)[number];
@@ -29,6 +30,7 @@ export const UI_TO_DB_STATUS: Record<UiStatus, string> = {
   "IN PROGRESS": "IN_PROGRESS",
   "COMPLETED": "COMPLETED",
   "DECLINED": "DECLINED",
+  "RESCHEDULE": "RESCHEDULE",           // ← added
 };
 
 /** Reverse mapping for DB → UI label (shown in tables, drawers, etc.) */
@@ -42,4 +44,5 @@ export const DB_TO_UI_STATUS: Record<string, UiStatus> = {
   "IN_PROGRESS": "IN PROGRESS",
   "COMPLETED": "COMPLETED",
   "DECLINED": "DECLINED",
+  "RESCHEDULE": "RESCHEDULE",           // ← added
 };

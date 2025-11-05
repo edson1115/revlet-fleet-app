@@ -9,61 +9,118 @@ function httpErr(msg: string, code = 400) {
   return NextResponse.json({ error: msg }, { status: code });
 }
 
-async function resolveCompanyId(sb: any) {
-  const { data: auth } = await sb.auth.getUser();
-  const uid = auth.user?.id || null;
-  if (!uid) return null;
-  const { data: me } = await sb.from("profiles").select("company_id").eq("id", uid).maybeSingle();
-  return (me?.company_id as string) || null;
+function isSuperAdminEmail(email?: string | null) {
+  const envList = (process.env.SUPERADMIN_EMAILS || "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  const fallback = "edson.cortes@bigo.com";
+  const e = (email || "").toLowerCase();
+  return !!e && (envList.includes(e) || e === fallback);
 }
 
-/** GET /api/techs?active=1 */
+async function resolveScope(sb: any) {
+  const { data: auth } = await sb.auth.getUser();
+  const uid = auth?.user?.id || null;
+  const email = auth?.user?.email || null;
+
+  let company_id: string | null = null;
+  let role: string | null = null;
+
+  if (uid) {
+    const { data: me } = await sb
+      .from("profiles")
+      .select("company_id, role")
+      .eq("id", uid)
+      .maybeSingle();
+    company_id = (me?.company_id as string) || null;
+    role = (me?.role as string) || null;
+  }
+
+  const isAdmin =
+    (role ? role.toUpperCase() === "ADMIN" : false) ||
+    isSuperAdminEmail(email);
+
+  return { uid, email, company_id, isAdmin };
+}
+
+/** GET /api/techs?active=1
+ * - Admins see all technicians (optionally can pass ?company_id=... to scope).
+ * - Non-admins see only their company's technicians.
+ * Returns: { rows: Array<{id, name, phone, email, active}> }
+ */
 export async function GET(req: NextRequest) {
   try {
     const sb = await supabaseServer();
-    const company_id = await resolveCompanyId(sb);
-    if (!company_id) return httpErr("no_company", 400);
+    const { company_id: myCompanyId, isAdmin } = await resolveScope(sb);
 
-    const activeOnly = req.nextUrl.searchParams.get("active") === "1";
+    const params = req.nextUrl.searchParams;
+    const activeOnly = params.get("active") === "1";
+    // Optional admin override (?company_id=UUID) to scope results
+    const overrideCompanyId = params.get("company_id");
 
-    // Primary source: technicians table
-    const base = sb
+    // Build base query
+    let q = sb
       .from("technicians")
-      .select("id, full_name, phone, email, active")
-      .eq("company_id", company_id)
+      .select("id, full_name, phone, email, active, company_id")
       .order("full_name", { ascending: true });
 
-    const { data: techs, error } = activeOnly ? await base.eq("active", true) : await base;
-    if (error) throw error;
-
-    if (Array.isArray(techs) && techs.length > 0) {
-      const rows = techs.map((t: any) => ({
-        id: t.id as string,
-        name: (t.full_name as string) || "Unnamed",
-        phone: (t.phone as string) || null,
-        email: (t.email as string) || null,
-        active: !!t.active,
-      }));
-      return NextResponse.json({ rows });
+    if (isAdmin) {
+      // If admin provided a specific company scope, apply it
+      if (overrideCompanyId) {
+        q = q.eq("company_id", overrideCompanyId);
+      }
+      // else: no company filter → all techs visible
+    } else {
+      // Non-admin must be scoped to their company
+      if (!myCompanyId) return httpErr("no_company", 400);
+      q = q.eq("company_id", myCompanyId);
     }
 
-    // Fallback: profiles with role=TECH (only if technicians table empty)
-    const { data: profs, error: pfErr } = await sb
-      .from("profiles")
-      .select("id, full_name, role, active")
-      .eq("company_id", company_id)
-      .eq("role", "TECH")
-      .order("full_name", { ascending: true });
+    if (activeOnly) q = q.eq("active", true);
 
-    if (pfErr) throw pfErr;
+    const { data: techs, error } = await q;
+    if (error) throw error;
 
-    const rows = (profs ?? []).map((p: any) => ({
-      id: p.id as string,
-      name: (p.full_name as string) || "Unnamed",
-      phone: null,
-      email: null,
-      active: !!p.active,
+    const rows = (techs || []).map((t: any) => ({
+      id: t.id as string,
+      name: (t.full_name as string) || "Unnamed",
+      phone: (t.phone as string) || null,
+      email: (t.email as string) || null,
+      active: !!t.active,
     }));
+
+    // If technicians table is empty for this scope, fall back to profiles with role=TECH
+    if (rows.length === 0) {
+      let p = sb
+        .from("profiles")
+        .select("id, full_name, role, active, company_id")
+        .eq("role", "TECH")
+        .order("full_name", { ascending: true });
+
+      if (isAdmin) {
+        if (overrideCompanyId) p = p.eq("company_id", overrideCompanyId);
+      } else {
+        if (!myCompanyId) return httpErr("no_company", 400);
+        p = p.eq("company_id", myCompanyId);
+      }
+
+      if (activeOnly) p = p.eq("active", true);
+
+      const { data: profs, error: pfErr } = await p;
+      if (pfErr) throw pfErr;
+
+      const fallbacks = (profs ?? []).map((p: any) => ({
+        id: p.id as string,
+        name: (p.full_name as string) || "Unnamed",
+        phone: null,
+        email: null,
+        active: !!p.active,
+      }));
+
+      return NextResponse.json({ rows: fallbacks });
+    }
+
     return NextResponse.json({ rows });
   } catch (e: any) {
     return NextResponse.json({ rows: [], error: e?.message || "Failed to load techs" }, { status: 500 });
@@ -74,8 +131,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const sb = await supabaseServer();
-    const company_id = await resolveCompanyId(sb);
-    if (!company_id) return httpErr("no_company", 400);
+    const { company_id, isAdmin } = await resolveScope(sb);
+    if (!company_id && !isAdmin) return httpErr("no_company", 400);
 
     const body = await req.json().catch(() => ({} as any));
     const full_name = String(body?.full_name || "").trim();
@@ -87,7 +144,7 @@ export async function POST(req: NextRequest) {
 
     const ins = await sb
       .from("technicians")
-      .insert([{ company_id, full_name, phone, email, active }])
+      .insert([{ company_id: company_id ?? body?.company_id ?? null, full_name, phone, email, active }])
       .select("id, full_name, phone, email, active")
       .single();
 
@@ -109,14 +166,20 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try {
     const sb = await supabaseServer();
-    const company_id = await resolveCompanyId(sb);
-    if (!company_id) return httpErr("no_company", 400);
+    const { company_id, isAdmin } = await resolveScope(sb);
 
     const id = req.nextUrl.searchParams.get("id");
     if (!id) return httpErr("id_required", 400);
 
-    const del = await sb.from("technicians").delete().eq("id", id).eq("company_id", company_id);
-    if (del.error) return httpErr(del.error.message, 500);
+    // Admins can delete any tech; non-admins restricted to their company
+    let del = sb.from("technicians").delete().eq("id", id);
+    if (!isAdmin) {
+      if (!company_id) return httpErr("no_company", 400);
+      del = del.eq("company_id", company_id);
+    }
+
+    const res = await del;
+    if (res.error) return httpErr(res.error.message, 500);
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
