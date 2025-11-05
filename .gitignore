@@ -8,3 +8,7 @@ npm-debug.log*
 yarn-error.log*
 .DS_Store
 .vscode
+
+# local env & TS build cache
+.env.local
+*.tsbuildinfo
