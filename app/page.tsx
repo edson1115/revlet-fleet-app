@@ -1,98 +1,55 @@
 // app/page.tsx
-"use client";
+import { redirect } from "next/navigation";
+import { supabaseServer } from "@/lib/supabase/server";
+import SignInForm from "@/components/auth/SignInForm";
+import ToastOnMount from "@/components/ToastOnMount";
 
-import Link from "next/link";
-import { useEffect, useState } from "react";
+// server component – safe to read searchParams directly in the signature
+export default async function Home({
+  searchParams,
+}: {
+  searchParams?: { msg?: string };
+}) {
+  const supabase = await supabaseServer();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-type Me = {
-  role?: string | null;
-  email?: string | null;
-  permissions?: {
-    canSeeOffice?: boolean;
-    canSeeDispatch?: boolean;
-    canSeeTech?: boolean;
-    canSeeAdmin?: boolean;
-    canSeeReports?: boolean;
-  } | null;
-};
+  if (user) {
+    // role-aware routing when already logged in
+    let role = "VIEWER";
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .maybeSingle();
 
-async function getMe(): Promise<{ me: Me | null; authed: boolean }> {
-  try {
-    const res = await fetch("/api/me", { credentials: "include", cache: "no-store" });
-    if (res.status === 401) return { me: null, authed: false };
-    if (!res.ok) throw new Error(String(res.status));
-    return { me: await res.json(), authed: true };
-  } catch {
-    return { me: null, authed: false };
+    if (prof?.role) role = String(prof.role).toUpperCase();
+    if (role === "TECH") redirect("/tech");
+    redirect("/fm/requests/new");
   }
-}
 
-export default function Home() {
-  const [me, setMe] = useState<Me | null>(null);
-
-  useEffect(() => {
-    let live = true;
-    (async () => {
-      const { me } = await getMe();
-      if (!live) return;
-      setMe(me);
-    })();
-    return () => { live = false; };
-  }, []);
-
-  const role = String(me?.role || "VIEWER").toUpperCase();
-  const canSeeOffice  = role === "SUPERADMIN" || me?.permissions?.canSeeOffice  || role === "OFFICE" || role === "DISPATCH";
-  const canSeeDispatch= role === "SUPERADMIN" || me?.permissions?.canSeeDispatch|| role === "DISPATCH";
-  const canSeeTech    = role === "SUPERADMIN" || me?.permissions?.canSeeTech    || role === "TECH";
-  const canSeeAdmin   = role === "SUPERADMIN" || me?.permissions?.canSeeAdmin   || role === "ADMIN" || role === "OFFICE" || role === "DISPATCH";
-  const canSeeReports = role === "SUPERADMIN" || me?.permissions?.canSeeReports || role === "ADMIN" || role === "OFFICE" || role === "DISPATCH";
+  // not authed: show hero + magic link form
+  const msg = searchParams?.msg ?? null;
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8 space-y-4">
-      <h1 className="text-2xl font-semibold">Revlet Fleet</h1>
+    <main className="relative flex flex-col items-center justify-center min-h-[calc(100vh-64px)] bg-gradient-to-br from-gray-50 via-white to-gray-100">
+      {/* Client shim to show toast when ?msg=signedout */}
+      <ToastOnMount when={msg} success="Signed out successfully!" />
 
-      {role && (
-        <div className="rounded border border-emerald-200 bg-emerald-50 text-emerald-800 px-3 py-2">
-          You are signed in with role <strong>{role}</strong>.
+      <div className="text-center px-6">
+        <h1 className="text-5xl font-semibold mb-3 text-gray-900">Revlet Fleet</h1>
+        <p className="text-gray-600 mb-8">
+          Manage, schedule, and automate your fleet operations with confidence.
+        </p>
+        <div className="mx-auto w-full max-w-md rounded-2xl border bg-white p-6 shadow-sm">
+          <h2 className="text-xl font-semibold mb-2">Sign in</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            Enter your work email and we’ll email you a secure sign-in link.
+          </p>
+          <SignInForm next="/" />
         </div>
-      )}
-
-      <ul className="list-disc pl-5 space-y-2">
-        <li>
-          <Link href="/fm/requests/new" className="underline">Create Request (Customer)</Link>
-        </li>
-
-        {/* ✅ Office now goes to /office */}
-        {canSeeOffice && (
-          <li>
-            <Link href="/office" className="underline">Office Queue</Link>
-          </li>
-        )}
-
-        {canSeeDispatch && (
-          <li>
-            <Link href="/dispatch" className="underline">Dispatch</Link>
-          </li>
-        )}
-
-        {canSeeTech && (
-          <li>
-            <Link href="/tech/my-jobs" className="underline">Tech</Link>
-          </li>
-        )}
-
-        {canSeeReports && (
-          <li>
-            <Link href="/reports" className="underline">Reports</Link>
-          </li>
-        )}
-
-        {canSeeAdmin && (
-          <li>
-            <Link href="/admin" className="underline">Admin</Link>
-          </li>
-        )}
-      </ul>
-    </div>
+      </div>
+    </main>
   );
 }

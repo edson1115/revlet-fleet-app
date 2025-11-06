@@ -31,7 +31,6 @@ async function getMe(): Promise<{
     });
     if (!res.ok) return { ok: false, authed: false, me: null };
     const json = await res.json();
-    // Accept either flat or nested shapes
     const me: Me = json.me ?? json;
     const perms: Permissions | undefined = json.permissions;
     const authed = Boolean(json.ok ?? true);
@@ -66,22 +65,23 @@ export default function MainNav() {
 
   const role = String(me?.role || "VIEWER").toUpperCase();
 
-  // If /api/me didn’t return permissions (older builds), derive minimal defaults from role.
   const derived: Permissions = perms ?? {
     canSeeCreateRequest: true,
     canSeeOffice: ["SUPERADMIN", "OFFICE", "DISPATCH"].includes(role),
-    canSeeDispatch: ["SUPERADMIN", "DISPATCH", "OFFICE"].includes(role), // OFFICE can view; Dispatch mutates on page
+    canSeeDispatch: ["SUPERADMIN", "DISPATCH", "OFFICE"].includes(role),
     canSeeTech: ["SUPERADMIN", "TECH"].includes(role),
     canSeeAdmin: role === "SUPERADMIN",
     canSeeReports: ["SUPERADMIN", "OFFICE", "DISPATCH"].includes(role),
   };
 
   async function signOut() {
-    try {
-      await postJSON("/api/auth/logout");
-    } catch {}
-    window.location.href = "/";
-  }
+  try {
+    await postJSON("/api/auth/logout");
+  } catch {}
+  // land on "/" and show a toast there
+  window.location.href = "/?msg=signedout";
+}
+
 
   return (
     <nav className="w-full border-b bg-white">
@@ -91,32 +91,26 @@ export default function MainNav() {
             Revlet Fleet
           </Link>
 
-          {/* Order: Create Request / Office Queue / Dispatch / Tech / Admin / Reports */}
           {derived.canSeeCreateRequest && (
             <Link href="/fm/requests/new" className="text-sm hover:underline">
               Create Request
             </Link>
           )}
-
           {derived.canSeeOffice && (
             <Link href="/office" className="text-sm hover:underline">
               Office Queue
             </Link>
           )}
-
           {derived.canSeeDispatch && (
             <Link href="/tech/dispatch" className="text-sm hover:underline">
               Dispatch
             </Link>
           )}
-
           {derived.canSeeTech && (
             <Link href="/tech/my-jobs" className="text-sm hover:underline">
               Tech
             </Link>
           )}
-
-          
           {derived.canSeeReports && (
             <Link href="/reports" className="text-sm hover:underline">
               Reports
@@ -131,7 +125,7 @@ export default function MainNav() {
               Sign out
             </button>
           ) : (
-            <Link href="/auth" className="border px-2 py-1 rounded">
+            <Link href="/login" className="border px-2 py-1 rounded">
               Sign in
             </Link>
           )}

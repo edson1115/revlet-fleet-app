@@ -1,10 +1,10 @@
-// /app/layout.tsx
-import type { Metadata } from "next";
 import "./globals.css";
 import MainNav from "@/components/MainNav";
+import ToastProvider from "@/components/ToastProvider";
 
-export const metadata: Metadata = {
+export const metadata = {
   title: "Revlet Fleet",
+  description: "Fleet scheduling, dispatch and tech workflows",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -12,6 +12,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <MainNav />
+        <ToastProvider />
         {children}
       </body>
     </html>
