@@ -1,18 +1,43 @@
-'use client';
+"use client";
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
-type Me = { role?: string | null; name?: string | null; email?: string | null };
+type Me = {
+  role?: string | null;
+  name?: string | null;
+  email?: string | null;
+};
 
-async function getMe(): Promise<{ me: Me | null; authed: boolean }> {
+type Permissions = {
+  canSeeCreateRequest: boolean;
+  canSeeOffice: boolean;
+  canSeeDispatch: boolean;
+  canSeeTech: boolean;
+  canSeeAdmin: boolean;
+  canSeeReports: boolean;
+};
+
+async function getMe(): Promise<{
+  ok: boolean;
+  authed: boolean;
+  me: Me | null;
+  permissions?: Permissions;
+}> {
   try {
-    const res = await fetch("/api/me", { credentials: "include", cache: "no-store" });
-    if (res.status === 401) return { me: null, authed: false };
-    if (!res.ok) throw new Error(String(res.status));
-    return { me: await res.json(), authed: true };
+    const res = await fetch("/api/me", {
+      credentials: "include",
+      cache: "no-store",
+    });
+    if (!res.ok) return { ok: false, authed: false, me: null };
+    const json = await res.json();
+    // Accept either flat or nested shapes
+    const me: Me = json.me ?? json;
+    const perms: Permissions | undefined = json.permissions;
+    const authed = Boolean(json.ok ?? true);
+    return { ok: true, authed, me, permissions: perms };
   } catch {
-    return { me: null, authed: false };
+    return { ok: false, authed: false, me: null };
   }
 }
 
@@ -23,28 +48,38 @@ async function postJSON(url: string) {
 export default function MainNav() {
   const [me, setMe] = useState<Me | null>(null);
   const [authed, setAuthed] = useState(false);
+  const [perms, setPerms] = useState<Permissions | null>(null);
 
   useEffect(() => {
     let live = true;
     (async () => {
-      const { me, authed } = await getMe();
+      const r = await getMe();
       if (!live) return;
-      setMe(me);
-      setAuthed(authed);
+      setMe(r.me);
+      setAuthed(r.authed);
+      if (r.permissions) setPerms(r.permissions);
     })();
-    return () => { live = false; };
+    return () => {
+      live = false;
+    };
   }, []);
 
-  const role = String(me?.role || "CUSTOMER").toUpperCase();
-  const isSuper = role === "SUPERADMIN";
-  const isCustomer = role === "CUSTOMER";
-  const isOffice = role === "OFFICE";
-  const isDispatcher = role === "DISPATCHER";
-  const isTech = role === "TECH" || role === "TECHNICIAN";
-  const isAdmin = role === "ADMIN";
+  const role = String(me?.role || "VIEWER").toUpperCase();
+
+  // If /api/me didn’t return permissions (older builds), derive minimal defaults from role.
+  const derived: Permissions = perms ?? {
+    canSeeCreateRequest: true,
+    canSeeOffice: ["SUPERADMIN", "OFFICE", "DISPATCH"].includes(role),
+    canSeeDispatch: ["SUPERADMIN", "DISPATCH", "OFFICE"].includes(role), // OFFICE can view; Dispatch mutates on page
+    canSeeTech: ["SUPERADMIN", "TECH"].includes(role),
+    canSeeAdmin: role === "SUPERADMIN",
+    canSeeReports: ["SUPERADMIN", "OFFICE", "DISPATCH"].includes(role),
+  };
 
   async function signOut() {
-    try { await postJSON("/api/auth/logout"); } catch {}
+    try {
+      await postJSON("/api/auth/logout");
+    } catch {}
     window.location.href = "/";
   }
 
@@ -52,40 +87,53 @@ export default function MainNav() {
     <nav className="w-full border-b bg-white">
       <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Link href="/" className="font-semibold">Revlet Fleet</Link>
+          <Link href="/" className="font-semibold">
+            Revlet Fleet
+          </Link>
 
-          {/* Always show Create Request entry point in header */}
-          <Link href="/fm/requests/new" className="text-sm hover:underline">Create Request</Link>
-
-          {(isCustomer) && (
-            <>
-              <Link href="/customer/requests" className="text-sm hover:underline">My Requests</Link>
-            </>
+          {/* Order: Create Request / Office Queue / Dispatch / Tech / Admin / Reports */}
+          {derived.canSeeCreateRequest && (
+            <Link href="/fm/requests/new" className="text-sm hover:underline">
+              Create Request
+            </Link>
           )}
 
-          {(isSuper || isAdmin || isOffice || isDispatcher) && (
-            <>
-              <Link href="/office/queue" className="text-sm hover:underline">Office Queue</Link>
-              <Link href="/reports" className="text-sm hover:underline">Reports</Link>
-              <Link href="/admin" className="text-sm hover:underline">Admin</Link>
-            </>
+          {derived.canSeeOffice && (
+            <Link href="/office" className="text-sm hover:underline">
+              Office Queue
+            </Link>
           )}
 
-          {(isSuper || isDispatcher) && (
-            <Link href="/tech/dispatch" className="text-sm hover:underline">Dispatch</Link>
+          {derived.canSeeDispatch && (
+            <Link href="/tech/dispatch" className="text-sm hover:underline">
+              Dispatch
+            </Link>
           )}
 
-          {(isSuper || isTech) && (
-            <Link href="/tech/my-jobs" className="text-sm hover:underline">Tech</Link>
+          {derived.canSeeTech && (
+            <Link href="/tech/my-jobs" className="text-sm hover:underline">
+              Tech
+            </Link>
+          )}
+
+          
+          {derived.canSeeReports && (
+            <Link href="/reports" className="text-sm hover:underline">
+              Reports
+            </Link>
           )}
         </div>
 
         <div className="flex items-center gap-3 text-xs text-gray-600">
-          <div>{authed ? (me?.email ?? me?.name ?? "User") : "Guest"} • {role}</div>
+          <div>{authed ? me?.email ?? me?.name ?? "User" : "Guest"} • {role}</div>
           {authed ? (
-            <button onClick={signOut} className="border px-2 py-1 rounded">Sign out</button>
+            <button onClick={signOut} className="border px-2 py-1 rounded">
+              Sign out
+            </button>
           ) : (
-            <Link href="/auth" className="border px-2 py-1 rounded">Sign in</Link>
+            <Link href="/auth" className="border px-2 py-1 rounded">
+              Sign in
+            </Link>
           )}
         </div>
       </div>

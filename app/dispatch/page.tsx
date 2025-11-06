@@ -4,6 +4,7 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import ImageCountPill from "../../components/images/ImageCountPill";
 import Lightbox from "../../components/common/Lightbox";
+import { permsFor, normalizeRole } from "@/lib/permissions";
 
 type UUID = string;
 
@@ -51,6 +52,18 @@ type Thumb = {
   url_work: string;
   taken_at?: string;
 };
+
+// ---- helpers to fetch current role ----
+async function getMeRole(): Promise<string> {
+  try {
+    const res = await fetch("/api/me", { credentials: "include", cache: "no-store" });
+    if (!res.ok) return "VIEWER";
+    const js = await res.json();
+    return String(js?.role ?? "VIEWER");
+  } catch {
+    return "VIEWER";
+  }
+}
 
 async function getJSON<T>(url: string) {
   const res = await fetch(url, { credentials: "include" });
@@ -135,7 +148,7 @@ function useSupabaseClient() {
 }
 
 /* ============================
-   Inline editor: Dispatcher Notes (fixed -> /api/requests/batch)
+   Inline editor: Dispatcher Notes
    ============================ */
 function DispatchNotesEditor({
   requestId,
@@ -217,6 +230,10 @@ function Scheduler({
         op: "assign",
         ids: [request.id],
         technician_id: payload.technician_id,
+      });
+      await postJSON("/api/requests/batch", {
+        op: "reschedule",
+        ids: [request.id],
         scheduled_at: payload.scheduled_at,
         status: "SCHEDULED",
       });
@@ -285,6 +302,18 @@ function Scheduler({
    Page
    ============================ */
 export default function DispatchPage() {
+  // role-derived mutation flag
+  const [canMutate, setCanMutate] = useState<boolean>(false);
+
+  useEffect(() => {
+    (async () => {
+      const roleRaw = await getMeRole();
+      const role = normalizeRole(roleRaw);
+      const p = permsFor(role);
+      setCanMutate(p.canAssignSchedule); // SUPERADMIN/DISPATCH => true; OFFICE/VIEWER/TECH => false
+    })();
+  }, []);
+
   const [rows, setRows] = useState<RequestRow[]>([]);
   const [techs, setTechs] = useState<Technician[]>([]);
   const [loading, setLoading] = useState(false);
@@ -295,7 +324,7 @@ export default function DispatchPage() {
     "WAITING_TO_BE_SCHEDULED,SCHEDULED,RESCHEDULE,IN_PROGRESS"
   );
 
-  // NEW: selection + batch scheduling state
+  // selection + batch scheduling state
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const selectedIds = useMemo(() => Object.keys(selected).filter((k) => selected[k]), [selected]);
   const [toolbarTechId, setToolbarTechId] = useState<string>("");
@@ -330,7 +359,7 @@ export default function DispatchPage() {
 
   const supabase = useSupabaseClient();
 
-  // Load function as stable callback (so debounce + effects are tidy)
+  // Load function
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -348,7 +377,6 @@ export default function DispatchPage() {
       });
       setRows(data);
 
-      // Hydrate image thumbs for visible requests
       const ids = Array.from(new Set(data.map((r) => r.id)));
       if (ids.length) {
         const param = encodeURIComponent(ids.join(","));
@@ -409,30 +437,24 @@ export default function DispatchPage() {
     return { waiting, scheduled, needsReschedule, inProgress };
   }, [rows]);
 
-  function toggle(id: string) {
-    setSelected((s) => ({ ...s, [id]: !s[id] }));
-  }
-  function clearSel() {
-    setSelected({});
-  }
+  function toggle(id: string) { setSelected((s) => ({ ...s, [id]: !s[id] })); }
+  function clearSel() { setSelected({}); }
   function selectAll(list: RequestRow[]) {
     setSelected((prev) => ({ ...prev, ...Object.fromEntries(list.map((r) => [r.id, true])) }));
   }
 
-  // ===== Bundle opportunities (unscheduled + unassigned, same customer+location) =====
+  // ===== Bundle opportunities =====
   type Bundle = {
     key: string;
     customerName: string;
     locationName: string;
     ids: string[];
-    labels: string[]; // vehicle label or service label
+    labels: string[];
   };
 
   const bundles = useMemo<Bundle[]>(() => {
     const candidates = rows.filter(
-      (r) =>
-        r.status === "WAITING_TO_BE_SCHEDULED" &&
-        (!r.technician || !r.technician.id)
+      (r) => r.status === "WAITING_TO_BE_SCHEDULED" && (!r.technician || !r.technician.id)
     );
     const map = new Map<string, Bundle>();
     for (const r of candidates) {
@@ -455,24 +477,39 @@ export default function DispatchPage() {
       b.labels.push(label || r.id);
       map.set(key, b);
     }
-    // Only show real “opportunities” (2+)
     return Array.from(map.values()).filter((b) => b.ids.length >= 2);
   }, [rows]);
 
-  function selectBundle(b: Bundle) {
-    setSelected((prev) => ({ ...prev, ...Object.fromEntries(b.ids.map((id) => [id, true])) }));
+  async function quickAssignBundle(b: Bundle) {
+    if (!toolbarTechId) return setBanner("Choose a technician first.");
+    try {
+      await postJSON("/api/requests/batch", { op: "assign", ids: b.ids, technician_id: toolbarTechId });
+      setBanner(`Assigned bundle (${b.customerName} • ${b.locationName}) to technician.`);
+      await load();
+    } catch (e: any) {
+      setBanner(e?.message || "Failed to quick-assign bundle");
+    }
   }
 
-  // ===== Batch actions (uses /api/requests/batch) =====
+  async function quickScheduleBundle(b: Bundle) {
+    if (!toolbarTechId) return setBanner("Choose a technician first.");
+    const iso = fromLocalDateTimeInputValue(toolbarDtLocal);
+    if (!iso) return setBanner("Please pick a valid date & time.");
+    try {
+      await postJSON("/api/requests/batch", { op: "assign", ids: b.ids, technician_id: toolbarTechId });
+      await postJSON("/api/requests/batch", { op: "reschedule", ids: b.ids, scheduled_at: iso, status: "SCHEDULED" });
+      setBanner(`Scheduled bundle (${b.customerName} • ${b.locationName}) for ${new Date(toolbarDtLocal).toLocaleString()}.`);
+      await load();
+    } catch (e: any) {
+      setBanner(e?.message || "Failed to quick-schedule bundle");
+    }
+  }
+
   async function batchAssign() {
     if (!selectedIds.length) return setBanner("Select at least one request.");
     if (!toolbarTechId) return setBanner("Choose a technician first.");
     try {
-      await postJSON("/api/requests/batch", {
-        op: "assign",
-        ids: selectedIds,
-        technician_id: toolbarTechId,
-      });
+      await postJSON("/api/requests/batch", { op: "assign", ids: selectedIds, technician_id: toolbarTechId });
       setBanner(`Assigned ${selectedIds.length} request(s).`);
       clearSel();
       await load();
@@ -480,21 +517,16 @@ export default function DispatchPage() {
       setBanner(e?.message || "Failed to assign");
     }
   }
+
   async function batchSchedule() {
     if (!selectedIds.length) return setBanner("Select at least one request.");
     if (!toolbarTechId) return setBanner("Choose a technician first.");
     try {
-      // ensure assigned (idempotent)
-      await postJSON("/api/requests/batch", {
-        op: "assign",
-        ids: selectedIds,
-        technician_id: toolbarTechId,
-      });
-      // schedule + flip to SCHEDULED
+      await postJSON("/api/requests/batch", { op: "assign", ids: selectedIds, technician_id: toolbarTechId });
       await postJSON("/api/requests/batch", {
         op: "reschedule",
         ids: selectedIds,
-        scheduled_at: toolbarDtLocal,
+        scheduled_at: fromLocalDateTimeInputValue(toolbarDtLocal),
         status: "SCHEDULED",
       });
       setBanner(`Scheduled ${selectedIds.length} request(s) for ${new Date(toolbarDtLocal).toLocaleString()}.`);
@@ -505,39 +537,8 @@ export default function DispatchPage() {
     }
   }
 
-  async function quickAssignBundle(b: Bundle) {
-    if (!toolbarTechId) return setBanner("Choose a technician first.");
-    try {
-      await postJSON("/api/requests/batch", {
-        op: "assign",
-        ids: b.ids,
-        technician_id: toolbarTechId,
-      });
-      setBanner(`Assigned bundle (${b.customerName} • ${b.locationName}) to technician.`);
-      await load();
-    } catch (e: any) {
-      setBanner(e?.message || "Failed to quick-assign bundle");
-    }
-  }
-
-  async function quickScheduleBundle(b: Bundle) {
-    if (!toolbarTechId) return setBanner("Choose a technician first.");
-    try {
-      // assign
-      await postJSON("/api/requests/batch", { op: "assign", ids: b.ids, technician_id: toolbarTechId });
-      // schedule
-      await postJSON("/api/requests/batch", {
-        op: "reschedule",
-        ids: b.ids,
-        scheduled_at: toolbarDtLocal,
-        status: "SCHEDULED",
-      });
-      setBanner(`Scheduled bundle (${b.customerName} • ${b.locationName}) for ${new Date(toolbarDtLocal).toLocaleString()}.`);
-      await load();
-    } catch (e: any) {
-      setBanner(e?.message || "Failed to quick-schedule bundle");
-    }
-  }
+  const disableAssign = !canMutate || !selectedIds.length || !toolbarTechId;
+  const disableSchedule = !canMutate || !selectedIds.length || !toolbarTechId || !fromLocalDateTimeInputValue(toolbarDtLocal);
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
@@ -547,6 +548,11 @@ export default function DispatchPage() {
           <p className="text-sm text-gray-600">
             Assign technicians, set dates, and review proof photos.
           </p>
+          {!canMutate && (
+            <span className="inline-block mt-2 text-xs rounded-full border px-2 py-0.5 text-gray-700">
+              Read-only (insufficient permissions)
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -575,46 +581,56 @@ export default function DispatchPage() {
       </header>
 
       {/* Batch toolbar */}
-      <div className="rounded-xl border p-3 sm:p-4">
-        <div className="grid gap-2 sm:grid-cols-[1fr,220px,auto,auto] sm:items-end">
-          <div>
-            <label className="block text-sm font-medium mb-1">Technician</label>
-            <select
-              className="w-full border rounded-lg px-3 py-2 text-sm"
-              value={toolbarTechId}
-              onChange={(e) => setToolbarTechId(e.target.value)}
+      {canMutate && (
+        <div className="rounded-xl border p-3 sm:p-4">
+          <div className="grid gap-2 sm:grid-cols-[1fr,220px,auto,auto] sm:items-end">
+            <div>
+              <label className="block text-sm font-medium mb-1">Technician</label>
+              <select
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+                value={toolbarTechId}
+                onChange={(e) => setToolbarTechId(e.target.value)}
+              >
+                <option value="">— choose technician —</option>
+                {techs.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.full_name || t.name || "Unnamed"}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Date & time</label>
+              <input
+                type="datetime-local"
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+                value={toolbarDtLocal}
+                onChange={(e) => setToolbarDtLocal(e.target.value)}
+              />
+              <p className="text-xs text-gray-500 mt-1">Defaults to next business day at 4:00 AM.</p>
+            </div>
+            <button
+              onClick={batchAssign}
+              disabled={disableAssign}
+              className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 text-sm disabled:opacity-50"
             >
-              <option value="">— choose technician —</option>
-              {techs.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.full_name || t.name || "Unnamed"}
-                </option>
-              ))}
-            </select>
+              Assign Selected
+            </button>
+            <button
+              onClick={batchSchedule}
+              disabled={disableSchedule}
+              className="px-3 py-2 rounded-lg bg-black text-white hover:bg-gray-800 text-sm disabled:opacity-50"
+            >
+              Schedule Selected
+            </button>
           </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Date & time</label>
-            <input
-              type="datetime-local"
-              className="w-full border rounded-lg px-3 py-2 text-sm"
-              value={toolbarDtLocal}
-              onChange={(e) => setToolbarDtLocal(e.target.value)}
-            />
-            <p className="text-xs text-gray-500 mt-1">Defaults to next business day at 4:00 AM.</p>
-          </div>
-          <button onClick={batchAssign} className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 text-sm">
-            Assign Selected
-          </button>
-          <button onClick={batchSchedule} className="px-3 py-2 rounded-lg bg-black text-white hover:bg-gray-800 text-sm">
-            Schedule Selected
-          </button>
+          {!!selectedIds.length && (
+            <div className="text-xs text-gray-600 mt-2">
+              {selectedIds.length} selected
+            </div>
+          )}
         </div>
-        {!!selectedIds.length && (
-          <div className="text-xs text-gray-600 mt-2">
-            {selectedIds.length} selected
-          </div>
-        )}
-      </div>
+      )}
 
       {banner && (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
@@ -643,12 +659,20 @@ export default function DispatchPage() {
                     <button className="px-3 py-1.5 text-sm rounded-lg border" onClick={() => selectBundle(b)}>
                       Select bundle
                     </button>
-                    <button className="px-3 py-1.5 text-sm rounded-lg border" onClick={() => quickAssignBundle(b)}>
-                      Quick Assign
-                    </button>
-                    <button className="px-3 py-1.5 text-sm rounded-lg bg-black text-white hover:bg-gray-800" onClick={() => quickScheduleBundle(b)}>
-                      Quick Schedule
-                    </button>
+                    {canMutate && (
+                      <>
+                        <button className="px-3 py-1.5 text-sm rounded-lg border" onClick={() => quickAssignBundle(b)}>
+                          Quick Assign
+                        </button>
+                        <button
+                          className="px-3 py-1.5 text-sm rounded-lg bg-black text-white hover:bg-gray-800 disabled:opacity-50"
+                          onClick={() => quickScheduleBundle(b)}
+                          disabled={!fromLocalDateTimeInputValue(toolbarDtLocal) || !toolbarTechId}
+                        >
+                          Quick Schedule
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
                 <div className="flex gap-2 flex-wrap">
@@ -691,6 +715,7 @@ export default function DispatchPage() {
                         checked={!!selected[r.id]}
                         onChange={() => toggle(r.id)}
                         aria-label="select request"
+                        disabled={!canMutate}
                       />
                       <div className="text-sm font-semibold">{fmtDateTime(r.scheduled_at)}</div>
                     </div>
@@ -727,7 +752,6 @@ export default function DispatchPage() {
                     ) : null}
                   </div>
 
-                  {/* Optional tiny thumb strip */}
                   {thumbsByReq[r.id]?.length ? (
                     <div className="mt-2 flex gap-2 flex-wrap">
                       {thumbsByReq[r.id].slice(0, 6).map((t) => (
@@ -744,20 +768,24 @@ export default function DispatchPage() {
                     </div>
                   ) : null}
 
-                  <Scheduler
-                    request={r}
-                    techs={techs}
-                    onScheduled={(upd) =>
-                      setRows((prev) => prev.map((x) => (x.id === r.id ? { ...x, ...upd } as RequestRow : x)))
-                    }
-                  />
-                  <DispatchNotesEditor
-                    requestId={r.id}
-                    initial={r.dispatch_notes}
-                    onSaved={(next) =>
-                      setRows((prev) => prev.map((x) => (x.id === r.id ? { ...x, dispatch_notes: next } : x)))
-                    }
-                  />
+                  {canMutate && (
+                    <>
+                      <Scheduler
+                        request={r}
+                        techs={techs}
+                        onScheduled={(upd) =>
+                          setRows((prev) => prev.map((x) => (x.id === r.id ? { ...x, ...upd } as RequestRow : x)))
+                        }
+                      />
+                      <DispatchNotesEditor
+                        requestId={r.id}
+                        initial={r.dispatch_notes}
+                        onSaved={(next) =>
+                          setRows((prev) => prev.map((x) => (x.id === r.id ? { ...x, dispatch_notes: next } : x)))
+                        }
+                      />
+                    </>
+                  )}
                 </li>
               );
             })}
@@ -769,7 +797,7 @@ export default function DispatchPage() {
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-medium">Needs reschedule</h2>
-          {grouped.needsReschedule.length > 0 && (
+          {grouped.needsReschedule.length > 0 && canMutate && (
             <div className="flex gap-3">
               <button className="text-sm underline" onClick={() => selectAll(grouped.needsReschedule)}>Select all</button>
               <button className="text-sm underline" onClick={clearSel}>Clear</button>
@@ -791,6 +819,7 @@ export default function DispatchPage() {
                         checked={!!selected[r.id]}
                         onChange={() => toggle(r.id)}
                         aria-label="select request"
+                        disabled={!canMutate}
                       />
                       <div className="text-sm font-semibold">—</div>
                     </div>
@@ -843,20 +872,24 @@ export default function DispatchPage() {
                     </div>
                   ) : null}
 
-                  <Scheduler
-                    request={r}
-                    techs={techs}
-                    onScheduled={(upd) =>
-                      setRows((prev) => prev.map((x) => (x.id === r.id ? { ...x, ...upd } as RequestRow : x)))
-                    }
-                  />
-                  <DispatchNotesEditor
-                    requestId={r.id}
-                    initial={r.dispatch_notes}
-                    onSaved={(next) =>
-                      setRows((prev) => prev.map((x) => (x.id === r.id ? { ...x, dispatch_notes: next } : x)))
-                    }
-                  />
+                  {canMutate && (
+                    <>
+                      <Scheduler
+                        request={r}
+                        techs={techs}
+                        onScheduled={(upd) =>
+                          setRows((prev) => prev.map((x) => (x.id === r.id ? { ...x, ...upd } as RequestRow : x)))
+                        }
+                      />
+                      <DispatchNotesEditor
+                        requestId={r.id}
+                        initial={r.dispatch_notes}
+                        onSaved={(next) =>
+                          setRows((prev) => prev.map((x) => (x.id === r.id ? { ...x, dispatch_notes: next } : x)))
+                        }
+                      />
+                    </>
+                  )}
                 </li>
               );
             })}
@@ -868,7 +901,7 @@ export default function DispatchPage() {
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-medium">Scheduled</h2>
-          {grouped.scheduled.length > 0 && (
+          {grouped.scheduled.length > 0 && canMutate && (
             <div className="flex gap-3">
               <button className="text-sm underline" onClick={() => selectAll(grouped.scheduled)}>Select all</button>
               <button className="text-sm underline" onClick={clearSel}>Clear</button>
@@ -890,6 +923,7 @@ export default function DispatchPage() {
                         checked={!!selected[r.id]}
                         onChange={() => toggle(r.id)}
                         aria-label="select request"
+                        disabled={!canMutate}
                       />
                       <div className="text-sm font-semibold">{fmtDateTime(r.scheduled_at)}</div>
                     </div>
@@ -927,36 +961,24 @@ export default function DispatchPage() {
                     ) : null}
                   </div>
 
-                  {thumbsByReq[r.id]?.length ? (
-                    <div className="mt-2 flex gap-2 flex-wrap">
-                      {thumbsByReq[r.id].slice(0, 6).map((t) => (
-                        <button
-                          key={t.id}
-                          onClick={() => openLightbox(r.id, t.url_work)}
-                          title={t.kind}
-                          className="border rounded-lg overflow-hidden"
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={t.url_thumb} alt={`${t.kind} thumb`} className="h-12 w-12 object-cover block" loading="lazy" />
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  <Scheduler
-                    request={r}
-                    techs={techs}
-                    onScheduled={(upd) =>
-                      setRows((prev) => prev.map((x) => (x.id === r.id ? { ...x, ...upd } as RequestRow : x)))
-                    }
-                  />
-                  <DispatchNotesEditor
-                    requestId={r.id}
-                    initial={r.dispatch_notes}
-                    onSaved={(next) =>
-                      setRows((prev) => prev.map((x) => (x.id === r.id ? { ...x, dispatch_notes: next } : x)))
-                    }
-                  />
+                  {canMutate && (
+                    <>
+                      <Scheduler
+                        request={r}
+                        techs={techs}
+                        onScheduled={(upd) =>
+                          setRows((prev) => prev.map((x) => (x.id === r.id ? { ...x, ...upd } as RequestRow : x)))
+                        }
+                      />
+                      <DispatchNotesEditor
+                        requestId={r.id}
+                        initial={r.dispatch_notes}
+                        onSaved={(next) =>
+                          setRows((prev) => prev.map((x) => (x.id === r.id ? { ...x, dispatch_notes: next } : x)))
+                        }
+                      />
+                    </>
+                  )}
                 </li>
               );
             })}
@@ -964,7 +986,7 @@ export default function DispatchPage() {
         )}
       </section>
 
-      {/* In Progress (read-only for visibility) */}
+      {/* In Progress */}
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-medium">In Progress</h2>
