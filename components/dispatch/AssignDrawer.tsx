@@ -25,23 +25,78 @@ async function getJSON<T>(url: string) {
   return (await res.json()) as T;
 }
 
-/** Try multiple lookup endpoints to stay compatible with your repo */
+/**
+ * Load technicians in a way that matches the updated API:
+ * - Prefer /api/techs?active=1 (can return array or { rows })
+ * - Fallback to /api/techs
+ * - Fallback to /api/lookups?kind=techs
+ */
 async function fetchTechnicians(): Promise<Technician[]> {
-  // Attempt 1: /api/techs
+  // Try /api/techs?active=1
   try {
-    const a = await getJSON<Technician[]>("/api/techs");
-    if (Array.isArray(a)) return a;
-  } catch {}
-  // Attempt 2: /api/lookups?kind=techs
+    const res = await getJSON<any>("/api/techs?active=1");
+    const rows: Technician[] = Array.isArray(res)
+      ? res
+      : Array.isArray(res?.rows)
+      ? res.rows
+      : [];
+    if (rows.length) return rows;
+  } catch {
+    // ignore
+  }
+
+  // Try plain /api/techs
   try {
-    const b = await getJSON<{ techs?: Technician[] }>("/api/lookups?kind=techs");
-    if (Array.isArray(b?.techs)) return b.techs!;
-  } catch {}
-  // Fallback: empty
+    const res = await getJSON<any>("/api/techs");
+    const rows: Technician[] = Array.isArray(res)
+      ? res
+      : Array.isArray(res?.rows)
+      ? res.rows
+      : [];
+    if (rows.length) return rows;
+  } catch {
+    // ignore
+  }
+
+  // Try /api/lookups?kind=techs
+  try {
+    const res = await getJSON<any>("/api/lookups?kind=techs");
+    const rows: Technician[] = Array.isArray(res?.techs) ? res.techs : [];
+    if (rows.length) return rows;
+  } catch {
+    // ignore
+  }
+
   return [];
 }
 
-export default function AssignDrawer({ open, onClose, selectedIds, onAssigned }: Props) {
+/** Convert <input type="datetime-local"> to ISO string (or null) */
+function toIsoFromLocal(val: string): string | null {
+  if (!val) return null;
+  const d = new Date(val);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
+/** Default schedule: next day at 10:00 AM local, formatted for datetime-local */
+function defaultNextDayAt10() {
+  const now = new Date();
+  const next = new Date(now);
+  next.setDate(now.getDate() + 1);
+  next.setHours(10, 0, 0, 0);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return (
+    `${next.getFullYear()}-${pad(next.getMonth() + 1)}-${pad(next.getDate())}` +
+    `T${pad(next.getHours())}:${pad(next.getMinutes())}`
+  );
+}
+
+export default function AssignDrawer({
+  open,
+  onClose,
+  selectedIds,
+  onAssigned,
+}: Props) {
   const [techs, setTechs] = useState<Technician[]>([]);
   const [techId, setTechId] = useState<UUID | "">("");
   const [when, setWhen] = useState<string>("");
@@ -49,51 +104,85 @@ export default function AssignDrawer({ open, onClose, selectedIds, onAssigned }:
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Default schedule: next day at 10:00 AM (local)
-  useEffect(() => {
-    const now = new Date();
-    const next = new Date(now);
-    next.setDate(now.getDate() + 1);
-    next.setHours(10, 0, 0, 0);
-    // to datetime-local value
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const v = `${next.getFullYear()}-${pad(next.getMonth() + 1)}-${pad(next.getDate())}T${pad(next.getHours())}:${pad(next.getMinutes())}`;
-    setWhen(v);
-  }, []);
-
+  // Reset defaults whenever the drawer opens
   useEffect(() => {
     if (!open) return;
-    fetchTechnicians().then(setTechs).catch(() => setTechs([]));
+    setError(null);
+    setNote("");
+    setTechId("");
+    setWhen(defaultNextDayAt10());
   }, [open]);
 
-  const disabled = useMemo(() => {
-    return submitting || !techId || !when || selectedIds.length === 0;
-  }, [submitting, techId, when, selectedIds.length]);
+  // Load technicians on open
+  useEffect(() => {
+    if (!open) return;
+    fetchTechnicians()
+      .then((list) => setTechs(list || []))
+      .catch(() => setTechs([]));
+  }, [open]);
+
+  const disabled = useMemo(
+    () =>
+      submitting ||
+      !techId ||
+      !when ||
+      !selectedIds.length,
+    [submitting, techId, when, selectedIds.length]
+  );
 
   async function handleAssign() {
+    if (disabled) return;
     setSubmitting(true);
     setError(null);
+
     try {
-      const body = {
-        op: "assign",
-        ids: selectedIds,
-        technician_id: techId,
-        scheduled_at: when, // ISO-ish datetime-local string; your API can parse to timestamptz
-        note: note?.trim() || null,
-      };
-      const res = await fetch("/api/requests/batch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error(await res.text().catch(() => res.statusText));
+      const iso = toIsoFromLocal(when);
+      if (!iso) {
+        throw new Error("Please choose a valid date & time.");
+      }
+
+      // 1) Assign technician (per /api/requests/batch op:"assign")
+      {
+        const res = await fetch("/api/requests/batch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            op: "assign",
+            ids: selectedIds,
+            technician_id: techId,
+          }),
+        });
+        if (!res.ok) {
+          throw new Error(await res.text().catch(() => "Failed to assign technician"));
+        }
+      }
+
+      // 2) Set scheduled_at + status:SCHEDULED (per op:"reschedule")
+      {
+        const res = await fetch("/api/requests/batch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            op: "reschedule",
+            ids: selectedIds,
+            scheduled_at: iso,
+            status: "SCHEDULED",
+            note: note?.trim() || null,
+          }),
+        });
+        if (!res.ok) {
+          throw new Error(await res.text().catch(() => "Failed to set schedule"));
+        }
+      }
+
       onAssigned?.();
       onClose();
       setTechId("");
       setNote("");
     } catch (e: any) {
-      setError(e?.message || "Failed to assign");
+      setError(e?.message || "Failed to assign jobs");
     } finally {
       setSubmitting(false);
     }
@@ -112,10 +201,13 @@ export default function AssignDrawer({ open, onClose, selectedIds, onAssigned }:
       {/* panel */}
       <div className="absolute right-0 top-0 h-full w-full max-w-md bg-white shadow-xl p-6 overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold">Assign {selectedIds.length} job{selectedIds.length !== 1 ? "s" : ""}</h2>
+          <h2 className="text-xl font-semibold">
+            Assign {selectedIds.length} job{selectedIds.length !== 1 ? "s" : ""}
+          </h2>
           <button
             className="rounded-xl border px-3 py-1 hover:bg-gray-50"
             onClick={onClose}
+            disabled={submitting}
           >
             Close
           </button>
@@ -139,7 +231,7 @@ export default function AssignDrawer({ open, onClose, selectedIds, onAssigned }:
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">Date & time</label>
+            <label className="block text-sm font-medium mb-1">Date &amp; time</label>
             <input
               type="datetime-local"
               className="w-full rounded-lg border px-3 py-2"
@@ -159,7 +251,7 @@ export default function AssignDrawer({ open, onClose, selectedIds, onAssigned }:
             />
           </div>
 
-          {error ? <p className="text-sm text-red-600">{error}</p> : null}
+          {error && <p className="text-sm text-red-600">{error}</p>}
 
           <div className="flex items-center justify-end gap-2 pt-2">
             <button

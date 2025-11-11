@@ -1,48 +1,83 @@
 // lib/status.ts
 
-/** UI-facing statuses (authoritative labels shown in dropdowns, filters, etc.) */
-export const UI_STATUSES = [
+export type UiStatus =
+  | "NEW"
+  | "WAITING TO BE SCHEDULED"
+  | "WAITING APPROVAL"
+  | "WAITING FOR PARTS"
+  | "SCHEDULED"
+  | "IN PROGRESS"
+  | "RESCHEDULE"
+  | "DISPATCHED"
+  | "COMPLETED"
+  | "DECLINED";
+
+// These are the labels you show in the UI
+export const UI_STATUSES: UiStatus[] = [
   "NEW",
+  "WAITING TO BE SCHEDULED",
   "WAITING APPROVAL",
   "WAITING FOR PARTS",
-  "WAITING TO BE SCHEDULED",
   "SCHEDULED",
-  "DISPATCHED",
   "IN PROGRESS",
+  "RESCHEDULE",
+  "DISPATCHED",
   "COMPLETED",
   "DECLINED",
-  "RESCHEDULE",           // ← added
-] as const;
+];
 
-export type UiStatus = (typeof UI_STATUSES)[number];
+// Map DB → UI (DB uses underscores)
+export const DB_TO_UI_STATUS: Record<string, UiStatus> = {
+  NEW: "NEW",
+  WAITING_TO_BE_SCHEDULED: "WAITING TO BE SCHEDULED",
+  WAITING_APPROVAL: "WAITING APPROVAL",
+  WAITING_FOR_PARTS: "WAITING FOR PARTS",
+  SCHEDULED: "SCHEDULED",
+  IN_PROGRESS: "IN PROGRESS",
+  RESCHEDULE: "RESCHEDULE",
+  DISPATCHED: "DISPATCHED",
+  COMPLETED: "COMPLETED",
+  DECLINED: "DECLINED",
+};
 
-/**
- * Map UI label → DB enum
- * NOTE: your DB uses underscored uppercase (WAITING_PARTS, IN_PROGRESS, etc.)
- */
+// Map UI label (or normalized input) → DB value
 export const UI_TO_DB_STATUS: Record<UiStatus, string> = {
   "NEW": "NEW",
-  "WAITING APPROVAL": "WAITING_APPROVAL",
-  "WAITING FOR PARTS": "WAITING_PARTS", // keep this since your DB uses WAITING_PARTS
   "WAITING TO BE SCHEDULED": "WAITING_TO_BE_SCHEDULED",
+  "WAITING APPROVAL": "WAITING_APPROVAL",
+  "WAITING FOR PARTS": "WAITING_FOR_PARTS",
   "SCHEDULED": "SCHEDULED",
-  "DISPATCHED": "DISPATCHED",
   "IN PROGRESS": "IN_PROGRESS",
+  "RESCHEDULE": "RESCHEDULE",
+  "DISPATCHED": "DISPATCHED",
   "COMPLETED": "COMPLETED",
   "DECLINED": "DECLINED",
-  "RESCHEDULE": "RESCHEDULE",           // ← added
 };
 
-/** Reverse mapping for DB → UI label (shown in tables, drawers, etc.) */
-export const DB_TO_UI_STATUS: Record<string, UiStatus> = {
-  "NEW": "NEW",
-  "WAITING_APPROVAL": "WAITING APPROVAL",
-  "WAITING_PARTS": "WAITING FOR PARTS", // DB form → friendly label
-  "WAITING_TO_BE_SCHEDULED": "WAITING TO BE SCHEDULED",
-  "SCHEDULED": "SCHEDULED",
-  "DISPATCHED": "DISPATCHED",
-  "IN_PROGRESS": "IN PROGRESS",
-  "COMPLETED": "COMPLETED",
-  "DECLINED": "DECLINED",
-  "RESCHEDULE": "RESCHEDULE",           // ← added
-};
+// Helpers used by API routes & pages
+
+export function toUiStatus(dbVal?: string | null): UiStatus | string {
+  if (!dbVal) return "NEW";
+  return DB_TO_UI_STATUS[dbVal] ?? dbVal;
+}
+
+/**
+ * Normalize any incoming status string to the DB enum:
+ * - trims
+ * - uppercases
+ * - collapses spaces
+ * - maps via UI_TO_DB_STATUS
+ * - falls back to replacing spaces with underscores
+ */
+export function toDbStatus(input?: string | null): string | null {
+  if (!input) return null;
+  const normalized = String(input).trim().toUpperCase().replace(/\s+/g, " ") as UiStatus;
+
+  // Exact UI label match
+  if (UI_TO_DB_STATUS[normalized]) {
+    return UI_TO_DB_STATUS[normalized];
+  }
+
+  // If someone passed already-DB-looking or weird spacing, best effort:
+  return normalized.replace(/\s+/g, "_");
+}

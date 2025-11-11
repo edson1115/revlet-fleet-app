@@ -14,7 +14,10 @@ type RequestRow = {
   fmc?: string | null;
   mileage?: number | null;
   po?: string | null;
-  notes?: string | null;
+  notes?: string | null; // used as "Notes from Tech" when completed via Tech flow
+  dispatch_notes?: string | null; // dispatcher / send-back notes
+  notes_from_tech?: string | null;
+  tech_notes?: string | null;
   created_at?: string | null;
   scheduled_at?: string | null;
   started_at?: string | null;
@@ -88,6 +91,42 @@ function fmtDate(s?: string | null) {
   }
 }
 
+function classifyNote(text: string) {
+  const raw = (text || "").trim();
+  const lower = raw.toLowerCase();
+
+  if (lower.startsWith("tech:")) {
+    return {
+      kind: "tech",
+      label: "Notes from Tech",
+      content: raw.slice("tech:".length).trim() || raw,
+    } as const;
+  }
+
+  if (lower.startsWith("sent back by tech:")) {
+    return {
+      kind: "tech-return",
+      label: "Sent back by Tech",
+      content: raw.slice("sent back by tech:".length).trim() || raw,
+    } as const;
+  }
+
+  if (lower.startsWith("dispatch reschedule:")) {
+    return {
+      kind: "dispatch",
+      label: "Dispatch",
+      content: raw.slice("dispatch reschedule:".length).trim() || raw,
+    } as const;
+  }
+
+  return {
+    kind: "other",
+    label: null,
+    content: raw,
+  } as const;
+}
+
+
 function renderVehicle(v?: RequestRow["vehicle"]) {
   if (!v) return "—";
   const parts: string[] = [];
@@ -123,8 +162,10 @@ export default function OfficeQueuePage() {
   const [dPo, setDPo] = useState<string>("");
   const [dMileage, setDMileage] = useState<string>("");
 
-  // notes in drawer
-  const [notes, setNotes] = useState<Array<{ id: string; text: string; created_at?: string | null }>>([]);
+  // notes in drawer (Office-only threaded notes)
+  const [notes, setNotes] = useState<
+    Array<{ id: string; text: string; created_at?: string | null }>
+  >([]);
   const [newNote, setNewNote] = useState("");
   const [noteBusy, setNoteBusy] = useState(false);
   const [noteErr, setNoteErr] = useState("");
@@ -135,12 +176,12 @@ export default function OfficeQueuePage() {
   const [showWaitingApproval, setShowWaitingApproval] = useState(true);
   const [showDeclined, setShowDeclined] = useState(true);
   const [showWaitingParts, setShowWaitingParts] = useState(true);
-  const [showScheduled, setShowScheduled] = useState(true);    // view-only is fine
+  const [showScheduled, setShowScheduled] = useState(true); // view-only is fine
   const [showInProgress, setShowInProgress] = useState(true);
-  const [showDispatched, setShowDispatched] = useState(true);  // view-only
+  const [showDispatched, setShowDispatched] = useState(true); // view-only
   const [showCompleted, setShowCompleted] = useState(true);
 
-  // pull from lib and filter OUT statuses Office must not set
+  // Office cannot set SCHEDULED or DISPATCHED from here
   const statusOptions = useMemo(
     () => UI_STATUSES.filter((s) => s !== "SCHEDULED" && s !== "DISPATCHED"),
     []
@@ -163,19 +204,27 @@ export default function OfficeQueuePage() {
         if (mounted) setLoading(false);
       }
     })();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  // client-side filter (compare using UI labels)
+  // client-side filter (using UI labels)
   const filteredRows = useMemo(() => {
-    return rows.filter((r) => {
-      const s = String(r.status || "").toUpperCase();
+  return rows.filter((r) => {
+    const s = String(r.status || "")
+      .toUpperCase()
+      .replace(/_/g, " "); // normalize DB statuses like IN_PROGRESS → IN PROGRESS
+
 
       const matchNew = showNew && s === "NEW";
-      const matchWaitingSched = showWaitingSched && s === "WAITING TO BE SCHEDULED";
-      const matchWaitingApproval = showWaitingApproval && s === "WAITING APPROVAL";
+      const matchWaitingSched =
+        showWaitingSched && s === "WAITING TO BE SCHEDULED";
+      const matchWaitingApproval =
+        showWaitingApproval && s === "WAITING APPROVAL";
       const matchDeclined = showDeclined && s === "DECLINED";
-      const matchWaitingParts = showWaitingParts && s === "WAITING FOR PARTS";
+      const matchWaitingParts =
+        showWaitingParts && s === "WAITING FOR PARTS";
       const matchScheduled = showScheduled && s === "SCHEDULED";
       const matchInProgress = showInProgress && s === "IN PROGRESS";
       const matchDispatched = showDispatched && s === "DISPATCHED";
@@ -221,36 +270,108 @@ export default function OfficeQueuePage() {
   ]);
 
   // open drawer
-  async function openDrawer(id: string) {
-    setShowDrawer(true);
-    setDrawerId(id);
-    setDrawerErr("");
-    setDrawerBusy(true);
-    try {
-      const data = await fetchJSON<RequestDetails>(`/api/requests/${encodeURIComponent(id)}`);
-      setDrawerRow(data);
+  // open drawer
+// open drawer
+// open drawer
+async function openDrawer(id: string) {
+  setShowDrawer(true);
+  setDrawerId(id);
+  setDrawerErr("");
+  setDrawerBusy(true);
 
-      const curStatus = (data.status as UiStatus) || "NEW";
-      setDStatus(curStatus);
-      setDService(String(data.service || ""));
-      setDFmc(String(data.fmc || ""));
-      setDPo(String(data.po || ""));
-      setDMileage(data.mileage != null ? String(data.mileage) : "");
+  try {
+    // Detail from API
+    const detail = await fetchJSON<RequestDetails>(
+      `/api/requests/${encodeURIComponent(id)}`
+    );
 
-      const n = (data.notes_list || []).map((n) => ({
+    // Matching row from the table (often already has PO/mileage/etc)
+    const fromList = rows.find((r) => r.id === id) || ({} as RequestRow);
+
+    // Build a merged view, field by field, so we never lose data:
+    const merged: RequestDetails = {
+      // base
+      id,
+      status: (detail.status ?? fromList.status ?? "NEW") as UiStatus,
+      service: detail.service ?? fromList.service ?? null,
+      fmc: (detail as any).fmc ?? (fromList as any).fmc ?? null,
+
+      // 🔹 PO: prefer detail → fallback to list
+      po:
+        detail.po !== undefined && detail.po !== null
+          ? detail.po
+          : fromList.po ?? null,
+
+      // 🔹 Mileage: prefer detail → fallback to list
+      mileage:
+        detail.mileage !== undefined && detail.mileage !== null
+          ? detail.mileage
+          : fromList.mileage ?? null,
+
+      priority: detail.priority ?? fromList.priority ?? null,
+      created_at: detail.created_at ?? fromList.created_at ?? null,
+      scheduled_at: detail.scheduled_at ?? fromList.scheduled_at ?? null,
+
+      // nested relations: prefer detail; fallback to list
+      customer: detail.customer || fromList.customer || null,
+      vehicle: detail.vehicle || fromList.vehicle || null,
+      location: detail.location || fromList.location || null,
+      technician:
+        detail.technician || fromList.technician || null,
+
+      // dispatcher / tech surface fields (if present)
+      notes: detail.notes ?? fromList.notes ?? null,
+      dispatch_notes:
+        detail.dispatch_notes ??
+        fromList.dispatch_notes ??
+        null,
+
+      // notes_list for Office thread
+      notes_list:
+        detail.notes_list ??
+        fromList.notes_list ??
+        null,
+    };
+
+    setDrawerRow(merged);
+
+    // Initialize editable form fields from merged
+    setDStatus(merged.status as UiStatus);
+    setDService(merged.service || "");
+    setDFmc((merged as any).fmc || "");
+
+    setDPo(
+      merged.po !== undefined && merged.po !== null
+        ? String(merged.po)
+        : ""
+    );
+
+    setDMileage(
+      merged.mileage !== undefined &&
+      merged.mileage !== null &&
+      merged.mileage !== ("" as any)
+        ? String(merged.mileage)
+        : ""
+    );
+
+    // Office notes thread
+    const notesList =
+      merged.notes_list?.map((n) => ({
         id: n.id,
         text: n.text,
         created_at: n.created_at ?? null,
-      }));
-      setNotes(n);
-      setNewNote("");
-      setNoteErr("");
-    } catch (e: any) {
-      setDrawerErr(e.message || "Failed to load details");
-    } finally {
-      setDrawerBusy(false);
-    }
+      })) ?? [];
+
+    setNotes(notesList);
+    setNewNote("");
+    setNoteErr("");
+  } catch (e: any) {
+    setDrawerErr(e.message || "Failed to load details");
+  } finally {
+    setDrawerBusy(false);
   }
+}
+
 
   function closeDrawer() {
     if (drawerBusy || noteBusy) return;
@@ -260,16 +381,18 @@ export default function OfficeQueuePage() {
     setDrawerErr("");
   }
 
-  // save drawer (NO scheduled_at write from Office)
+  // save drawer (Office cannot change schedule/tech)
   async function saveDetails() {
     if (!drawerId) return;
     setDrawerBusy(true);
     setDrawerErr("");
     try {
-      // HARD GUARD: Office cannot set SCHEDULED or DISPATCHED
       const forbidden = new Set(["SCHEDULED", "DISPATCHED"]);
       const safeStatus =
-        dStatus && forbidden.has(String(dStatus).toUpperCase() as UiStatus)
+        dStatus &&
+        forbidden.has(
+          String(dStatus).toUpperCase() as UiStatus
+        )
           ? undefined
           : dStatus;
 
@@ -281,7 +404,6 @@ export default function OfficeQueuePage() {
         mileage: dMileage ? Number(dMileage) : null,
       };
 
-      // scrub any accidental schedule fields
       delete body.scheduled_at;
       delete (body as any).technician_id;
 
@@ -291,7 +413,6 @@ export default function OfficeQueuePage() {
       );
       setDrawerRow(updated);
 
-      // update list
       setRows((prev) =>
         prev.map((r) =>
           r.id === drawerId
@@ -304,7 +425,17 @@ export default function OfficeQueuePage() {
                 mileage: updated.mileage,
                 scheduled_at: updated.scheduled_at,
                 vehicle: updated.vehicle ?? r.vehicle,
-                technician: updated.technician ?? r.technician,
+                technician:
+                  updated.technician ?? r.technician,
+                // keep notes + dispatch_notes in sync so list reflects updates
+                notes:
+                  updated.notes !== undefined
+                    ? updated.notes
+                    : r.notes,
+                dispatch_notes:
+                  updated.dispatch_notes !== undefined
+                    ? updated.dispatch_notes
+                    : r.dispatch_notes,
               }
             : r
         )
@@ -316,7 +447,7 @@ export default function OfficeQueuePage() {
     }
   }
 
-  // add note
+  // add internal Office note
   async function addNote() {
     if (!drawerId) return;
     const text = newNote.trim();
@@ -324,21 +455,39 @@ export default function OfficeQueuePage() {
     setNoteBusy(true);
     setNoteErr("");
     try {
-      let noteResp: { id: string; text: string; created_at?: string | null } | null = null;
+      let noteResp:
+        | {
+            id: string;
+            text: string;
+            created_at?: string | null;
+          }
+        | null = null;
+
       try {
-        noteResp = await postJSON(`/api/requests/${encodeURIComponent(drawerId)}/notes`, { text });
+        noteResp = await postJSON(
+          `/api/requests/${encodeURIComponent(
+            drawerId
+          )}/notes`,
+          { text }
+        );
       } catch {
-        const d = await patchJSON<RequestDetails>(`/api/requests/${encodeURIComponent(drawerId)}`, {
-          add_note: text,
-        });
+        const d =
+          await patchJSON<RequestDetails>(
+            `/api/requests/${encodeURIComponent(
+              drawerId
+            )}`,
+            { add_note: text }
+          );
         const latest = (d.notes_list || [])[0];
         if (latest)
           noteResp = {
             id: latest.id,
             text: latest.text,
-            created_at: latest.created_at ?? null,
+            created_at:
+              latest.created_at ?? null,
           };
       }
+
       if (noteResp) {
         setNotes((prev) => [noteResp!, ...prev]);
         setNewNote("");
@@ -350,18 +499,25 @@ export default function OfficeQueuePage() {
     }
   }
 
-  // remove note
+  // remove internal Office note
   async function removeNote(id: string) {
     if (!drawerId) return;
     setNoteBusy(true);
     setNoteErr("");
     try {
       try {
-        await delJSON(`/api/requests/${encodeURIComponent(drawerId)}/notes/${encodeURIComponent(id)}`);
+        await delJSON(
+          `/api/requests/${encodeURIComponent(
+            drawerId
+          )}/notes/${encodeURIComponent(id)}`
+        );
       } catch {
-        await patchJSON<RequestDetails>(`/api/requests/${encodeURIComponent(drawerId)}`, {
-          remove_note_id: id,
-        });
+        await patchJSON<RequestDetails>(
+          `/api/requests/${encodeURIComponent(
+            drawerId
+          )}`,
+          { remove_note_id: id }
+        );
       }
       setNotes((prev) => prev.filter((n) => n.id !== id));
     } catch (e: any) {
@@ -381,7 +537,13 @@ export default function OfficeQueuePage() {
       {/* FILTER BAR */}
       <div className="flex flex-wrap gap-3 mb-2 text-sm">
         <label className="flex items-center gap-2">
-          <input type="checkbox" checked={showNew} onChange={(e) => setShowNew(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={showNew}
+            onChange={(e) =>
+              setShowNew(e.target.checked)
+            }
+          />
           <span>NEW</span>
         </label>
 
@@ -389,7 +551,11 @@ export default function OfficeQueuePage() {
           <input
             type="checkbox"
             checked={showWaitingSched}
-            onChange={(e) => setShowWaitingSched(e.target.checked)}
+            onChange={(e) =>
+              setShowWaitingSched(
+                e.target.checked
+              )
+            }
           />
           <span>WAITING TO BE SCHEDULED</span>
         </label>
@@ -398,7 +564,11 @@ export default function OfficeQueuePage() {
           <input
             type="checkbox"
             checked={showWaitingApproval}
-            onChange={(e) => setShowWaitingApproval(e.target.checked)}
+            onChange={(e) =>
+              setShowWaitingApproval(
+                e.target.checked
+              )
+            }
           />
           <span>WAITING APPROVAL</span>
         </label>
@@ -407,7 +577,11 @@ export default function OfficeQueuePage() {
           <input
             type="checkbox"
             checked={showDeclined}
-            onChange={(e) => setShowDeclined(e.target.checked)}
+            onChange={(e) =>
+              setShowDeclined(
+                e.target.checked
+              )
+            }
           />
           <span>DECLINED</span>
         </label>
@@ -416,7 +590,11 @@ export default function OfficeQueuePage() {
           <input
             type="checkbox"
             checked={showWaitingParts}
-            onChange={(e) => setShowWaitingParts(e.target.checked)}
+            onChange={(e) =>
+              setShowWaitingParts(
+                e.target.checked
+              )
+            }
           />
           <span>WAITING FOR PARTS</span>
         </label>
@@ -425,7 +603,11 @@ export default function OfficeQueuePage() {
           <input
             type="checkbox"
             checked={showScheduled}
-            onChange={(e) => setShowScheduled(e.target.checked)}
+            onChange={(e) =>
+              setShowScheduled(
+                e.target.checked
+              )
+            }
           />
           <span>SCHEDULED</span>
         </label>
@@ -434,7 +616,11 @@ export default function OfficeQueuePage() {
           <input
             type="checkbox"
             checked={showInProgress}
-            onChange={(e) => setShowInProgress(e.target.checked)}
+            onChange={(e) =>
+              setShowInProgress(
+                e.target.checked
+              )
+            }
           />
           <span>IN PROGRESS</span>
         </label>
@@ -443,7 +629,11 @@ export default function OfficeQueuePage() {
           <input
             type="checkbox"
             checked={showDispatched}
-            onChange={(e) => setShowDispatched(e.target.checked)}
+            onChange={(e) =>
+              setShowDispatched(
+                e.target.checked
+              )
+            }
           />
           <span>DISPATCHED</span>
         </label>
@@ -452,7 +642,11 @@ export default function OfficeQueuePage() {
           <input
             type="checkbox"
             checked={showCompleted}
-            onChange={(e) => setShowCompleted(e.target.checked)}
+            onChange={(e) =>
+              setShowCompleted(
+                e.target.checked
+              )
+            }
           />
           <span>COMPLETED</span>
         </label>
@@ -461,20 +655,36 @@ export default function OfficeQueuePage() {
       {loading ? (
         <div>Loading queue…</div>
       ) : err ? (
-        <div className="text-red-600">Error: {err}</div>
+        <div className="text-red-600">
+          Error: {err}
+        </div>
       ) : filteredRows.length === 0 ? (
         <div>No service requests found.</div>
       ) : (
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="border-b bg-gray-50">
-              <th className="text-left px-3 py-2">Customer</th>
-              <th className="text-left px-3 py-2">Vehicle</th>
-              <th className="text-left px-3 py-2">Service</th>
-              <th className="text-left px-3 py-2">Status</th>
-              <th className="text-left px-3 py-2">Priority</th>
-              <th className="text-left px-3 py-2">Scheduled</th>
-              <th className="text-left px-3 py-2">Created</th>
+              <th className="text-left px-3 py-2">
+                Customer
+              </th>
+              <th className="text-left px-3 py-2">
+                Vehicle
+              </th>
+              <th className="text-left px-3 py-2">
+                Service
+              </th>
+              <th className="text-left px-3 py-2">
+                Status
+              </th>
+              <th className="text-left px-3 py-2">
+                Priority
+              </th>
+              <th className="text-left px-3 py-2">
+                Scheduled
+              </th>
+              <th className="text-left px-3 py-2">
+                Created
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -484,13 +694,27 @@ export default function OfficeQueuePage() {
                 className="border-b hover:bg-gray-50 cursor-pointer"
                 onClick={() => openDrawer(r.id)}
               >
-                <td className="px-3 py-2">{r.customer?.name || "—"}</td>
-                <td className="px-3 py-2">{renderVehicle(r.vehicle)}</td>
-                <td className="px-3 py-2">{r.service || "—"}</td>
-                <td className="px-3 py-2">{r.status}</td>
-                <td className="px-3 py-2">{r.priority || "—"}</td>
-                <td className="px-3 py-2">{fmtDate(r.scheduled_at)}</td>
-                <td className="px-3 py-2">{fmtDate(r.created_at)}</td>
+                <td className="px-3 py-2">
+                  {r.customer?.name || "—"}
+                </td>
+                <td className="px-3 py-2">
+                  {renderVehicle(r.vehicle)}
+                </td>
+                <td className="px-3 py-2">
+                  {r.service || "—"}
+                </td>
+                <td className="px-3 py-2">
+                  {r.status}
+                </td>
+                <td className="px-3 py-2">
+                  {r.priority || "—"}
+                </td>
+                <td className="px-3 py-2">
+                  {fmtDate(r.scheduled_at)}
+                </td>
+                <td className="px-3 py-2">
+                  {fmtDate(r.created_at)}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -502,14 +726,25 @@ export default function OfficeQueuePage() {
         <div
           className="fixed inset-0 z-50 flex items-start justify-end bg-black/40"
           onClick={(e) => {
-            if (e.target === e.currentTarget && !drawerBusy && !noteBusy) closeDrawer();
+            if (
+              e.target === e.currentTarget &&
+              !drawerBusy &&
+              !noteBusy
+            )
+              closeDrawer();
           }}
         >
           <div className="w-full max-w-2xl bg-white h-full overflow-y-auto shadow-xl p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">Request Details</h2>
+              <h2 className="text-lg font-semibold">
+                Request Details
+              </h2>
               <button
-                onClick={() => !drawerBusy && !noteBusy && closeDrawer()}
+                onClick={() =>
+                  !drawerBusy &&
+                  !noteBusy &&
+                  closeDrawer()
+                }
                 className="px-3 py-1 border rounded"
               >
                 ✕
@@ -529,115 +764,235 @@ export default function OfficeQueuePage() {
                 {/* Editable (no scheduling fields) */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <label className="block text-sm">
-                    <span className="block mb-1">Status</span>
+                    <span className="block mb-1">
+                      Status
+                    </span>
                     <select
                       className="border rounded-md px-3 py-2 w-full"
                       value={dStatus}
-                      onChange={(e) => setDStatus(e.target.value as UiStatus)}
+                      onChange={(e) =>
+                        setDStatus(
+                          e.target
+                            .value as UiStatus
+                        )
+                      }
                       disabled={drawerBusy}
                     >
                       {statusOptions.map((s) => (
-                        <option key={s} value={s}>
+                        <option
+                          key={s}
+                          value={s}
+                        >
                           {s}
                         </option>
                       ))}
                     </select>
                     <span className="text-xs text-gray-500">
-                      Office cannot set <strong>SCHEDULED</strong> or <strong>DISPATCHED</strong>. Use Dispatch.
+                      Office cannot set{" "}
+                      <strong>
+                        SCHEDULED
+                      </strong>{" "}
+                      or{" "}
+                      <strong>
+                        DISPATCHED
+                      </strong>
+                      . Use Dispatch.
                     </span>
                   </label>
 
                   <label className="block text-sm">
-                    <span className="block mb-1">Service</span>
+                    <span className="block mb-1">
+                      Service
+                    </span>
                     <input
                       className="border rounded-md px-3 py-2 w-full"
                       value={dService}
-                      onChange={(e) => setDService(e.target.value)}
+                      onChange={(e) =>
+                        setDService(
+                          e.target.value
+                        )
+                      }
                       disabled={drawerBusy}
                     />
                   </label>
 
                   <label className="block text-sm">
-                    <span className="block mb-1">FMC</span>
+                    <span className="block mb-1">
+                      FMC
+                    </span>
                     <input
                       className="border rounded-md px-3 py-2 w-full"
                       value={dFmc}
-                      onChange={(e) => setDFmc(e.target.value)}
+                      onChange={(e) =>
+                        setDFmc(
+                          e.target.value
+                        )
+                      }
                       disabled={drawerBusy}
                     />
                   </label>
 
                   <label className="block text-sm">
-                    <span className="block mb-1">PO</span>
+                    <span className="block mb-1">
+                      PO
+                    </span>
                     <input
                       className="border rounded-md px-3 py-2 w-full"
                       value={dPo}
-                      onChange={(e) => setDPo(e.target.value)}
+                      onChange={(e) =>
+                        setDPo(
+                          e.target.value
+                        )
+                      }
                       disabled={drawerBusy}
                     />
                   </label>
 
                   <label className="block text-sm">
-                    <span className="block mb-1">Mileage</span>
+                    <span className="block mb-1">
+                      Mileage
+                    </span>
                     <input
                       type="number"
                       className="border rounded-md px-3 py-2 w-full"
                       value={dMileage}
-                      onChange={(e) => setDMileage(e.target.value)}
+                      onChange={(e) =>
+                        setDMileage(
+                          e.target.value
+                        )
+                      }
                       disabled={drawerBusy}
                     />
                   </label>
 
                   {/* Read-only Scheduled */}
                   <div className="mt-3">
-                    <ReadonlyScheduled value={drawerRow?.scheduled_at ?? null} className="mt-2" />
+                    <ReadonlyScheduled
+                      value={
+                        drawerRow?.scheduled_at ??
+                        null
+                      }
+                      className="mt-2"
+                    />
                   </div>
                 </div>
 
                 {/* Readonly context */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="text-sm">
-                    <div className="text-gray-500">Created</div>
-                    <div>{fmtDate(drawerRow.created_at)}</div>
+                    <div className="text-gray-500">
+                      Created
+                    </div>
+                    <div>
+                      {fmtDate(
+                        drawerRow.created_at
+                      )}
+                    </div>
                   </div>
                   <div className="text-sm">
-                    <div className="text-gray-500">Customer</div>
-                    <div>{drawerRow.customer?.name || "—"}</div>
+                    <div className="text-gray-500">
+                      Customer
+                    </div>
+                    <div>
+                      {drawerRow.customer
+                        ?.name || "—"}
+                    </div>
                   </div>
                   <div className="text-sm">
-                    <div className="text-gray-500">Location</div>
-                    <div>{drawerRow.location?.name || "—"}</div>
+                    <div className="text-gray-500">
+                      Location
+                    </div>
+                    <div>
+                      {drawerRow.location
+                        ?.name || "—"}
+                    </div>
                   </div>
                   <div className="text-sm">
-                    <div className="text-gray-500">Vehicle</div>
-                    <div>{renderVehicle(drawerRow.vehicle)}</div>
+                    <div className="text-gray-500">
+                      Vehicle
+                    </div>
+                    <div>
+                      {renderVehicle(
+                        drawerRow.vehicle
+                      )}
+                    </div>
                   </div>
                   <div className="text-sm">
-                    <div className="text-gray-500">Technician</div>
-                    <div>{drawerRow.technician?.name || drawerRow.technician?.id || "—"}</div>
+                    <div className="text-gray-500">
+                      Technician
+                    </div>
+                    <div>
+                      {drawerRow.technician
+                        ?.name ||
+                        drawerRow.technician
+                          ?.id ||
+                        "—"}
+                    </div>
                   </div>
                 </div>
 
+                {/* Action buttons */}
                 <div className="flex items-center justify-end gap-3">
                   <button
                     className="px-4 py-2 border rounded"
                     onClick={closeDrawer}
-                    disabled={drawerBusy || noteBusy}
+                    disabled={
+                      drawerBusy ||
+                      noteBusy
+                    }
                   >
                     Close
                   </button>
                   <button
                     className="px-4 py-2 bg-black text-white rounded disabled:opacity-40"
                     onClick={saveDetails}
-                    disabled={drawerBusy || noteBusy}
+                    disabled={
+                      drawerBusy ||
+                      noteBusy
+                    }
                   >
-                    {drawerBusy ? "Saving…" : "Save"}
+                    {drawerBusy
+                      ? "Saving…"
+                      : "Save"}
                   </button>
                 </div>
 
-                {/* Notes */}
+                {/* Dispatcher + Tech notes (read-only) */}
+<div className="pt-3 space-y-3">
+  {drawerRow.dispatch_notes && (
+    <div className="text-sm">
+      <div className="font-semibold">
+        Dispatcher Notes
+      </div>
+      <div className="text-gray-800 whitespace-pre-wrap">
+        {drawerRow.dispatch_notes}
+      </div>
+    </div>
+  )}
+
+  {(drawerRow.notes_from_tech ||
+    drawerRow.tech_notes ||
+    drawerRow.notes) && (
+    <div className="text-sm">
+      <div className="font-semibold">
+        Notes from Tech
+      </div>
+      <div className="text-gray-800 whitespace-pre-wrap">
+        {drawerRow.notes_from_tech ||
+          drawerRow.tech_notes ||
+          drawerRow.notes}
+      </div>
+    </div>
+  )}
+</div>
+
+
+                {/* Office internal notes thread */}
                 <div className="pt-3">
-                  <div className="text-base font-semibold mb-2">Notes</div>
+                  <div className="text-base font-semibold mb-2">
+                    Office Notes
+                  </div>
+
                   {noteErr ? (
                     <div className="border border-amber-300 bg-amber-50 text-amber-800 p-2 rounded mb-2 text-sm">
                       {noteErr}
@@ -648,40 +1003,62 @@ export default function OfficeQueuePage() {
                     <textarea
                       className="border rounded-md px-3 py-2 w-full min-h-[80px]"
                       value={newNote}
-                      onChange={(e) => setNewNote(e.target.value)}
+                      onChange={(e) =>
+                        setNewNote(
+                          e.target.value
+                        )
+                      }
                       placeholder="Add a note…"
                       disabled={noteBusy}
                     />
                     <button
                       className="px-3 py-2 border rounded bg-black text-white disabled:opacity-40"
                       onClick={addNote}
-                      disabled={noteBusy || !newNote.trim()}
+                      disabled={
+                        noteBusy ||
+                        !newNote.trim()
+                      }
                     >
-                      {noteBusy ? "Adding…" : "Add"}
+                      {noteBusy
+                        ? "Adding…"
+                        : "Add"}
                     </button>
                   </div>
 
                   {notes.length === 0 ? (
-                    <div className="text-sm text-gray-500">No notes yet.</div>
-                  ) : (
-                    <ul className="space-y-2">
-                      {notes.map((n) => (
-                        <li key={n.id} className="border rounded-md p-3">
-                          <div className="text-sm whitespace-pre-wrap">{n.text}</div>
-                          <div className="text-xs text-gray-500 mt-1">{fmtDate(n.created_at)}</div>
-                          <div className="mt-2">
-                            <button
-                              className="text-xs px-2 py-1 border rounded"
-                              onClick={() => removeNote(n.id)}
-                              disabled={noteBusy}
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+  <div className="text-sm text-gray-500">No notes yet.</div>
+) : (
+  <ul className="space-y-2">
+    {notes.map((n) => {
+      const { label, content } = classifyNote(n.text || "");
+      return (
+        <li key={n.id} className="border rounded-md p-3">
+          {label && (
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
+              {label}
+            </div>
+          )}
+          <div className="text-sm whitespace-pre-wrap">
+            {content || n.text}
+          </div>
+          <div className="text-xs text-gray-500 mt-1">
+            {fmtDate(n.created_at)}
+          </div>
+          <div className="mt-2">
+            <button
+              className="text-xs px-2 py-1 border rounded"
+              onClick={() => removeNote(n.id)}
+              disabled={noteBusy}
+            >
+              Delete
+            </button>
+          </div>
+        </li>
+      );
+    })}
+  </ul>
+)}
+
                 </div>
               </div>
             )}
