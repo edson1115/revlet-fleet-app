@@ -1,7 +1,6 @@
-// lib/useMe.ts
 "use client";
 import { useEffect, useState } from "react";
-import type { Role, Permissions } from "@/lib/permissions";
+import type { Role, Perms } from "@/lib/permissions";
 
 export type MeResp = {
   ok: boolean;
@@ -11,7 +10,7 @@ export type MeResp = {
   email?: string | null;
   company_id?: string | null;
   customer_id?: string | null;
-  permissions: Permissions;
+  permissions: Perms;
   scope: {
     companyId?: string | null;
     customerId?: string | null;
@@ -37,8 +36,16 @@ export function useMe() {
         if (on) setLoading(false);
       }
     })();
-    return () => { on = false; };
+    return () => {
+      on = false;
+    };
   }, []);
 
-  return { me, loading, role: me?.role, perms: me?.permissions, scope: me?.scope };
+  return {
+    me,
+    loading,
+    role: me?.role,
+    perms: me?.permissions,
+    scope: me?.scope,
+  };
 }

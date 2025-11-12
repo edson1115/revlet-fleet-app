@@ -1,4 +1,3 @@
-// components/InviteUserButton.tsx
 "use client";
 
 import { useState } from "react";
@@ -35,6 +34,7 @@ export function InviteUserButton() {
           role,
           company_id: companyId || undefined,
           customer_id: customerId || undefined,
+          // backend accepts array; keep single location_id for convenience
           location_id: locationId || undefined,
           account_name: accountName || undefined,
           account_number: accountNumber || undefined,
@@ -119,9 +119,10 @@ export function InviteUserButton() {
               >
                 <option value="CUSTOMER">CUSTOMER</option>
                 <option value="OFFICE">OFFICE</option>
-                <option value="DISPATCHER">DISPATCHER</option>
+                <option value="DISPATCH">DISPATCH</option>
                 <option value="TECH">TECH</option>
                 <option value="ADMIN">ADMIN</option>
+                {/* SUPERADMIN is intentionally omitted here */}
               </select>
             </label>
 

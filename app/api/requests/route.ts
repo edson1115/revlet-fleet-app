@@ -49,18 +49,10 @@ function pickScheduled(r: any) {
 }
 
 function toUiRow(r: any, rel: RelMaps) {
-  const customer = r.customer_id
-    ? rel.customers[r.customer_id] ?? null
-    : null;
-  const vehicle = r.vehicle_id
-    ? rel.vehicles[r.vehicle_id] ?? null
-    : null;
-  const location = r.location_id
-    ? rel.locations[r.location_id] ?? null
-    : null;
-  const tech = r.technician_id
-    ? rel.technicians[r.technician_id] ?? null
-    : null;
+  const customer = r.customer_id ? rel.customers[r.customer_id] ?? null : null;
+  const vehicle = r.vehicle_id ? rel.vehicles[r.vehicle_id] ?? null : null;
+  const location = r.location_id ? rel.locations[r.location_id] ?? null : null;
+  const tech = r.technician_id ? rel.technicians[r.technician_id] ?? null : null;
 
   const fmc = r.fmc_text ?? r.fmc ?? null;
 
@@ -78,9 +70,7 @@ function toUiRow(r: any, rel: RelMaps) {
     scheduled_at: pickScheduled(r),
     completed_at: r.completed_at ?? null,
     company_id: r.company_id ?? null,
-    customer: customer
-      ? { id: customer.id, name: customer.name ?? null }
-      : null,
+    customer: customer ? { id: customer.id, name: customer.name ?? null } : null,
     vehicle: vehicle
       ? {
           id: vehicle.id,
@@ -91,9 +81,7 @@ function toUiRow(r: any, rel: RelMaps) {
           unit_number: vehicle.unit_number ?? null,
         }
       : null,
-    location: location
-      ? { id: location.id, name: location.name ?? null }
-      : null,
+    location: location ? { id: location.id, name: location.name ?? null } : null,
     technician: tech
       ? {
           id: tech.id ?? null,
@@ -111,18 +99,10 @@ async function loadRelations(
 ): Promise<RelMaps> {
   const { company_id, isAdmin } = scope;
 
-  const customerIds = Array.from(
-    new Set(rows.map((r) => r.customer_id).filter(Boolean))
-  );
-  const vehicleIds = Array.from(
-    new Set(rows.map((r) => r.vehicle_id).filter(Boolean))
-  );
-  const locationIds = Array.from(
-    new Set(rows.map((r) => r.location_id).filter(Boolean))
-  );
-  const techIds = Array.from(
-    new Set(rows.map((r) => r.technician_id).filter(Boolean))
-  );
+  const customerIds = Array.from(new Set(rows.map((r) => r.customer_id).filter(Boolean)));
+  const vehicleIds = Array.from(new Set(rows.map((r) => r.vehicle_id).filter(Boolean)));
+  const locationIds = Array.from(new Set(rows.map((r) => r.location_id).filter(Boolean)));
+  const techIds = Array.from(new Set(rows.map((r) => r.technician_id).filter(Boolean)));
 
   const customers: Record<string, any> = {};
   const vehicles: Record<string, any> = {};
@@ -130,53 +110,34 @@ async function loadRelations(
   const technicians: Record<string, any> = {};
 
   if (customerIds.length) {
-    let q = supabase
-      .from("company_customers")
-      .select("id, name, company_id")
-      .in("id", customerIds);
+    let q = supabase.from("company_customers").select("id, name, company_id").in("id", customerIds);
     if (!isAdmin && company_id) q = q.eq("company_id", company_id);
     const { data } = await q;
-    (data || []).forEach((c: any) => {
-      customers[c.id] = c;
-    });
+    (data || []).forEach((c: any) => (customers[c.id] = c));
   }
 
   if (vehicleIds.length) {
     let q = supabase
       .from("vehicles")
-      .select(
-        "id, year, make, model, plate, unit_number, company_id"
-      )
+      .select("id, year, make, model, plate, unit_number, company_id")
       .in("id", vehicleIds);
     if (!isAdmin && company_id) q = q.eq("company_id", company_id);
     const { data } = await q;
-    (data || []).forEach((v: any) => {
-      vehicles[v.id] = v;
-    });
+    (data || []).forEach((v: any) => (vehicles[v.id] = v));
   }
 
   if (locationIds.length) {
-    let q = supabase
-      .from("company_locations")
-      .select("id, name, company_id")
-      .in("id", locationIds);
+    let q = supabase.from("company_locations").select("id, name, company_id").in("id", locationIds);
     if (!isAdmin && company_id) q = q.eq("company_id", company_id);
     const { data } = await q;
-    (data || []).forEach((l: any) => {
-      locations[l.id] = l;
-    });
+    (data || []).forEach((l: any) => (locations[l.id] = l));
   }
 
   if (techIds.length) {
-    let q = supabase
-      .from("technicians")
-      .select("id, name, full_name, company_id")
-      .in("id", techIds);
+    let q = supabase.from("technicians").select("id, name, full_name, company_id").in("id", techIds);
     if (!isAdmin && company_id) q = q.eq("company_id", company_id);
     const { data } = await q;
-    (data || []).forEach((t: any) => {
-      technicians[t.id] = t;
-    });
+    (data || []).forEach((t: any) => (technicians[t.id] = t));
   }
 
   return { customers, vehicles, locations, technicians };
@@ -192,57 +153,40 @@ export async function GET(req: NextRequest) {
     const email = auth?.user?.email || null;
 
     if (!uid) {
-      return NextResponse.json(
-        { error: "unauthorized" },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
 
+    // include location_ids so we can scope internal roles
     const { data: prof } = await supabase
       .from("profiles")
-      .select("company_id, role, customer_id")
+      .select("company_id, role, customer_id, location_ids")
       .eq("id", uid)
       .maybeSingle();
 
-    const meta = (auth?.user?.user_metadata ?? {}) as Record<
-      string,
-      any
-    >;
+    const meta = (auth?.user?.user_metadata ?? {}) as Record<string, any>;
 
     const roleRaw =
-      prof?.role ??
-      meta?.role ??
-      (isSuperAdminEmail(email) ? "SUPERADMIN" : null);
-
+      prof?.role ?? meta?.role ?? (isSuperAdminEmail(email) ? "SUPERADMIN" : null);
     const role = String(roleRaw || "").toUpperCase();
 
-    const isAdmin =
-      role === "SUPERADMIN" ||
-      role === "ADMIN" ||
-      isSuperAdminEmail(email);
-
-    const company_id =
-      prof?.company_id ?? meta?.company_id ?? null;
-    const profileCustomerId =
-      prof?.customer_id ?? meta?.customer_id ?? null;
+    const isSuper = role === "SUPERADMIN" || isSuperAdminEmail(email);
+    const isAdminLike = isSuper || role === "ADMIN";
+    const company_id = prof?.company_id ?? meta?.company_id ?? null;
+    const profileCustomerId = prof?.customer_id ?? meta?.customer_id ?? null;
+    const location_ids: string[] = Array.isArray(prof?.location_ids)
+      ? prof!.location_ids
+      : Array.isArray(meta?.location_ids)
+      ? meta.location_ids
+      : [];
 
     const url = new URL(req.url);
     const statusCsv = url.searchParams.get("status");
-    const technicianId =
-      url.searchParams.get("technician_id") || null;
-    const filterCustomerId =
-      url.searchParams.get("customer_id") || null;
-    const locationId =
-      url.searchParams.get("location_id") || null;
-    const limit =
-      Number(url.searchParams.get("limit") || "200") || 200;
-    const sortBy =
-      url.searchParams.get("sortBy") || "created_at";
-    const sortDir =
-      (url.searchParams.get("sortDir") || "desc").toLowerCase() ===
-      "asc"
-        ? "asc"
-        : "desc";
+    const technicianId = url.searchParams.get("technician_id") || null;
+    const filterCustomerId = url.searchParams.get("customer_id") || null;
+    const locationId = url.searchParams.get("location_id") || null;
+    const limit = Number(url.searchParams.get("limit") || "200") || 200;
+    const sortBy = url.searchParams.get("sortBy") || "created_at";
+    const sortDir = (url.searchParams.get("sortDir") || "desc").toLowerCase() === "asc" ? "asc" : "desc";
 
     const cols = [
       "id",
@@ -266,54 +210,60 @@ export async function GET(req: NextRequest) {
       "source",
     ].join(",");
 
-    let q = supabase
-      .from("service_requests")
-      .select(cols)
-      .order(sortBy, { ascending: sortDir === "asc" })
-      .limit(limit);
+    let q = supabase.from("service_requests").select(cols).order(sortBy, { ascending: sortDir === "asc" }).limit(
+      Math.min(Math.max(limit, 1), 20000)
+    );
 
-    // Non-super users: scope by company
-    if (!isAdmin && company_id) {
+    const customerRoles = new Set(["CUSTOMER", "CUSTOMER_USER", "CUSTOMER_ADMIN", "CLIENT"]);
+
+    // ---------- Role-based scoping ----------
+    if (isSuper) {
+      // SUPERADMIN sees everything; no company/location filter
+    } else if (customerRoles.has(role)) {
+      // CUSTOMER roles: only their account
+      if (!profileCustomerId) {
+        return NextResponse.json({ rows: [] });
+      }
+      q = q.eq("customer_id", profileCustomerId);
+    } else if (role === "TECH") {
+      // TECH: only requests assigned to them; optionally restrict by their locations if present
+      q = q.eq("technician_id", uid);
+      if (location_ids.length) q = q.in("location_id", location_ids);
+      if (company_id) q = q.eq("company_id", company_id);
+    } else if (["ADMIN", "OFFICE", "DISPATCH"].includes(role)) {
+      // Internal roles: company + allowed locations
+      if (!company_id) return NextResponse.json({ rows: [] });
       q = q.eq("company_id", company_id);
+      if (location_ids.length) {
+        q = q.in("location_id", location_ids);
+      } else {
+        // safer: no locations assigned → see nothing
+        return NextResponse.json({ rows: [] });
+      }
+    } else {
+      // Unknown/Viewer roles: nothing
+      return NextResponse.json({ rows: [] });
     }
 
-    const customerRoles = new Set([
-      "CUSTOMER",
-      "CUSTOMER_USER",
-      "CUSTOMER_ADMIN",
-      "CLIENT",
-    ]);
-
-    // Customer roles only see their own customer_id
-    if (customerRoles.has(role) && profileCustomerId) {
-      q = q.eq("customer_id", profileCustomerId);
-    } else if (filterCustomerId) {
-      // Internal views can filter by customer
+    // Client-supplied filters (applied AFTER role scoping)
+    if (filterCustomerId && !customerRoles.has(role)) {
       q = q.eq("customer_id", filterCustomerId);
     }
-
     if (technicianId) q = q.eq("technician_id", technicianId);
     if (locationId) q = q.eq("location_id", locationId);
 
     if (statusCsv) {
-      const wanted = statusCsv
+      const dbStatuses = statusCsv
         .split(",")
         .map((s) => s.trim())
-        .filter(Boolean);
-      if (wanted.length) {
-        const dbStatuses = wanted.map(
-          (s) => toDbStatus(s) || s
-        );
-        q = q.in("status", dbStatuses);
-      }
+        .filter(Boolean)
+        .map((s) => toDbStatus(s) || s);
+      if (dbStatuses.length) q = q.in("status", dbStatuses);
     }
 
     const { data, error } = await q;
     if (error) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     const rows = data || [];
@@ -323,16 +273,13 @@ export async function GET(req: NextRequest) {
 
     const rel = await loadRelations(supabase, rows, {
       company_id,
-      isAdmin,
+      isAdmin: isAdminLike,
     });
     const uiRows = rows.map((r: any) => toUiRow(r, rel));
 
     return NextResponse.json({ rows: uiRows });
   } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message || "failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: e?.message || "failed" }, { status: 500 });
   }
 }
 
@@ -350,10 +297,7 @@ export async function POST(req: NextRequest) {
     const email = auth?.user?.email || null;
 
     if (!uid) {
-      return NextResponse.json(
-        { error: "unauthorized" },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
 
     const { data: prof } = await supabase
@@ -362,57 +306,27 @@ export async function POST(req: NextRequest) {
       .eq("id", uid)
       .maybeSingle();
 
-    const meta = (auth?.user?.user_metadata ?? {}) as Record<
-      string,
-      any
-    >;
+    const meta = (auth?.user?.user_metadata ?? {}) as Record<string, any>;
 
     const roleRaw =
-      prof?.role ??
-      meta?.role ??
-      (isSuperAdminEmail(email) ? "SUPERADMIN" : null);
+      prof?.role ?? meta?.role ?? (isSuperAdminEmail(email) ? "SUPERADMIN" : null);
 
     const role = String(roleRaw || "").toUpperCase();
 
-    const customerRoles = new Set([
-      "CUSTOMER",
-      "CUSTOMER_USER",
-      "CUSTOMER_ADMIN",
-      "CLIENT",
-    ]);
-
+    const customerRoles = new Set(["CUSTOMER", "CUSTOMER_USER", "CUSTOMER_ADMIN", "CLIENT"]);
     const isCustomerRole = customerRoles.has(role);
 
-    const isInternalCreator =
-      role === "SUPERADMIN" ||
-      role === "ADMIN" ||
-      role === "OFFICE" ||
-      role === "DISPATCH";
+    const isInternalCreator = role === "SUPERADMIN" || role === "ADMIN" || role === "OFFICE" || role === "DISPATCH";
 
-    const company_id =
-      prof?.company_id ?? meta?.company_id ?? null;
-    const sessionCustomerId =
-      prof?.customer_id ?? meta?.customer_id ?? null;
+    const company_id = prof?.company_id ?? meta?.company_id ?? null;
+    const sessionCustomerId = prof?.customer_id ?? meta?.customer_id ?? null;
 
     const body = await req.json().catch(() => ({} as any));
 
-    const {
-      service,
-      notes,
-      po,
-      mileage,
-      customer_id,
-      location_id,
-      vehicle_id,
-      source,
-      fmc,
-    } = body || {};
+    const { service, notes, po, mileage, customer_id, location_id, vehicle_id, source, fmc } = body || {};
 
     if (!service || typeof service !== "string") {
-      return NextResponse.json(
-        { error: "service_required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "service_required" }, { status: 400 });
     }
 
     // Resolve effective IDs
@@ -423,10 +337,7 @@ export async function POST(req: NextRequest) {
     // CUSTOMER PORTAL: must be bound to their own customer_id
     if (isCustomerRole) {
       if (!sessionCustomerId) {
-        return NextResponse.json(
-          { error: "no_customer_bound_to_account" },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: "no_customer_bound_to_account" }, { status: 400 });
       }
       effectiveCustomerId = sessionCustomerId;
       // Location can be implicit or chosen via UI later; not forced here.
@@ -434,26 +345,17 @@ export async function POST(req: NextRequest) {
 
     // INTERNAL CREATORS: require a location (so Office/Dispatch/Superadmin are explicit)
     if (isInternalCreator && !effectiveLocationId) {
-      return NextResponse.json(
-        { error: "location_required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "location_required" }, { status: 400 });
     }
 
     // Company is required for non-super users
     if (!company_id && !isSuperAdminEmail(email)) {
-      return NextResponse.json(
-        { error: "company_context_required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "company_context_required" }, { status: 400 });
     }
 
     const initialStatus = "NEW";
 
-    const rawFmc =
-      fmc && String(fmc).trim()
-        ? String(fmc).trim()
-        : null;
+    const rawFmc = fmc && String(fmc).trim() ? String(fmc).trim() : null;
 
     const insert: any = {
       company_id: company_id || null,
@@ -464,12 +366,7 @@ export async function POST(req: NextRequest) {
       status: toDbStatus(initialStatus) || initialStatus,
       notes: notes || null,
       po: po ? String(po) : null,
-      mileage:
-        mileage === undefined ||
-        mileage === null ||
-        mileage === ""
-          ? null
-          : Number(mileage),
+      mileage: mileage === undefined || mileage === null || mileage === "" ? null : Number(mileage),
       fmc: FMC_ENUM_FALLBACK,
       fmc_text: rawFmc,
       source: source || (isCustomerRole ? "CUSTOMER_PORTAL" : "INTERNAL"),
@@ -484,10 +381,7 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (error) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     const rel = await loadRelations(supabase, [data], {
@@ -498,9 +392,6 @@ export async function POST(req: NextRequest) {
     const ui = toUiRow(data, rel);
     return NextResponse.json(ui, { status: 201 });
   } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message || "failed_to_create_request" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: e?.message || "failed_to_create_request" }, { status: 500 });
   }
 }
