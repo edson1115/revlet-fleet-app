@@ -2,6 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import {
+  normalizeRole,
+  permsFor,
+  type Perms,
+} from "@/lib/permissions";
 
 type Me = {
   role?: string | null;
@@ -9,21 +14,14 @@ type Me = {
   email?: string | null;
 };
 
-type Permissions = {
-  canSeeCreateRequest: boolean;
-  canSeeOffice: boolean;
-  canSeeDispatch: boolean;
-  canSeeTech: boolean;
-  canSeeAdmin: boolean;
-  canSeeReports: boolean;
-};
-
-async function getMe(): Promise<{
+type MeResponse = {
   ok: boolean;
   authed: boolean;
   me: Me | null;
-  permissions?: Permissions;
-}> {
+  permissions?: Partial<Perms>;
+};
+
+async function getMe(): Promise<MeResponse> {
   try {
     const res = await fetch("/api/me", {
       credentials: "include",
@@ -31,9 +29,11 @@ async function getMe(): Promise<{
     });
     if (!res.ok) return { ok: false, authed: false, me: null };
     const json = await res.json();
+
     const me: Me = json.me ?? json;
-    const perms: Permissions | undefined = json.permissions;
+    const perms: Partial<Perms> | undefined = json.permissions;
     const authed = Boolean(json.ok ?? true);
+
     return { ok: true, authed, me, permissions: perms };
   } catch {
     return { ok: false, authed: false, me: null };
@@ -47,7 +47,8 @@ async function postJSON(url: string) {
 export default function MainNav() {
   const [me, setMe] = useState<Me | null>(null);
   const [authed, setAuthed] = useState(false);
-  const [perms, setPerms] = useState<Permissions | null>(null);
+  const [permsOverride, setPermsOverride] =
+    useState<Partial<Perms> | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -56,76 +57,118 @@ export default function MainNav() {
       if (!live) return;
       setMe(r.me);
       setAuthed(r.authed);
-      if (r.permissions) setPerms(r.permissions);
+      if (r.permissions) setPermsOverride(r.permissions);
     })();
     return () => {
       live = false;
     };
   }, []);
 
-  const role = String(me?.role || "VIEWER").toUpperCase();
+  const role = normalizeRole(me?.role || "VIEWER");
 
-  const derived: Permissions = perms ?? {
-    canSeeCreateRequest: true,
-    canSeeOffice: ["SUPERADMIN", "OFFICE", "DISPATCH"].includes(role),
-    canSeeDispatch: ["SUPERADMIN", "DISPATCH", "OFFICE"].includes(role),
-    canSeeTech: ["SUPERADMIN", "TECH"].includes(role),
-    canSeeAdmin: role === "SUPERADMIN",
-    canSeeReports: ["SUPERADMIN", "OFFICE", "DISPATCH"].includes(role),
-  };
+  // Base perms from role
+  let perms: Perms = permsFor(role);
+
+  // If backend ever sends tighter perms, merge them in
+  if (permsOverride) {
+    perms = { ...perms, ...permsOverride };
+  }
 
   async function signOut() {
-  try {
-    await postJSON("/api/auth/logout");
-  } catch {}
-  // land on "/" and show a toast there
-  window.location.href = "/?msg=signedout";
-}
+    try {
+      await postJSON("/api/auth/logout");
+    } catch {
+      // ignore
+    }
+    window.location.href = "/?msg=signedout";
+  }
 
+  const label =
+    authed
+      ? me?.email || me?.name || "User"
+      : "Guest";
 
   return (
     <nav className="w-full border-b bg-white">
       <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+        {/* Left: brand + links */}
         <div className="flex items-center gap-4">
           <Link href="/" className="font-semibold">
             Revlet Fleet
           </Link>
 
-          {derived.canSeeCreateRequest && (
-            <Link href="/fm/requests/new" className="text-sm hover:underline">
+          {perms.canSeeCreateRequest && (
+            <Link
+              href="/fm/requests/new"
+              className="text-sm hover:underline"
+            >
               Create Request
             </Link>
           )}
-          {derived.canSeeOffice && (
-            <Link href="/office" className="text-sm hover:underline">
+
+          {perms.canSeeCustomerPortal && (
+            <Link
+              href="/customer"
+              className="text-sm hover:underline"
+            >
+              My Portal
+            </Link>
+          )}
+
+          {perms.canSeeOffice && (
+            <Link
+              href="/office"
+              className="text-sm hover:underline"
+            >
               Office Queue
             </Link>
           )}
-          {derived.canSeeDispatch && (
-            <Link href="/tech/dispatch" className="text-sm hover:underline">
+
+          {perms.canSeeDispatch && (
+            <Link
+              href="/dispatch"
+              className="text-sm hover:underline"
+            >
               Dispatch
             </Link>
           )}
-          {derived.canSeeTech && (
-            <Link href="/tech/my-jobs" className="text-sm hover:underline">
+
+          {perms.canSeeTech && (
+            <Link
+              href="/tech"
+              className="text-sm hover:underline"
+            >
               Tech
             </Link>
           )}
-          {derived.canSeeReports && (
-            <Link href="/reports" className="text-sm hover:underline">
+
+          {perms.canSeeReports && (
+            <Link
+              href="/reports"
+              className="text-sm hover:underline"
+            >
               Reports
             </Link>
           )}
         </div>
 
+        {/* Right: user info */}
         <div className="flex items-center gap-3 text-xs text-gray-600">
-          <div>{authed ? me?.email ?? me?.name ?? "User" : "Guest"} • {role}</div>
+          <div>
+            {label} • {role}
+          </div>
           {authed ? (
-            <button onClick={signOut} className="border px-2 py-1 rounded">
+            <button
+              onClick={signOut}
+              className="border px-2 py-1 rounded"
+            >
               Sign out
             </button>
           ) : (
-            <Link href="/login" className="border px-2 py-1 rounded">
+            <Link
+              href="/login"
+              className="border px-2 py-1 rounded"
+            >
               Sign in
             </Link>
           )}
