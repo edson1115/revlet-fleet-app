@@ -301,6 +301,11 @@ export default function AdminCustomersPage() {
                 <th className="py-2 px-3 w-40">Actions</th>
               </tr>
             </thead>
+          <p className="mt-2 text-xs text-gray-500">
+            Showing active jobs and completed jobs from the last 60 days.
+            Older completed jobs are automatically removed.
+          </p>
+
             <tbody>
               {filteredRows.map((r) => (
                 <tr key={r.id} className="border-t hover:bg-gray-50/60">

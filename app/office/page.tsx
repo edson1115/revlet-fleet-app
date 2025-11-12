@@ -5,6 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import { InviteUserButton } from "@/components/InviteUserButton";
 import { UI_STATUSES, type UiStatus } from "@/lib/status";
 import ReadonlyScheduled from "@/components/office/ReadonlyScheduled";
+import TechSendBackTag from "@/components/dispatch/TechSendBackTag";
+
 
 type RequestRow = {
   id: string;
@@ -687,37 +689,55 @@ async function openDrawer(id: string) {
               </th>
             </tr>
           </thead>
-          <tbody>
-            {filteredRows.map((r) => (
-              <tr
-                key={r.id}
-                className="border-b hover:bg-gray-50 cursor-pointer"
-                onClick={() => openDrawer(r.id)}
-              >
-                <td className="px-3 py-2">
-                  {r.customer?.name || "—"}
-                </td>
-                <td className="px-3 py-2">
-                  {renderVehicle(r.vehicle)}
-                </td>
-                <td className="px-3 py-2">
-                  {r.service || "—"}
-                </td>
-                <td className="px-3 py-2">
-                  {r.status}
-                </td>
-                <td className="px-3 py-2">
-                  {r.priority || "—"}
-                </td>
-                <td className="px-3 py-2">
-                  {fmtDate(r.scheduled_at)}
-                </td>
-                <td className="px-3 py-2">
-                  {fmtDate(r.created_at)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
+
+<tbody>
+  {filteredRows.map((r) => {
+    const dn = (r.dispatch_notes || "").toLowerCase();
+    const isTechSendBack = dn.startsWith("tech send-back:");
+    const reason = isTechSendBack
+      ? r.dispatch_notes!.replace(/^tech send-back:\s*/i, "")
+      : "";
+
+    return (
+      <tr
+        key={r.id}
+        className="border-b hover:bg-gray-50 cursor-pointer"
+        onClick={() => openDrawer(r.id)}
+      >
+        <td className="px-3 py-2">
+          {r.customer?.name || "—"}
+        </td>
+        <td className="px-3 py-2">
+          {renderVehicle(r.vehicle)}
+        </td>
+        <td className="px-3 py-2">
+          {r.service || "—"}
+        </td>
+        <td className="px-3 py-2">
+          <div className="flex flex-col gap-1">
+            <span>{r.status}</span>
+            {isTechSendBack && (
+              <span className="inline-flex items-center rounded-full bg-amber-50 text-amber-800 text-[10px] px-2 py-0.5 border border-amber-200">
+                Tech send-back
+              </span>
+            )}
+          </div>
+        </td>
+        <td className="px-3 py-2">
+          {r.priority || "—"}
+        </td>
+        <td className="px-3 py-2">
+          {fmtDate(r.scheduled_at)}
+        </td>
+        <td className="px-3 py-2">
+          {fmtDate(r.created_at)}
+        </td>
+      </tr>
+    );
+  })}
+</tbody>
+
+
         </table>
       )}
 

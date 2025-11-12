@@ -50,7 +50,7 @@ type Thumb = {
   taken_at?: string;
 };
 
-async function getJSON<T>(url: string) {
+async function getJSON<T>(url: string): Promise<T> {
   const res = await fetch(url, { credentials: "include" });
   if (!res.ok) {
     throw new Error(await res.text().catch(() => res.statusText));
@@ -58,7 +58,7 @@ async function getJSON<T>(url: string) {
   return (await res.json()) as T;
 }
 
-async function patchJSON<T>(url: string, body: any) {
+async function patchJSON<T>(url: string, body: any): Promise<T> {
   const res = await fetch(url, {
     method: "PATCH",
     credentials: "include",
@@ -98,7 +98,6 @@ function countKinds(arr: Thumb[] | undefined) {
   return { total: a.length, before, after, other };
 }
 
-// normalize status so "IN_PROGRESS" and "IN PROGRESS" both work
 function normalizeStatus(s?: string | null) {
   if (!s) return "";
   return String(s)
@@ -163,10 +162,14 @@ function Uploader({
         className="text-xs"
       />
       {busy && (
-        <span className="text-xs text-gray-500">Uploading…</span>
+        <span className="text-xs text-gray-500">
+          Uploading…
+        </span>
       )}
       {err && (
-        <span className="text-xs text-red-600">{err}</span>
+        <span className="text-xs text-red-600">
+          {err}
+        </span>
       )}
     </div>
   );
@@ -176,35 +179,42 @@ export default function TechPage() {
   const [techs, setTechs] = useState<Technician[]>([]);
   const [techId, setTechId] = useState<string>("");
   const [rows, setRows] = useState<Row[]>([]);
-  const [thumbsByReq, setThumbsByReq] = useState<Record<string, Thumb[]>>({});
+  const [thumbsByReq, setThumbsByReq] = useState<
+    Record<string, Thumb[]>
+  >({});
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Lightbox
   const [lbOpen, setLbOpen] = useState(false);
   const [lbImages, setLbImages] = useState<
     { url_work: string; alt?: string }[]
   >([]);
   const [lbIndex, setLbIndex] = useState(0);
 
-  // Send back modal
-  const [rescheduleFor, setRescheduleFor] = useState<string | null>(null);
+  const [rescheduleFor, setRescheduleFor] = useState<string | null>(
+    null
+  );
   const [reschedNote, setReschedNote] = useState("");
 
-  // Complete modal
-  const [completeFor, setCompleteFor] = useState<string | null>(null);
+  const [completeFor, setCompleteFor] = useState<string | null>(
+    null
+  );
   const [completeNote, setCompleteNote] = useState("");
 
   // restore selected tech
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const saved = window.localStorage.getItem("tech:selected_id");
+    const saved =
+      window.localStorage.getItem("tech:selected_id");
     if (saved) setTechId(saved);
   }, []);
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (techId) {
-      window.localStorage.setItem("tech:selected_id", techId);
+      window.localStorage.setItem(
+        "tech:selected_id",
+        techId
+      );
     }
   }, [techId]);
 
@@ -212,11 +222,17 @@ export default function TechPage() {
   useEffect(() => {
     (async () => {
       try {
-        const list = await getJSON<{ rows?: Technician[] } | Technician[]>(
-          "/api/techs?active=1"
+        const list = await getJSON<
+          { rows?: Technician[] } | Technician[]
+        >("/api/techs?active=1");
+        const arr = Array.isArray(list)
+          ? list
+          : list?.rows || [];
+        setTechs(
+          (arr || []).filter(
+            (t) => t && (t.active ?? true)
+          )
         );
-        const arr = Array.isArray(list) ? list : list?.rows || [];
-        setTechs((arr || []).filter((t) => t && (t.active ?? true)));
       } catch {
         // ignore
       }
@@ -266,12 +282,18 @@ export default function TechPage() {
 
       setRows(data);
 
-      const ids = Array.from(new Set(data.map((r) => r.id)));
+      const ids = Array.from(
+        new Set(data.map((r) => r.id))
+      );
       if (ids.length) {
-        const param = encodeURIComponent(ids.join(","));
+        const param = encodeURIComponent(
+          ids.join(",")
+        );
         const thumbs = await getJSON<{
           byRequest: Record<string, Thumb[]>;
-        }>(`/api/images/list?request_ids=${param}`);
+        }>(
+          `/api/images/list?request_ids=${param}`
+        );
         setThumbsByReq(thumbs.byRequest || {});
       } else {
         setThumbsByReq({});
@@ -285,26 +307,37 @@ export default function TechPage() {
     }
   }
 
-  function openLightbox(requestId: string, startUrl?: string) {
+  function openLightbox(
+    requestId: string,
+    startUrl?: string
+  ) {
     const arr = thumbsByReq[requestId] || [];
     const imgs = arr.map((t) => ({
       url_work: t.url_work,
       alt: `${t.kind} photo`,
     }));
     const idx = startUrl
-      ? Math.max(0, imgs.findIndex((i) => i.url_work === startUrl))
+      ? Math.max(
+          0,
+          imgs.findIndex(
+            (i) => i.url_work === startUrl
+          )
+        )
       : 0;
     setLbImages(imgs);
     setLbIndex(idx < 0 ? 0 : idx);
     setLbOpen(true);
   }
 
-  // Start job -> IN_PROGRESS (stays visible in "In Progress")
+  // Start job -> IN_PROGRESS
   async function startJob(id: string) {
     try {
-      await patchJSON(`/api/requests/${encodeURIComponent(id)}`, {
-        status: "IN_PROGRESS",
-      });
+      await patchJSON(
+        `/api/requests/${encodeURIComponent(
+          id
+        )}`,
+        { status: "IN_PROGRESS" }
+      );
       setRows((prev) =>
         prev.map((x) =>
           x.id === id
@@ -313,7 +346,9 @@ export default function TechPage() {
         )
       );
     } catch (e: any) {
-      alert(e?.message || "Failed to start job");
+      alert(
+        e?.message || "Failed to start job"
+      );
     }
   }
 
@@ -322,25 +357,47 @@ export default function TechPage() {
     setCompleteNote("");
   }
 
-  // Complete -> COMPLETED + optional tech note, remove from tech view
+  // Complete job (requires at least one BEFORE photo)
   async function submitComplete() {
     if (!completeFor) return;
+
+    const thumbs =
+      thumbsByReq[completeFor] || [];
+    const hasBefore = thumbs.some(
+      (t) => t.kind === "before"
+    );
+    if (!hasBefore) {
+      alert(
+        "Please add at least one 'before' photo before completing this job."
+      );
+      return;
+    }
+
     try {
-      const note = (completeNote || "").trim();
+      const note = (completeNote || "")
+        .trim();
       await patchJSON(
-        `/api/requests/${encodeURIComponent(completeFor)}`,
+        `/api/requests/${encodeURIComponent(
+          completeFor
+        )}`,
         {
           status: "COMPLETED",
-          add_note: note ? `Tech completion: ${note}` : undefined,
+          add_note: note
+            ? `Tech completion: ${note}`
+            : undefined,
         }
       );
       setRows((prev) =>
-        prev.filter((x) => x.id !== completeFor)
+        prev.filter(
+          (x) => x.id !== completeFor
+        )
       );
       setCompleteFor(null);
       setCompleteNote("");
     } catch (e: any) {
-      alert(e?.message || "Failed to complete");
+      alert(
+        e?.message || "Failed to complete"
+      );
     }
   }
 
@@ -349,53 +406,60 @@ export default function TechPage() {
     setReschedNote("");
   }
 
-  // Send back:
-  // - status: RESCHEDULE
-  // - technician_id: null (unassign)
+  // Send back (REQUIRED reason):
+  // - status: WAITING_TO_BE_SCHEDULED
+  // - technician_id: null
   // - scheduled_at: null
-  // - dispatch_notes + add_note: "Tech send-back: ..."
-  // - remove from tech view
-  // Send back:
-// - status: WAITING_TO_BE_SCHEDULED
-// - technician_id: null (unassign)
-// - scheduled_at: null
-// - dispatch_notes + add_note: "Tech send-back: ..."
-// - remove from tech view
-async function submitReschedule() {
-  if (!rescheduleFor) return;
-  try {
-    const note = (reschedNote || "").trim();
-    const msg = note
-      ? `Tech send-back: ${note}`
-      : "Tech send-back";
-
-    await patchJSON(
-      `/api/requests/${encodeURIComponent(rescheduleFor)}`,
-      {
-        status: "WAITING_TO_BE_SCHEDULED",
-        technician_id: null,
-        scheduled_at: null,
-        dispatch_notes: msg,
-        add_note: msg,
+  // - dispatch_notes + add_note: "Tech send-back: <reason>"
+  // - remove from Tech view
+  async function submitReschedule() {
+    if (!rescheduleFor) return;
+    try {
+      const trimmed = (reschedNote || "")
+        .trim();
+      if (!trimmed) {
+        alert(
+          "Please add a brief reason so Dispatch knows what to fix."
+        );
+        return;
       }
-    );
 
-    // Remove from Tech view (it’s back in Dispatch queue now)
-    setRows((prev) =>
-      prev.filter((x) => x.id !== rescheduleFor)
-    );
-    setRescheduleFor(null);
-    setReschedNote("");
-  } catch (e: any) {
-    alert(e?.message || "Failed to send back to Dispatch");
+      const msg = `Tech send-back: ${trimmed}`;
+
+      await patchJSON(
+        `/api/requests/${encodeURIComponent(
+          rescheduleFor
+        )}`,
+        {
+          status: "WAITING_TO_BE_SCHEDULED",
+          technician_id: null,
+          scheduled_at: null,
+          dispatch_notes: msg,
+          add_note: msg,
+        }
+      );
+
+      setRows((prev) =>
+        prev.filter(
+          (x) => x.id !== rescheduleFor
+        )
+      );
+      setRescheduleFor(null);
+      setReschedNote("");
+    } catch (e: any) {
+      alert(
+        e?.message ||
+          "Failed to send back to Dispatch"
+      );
+    }
   }
-}
-
 
   const scheduled = useMemo(
     () =>
       rows.filter(
-        (r) => normalizeStatus(r.status) === "SCHEDULED"
+        (r) =>
+          normalizeStatus(r.status) ===
+          "SCHEDULED"
       ),
     [rows]
   );
@@ -404,7 +468,8 @@ async function submitReschedule() {
     () =>
       rows.filter(
         (r) =>
-          normalizeStatus(r.status) === "IN PROGRESS"
+          normalizeStatus(r.status) ===
+          "IN PROGRESS"
       ),
     [rows]
   );
@@ -413,9 +478,11 @@ async function submitReschedule() {
     <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Tech</h1>
+          <h1 className="text-2xl font-semibold">
+            Tech
+          </h1>
           <p className="text-sm text-gray-600">
-            Your assigned jobs. Start → photos → Complete, or Send back to Dispatch with a reason.
+            Your assigned jobs. Start → add photos → Complete &amp; notes, or Send back to Dispatch with a required reason.
           </p>
         </div>
 
@@ -427,14 +494,21 @@ async function submitReschedule() {
             <select
               className="border rounded-lg px-3 py-2 text-sm min-w-56"
               value={techId}
-              onChange={(e) => setTechId(e.target.value)}
+              onChange={(e) =>
+                setTechId(e.target.value)
+              }
             >
               <option value="">
                 — select technician —
               </option>
               {techs.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.full_name || t.name || "Unnamed"}
+                <option
+                  key={t.id}
+                  value={t.id}
+                >
+                  {t.full_name ||
+                    t.name ||
+                    "Unnamed"}
                 </option>
               ))}
             </select>
@@ -497,24 +571,28 @@ async function submitReschedule() {
               Send back to Dispatch
             </h3>
             <p className="text-sm text-gray-600">
-              This removes the job from your list and returns it to Dispatch to reschedule.
+              This removes the job from your list and returns it to Dispatch. A short reason is required.
             </p>
             <label className="block text-sm font-medium mt-2">
-              Reason (optional)
+              Reason (required)
             </label>
             <textarea
               className="w-full border rounded-lg px-3 py-2 text-sm"
               rows={3}
               value={reschedNote}
               onChange={(e) =>
-                setReschedNote(e.target.value)
+                setReschedNote(
+                  e.target.value
+                )
               }
-              placeholder="Why should Dispatch reschedule this job?"
+              placeholder="Example: Unit gone / key not available / needs different timeslot."
             />
             <div className="flex justify-end gap-2">
               <button
                 className="px-3 py-2 text-sm rounded-lg border"
-                onClick={() => setRescheduleFor(null)}
+                onClick={() =>
+                  setRescheduleFor(null)
+                }
               >
                 Cancel
               </button>
@@ -522,7 +600,7 @@ async function submitReschedule() {
                 className="px-3 py-2 text-sm rounded-lg bg-black text-white hover:bg-gray-800"
                 onClick={submitReschedule}
               >
-                Send back
+                Send back to Dispatch
               </button>
             </div>
           </div>
@@ -537,29 +615,35 @@ async function submitReschedule() {
               Complete request
             </h3>
             <p className="text-sm text-gray-600">
-              Add any notes or recommendations (optional).
+              Add what was performed and any recommendations (optional). At least one "before" photo is required.
             </p>
             <textarea
               className="w-full border rounded-lg px-3 py-2 text-sm"
               rows={4}
               value={completeNote}
               onChange={(e) =>
-                setCompleteNote(e.target.value)
+                setCompleteNote(
+                  e.target.value
+                )
               }
               placeholder="What was performed? Any recommendations?"
             />
             <div className="flex justify-end gap-2">
               <button
                 className="px-3 py-2 text-sm rounded-lg border"
-                onClick={() => setCompleteFor(null)}
+                onClick={() =>
+                  setCompleteFor(null)
+                }
               >
                 Cancel
               </button>
               <button
                 className="px-3 py-2 text-sm rounded-lg bg-black text-white hover:bg-gray-800"
-                onClick={submitComplete}
+                onClick={
+                  submitComplete
+                }
               >
-                Complete
+                Complete &amp; save
               </button>
             </div>
           </div>
@@ -571,7 +655,9 @@ async function submitReschedule() {
         images={lbImages}
         index={lbIndex}
         onClose={() => setLbOpen(false)}
-        onIndex={(i) => setLbIndex(i)}
+        onIndex={(i) =>
+          setLbIndex(i)
+        }
       />
     </div>
   );
@@ -582,7 +668,10 @@ function Section(props: {
   emptyText: string;
   items: Row[];
   thumbsByReq: Record<string, Thumb[]>;
-  onOpenLightbox: (requestId: string, startUrl?: string) => void;
+  onOpenLightbox: (
+    requestId: string,
+    startUrl?: string
+  ) => void;
   onUploaded: () => void;
   onStart: (id: string) => void;
   onComplete: (id: string) => void;
@@ -611,7 +700,9 @@ function Section(props: {
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-medium">{title}</h2>
+        <h2 className="text-lg font-medium">
+          {title}
+        </h2>
       </div>
       {items.length === 0 ? (
         <div className="text-gray-500 text-sm">
@@ -624,15 +715,25 @@ function Section(props: {
               key={r.id}
               row={r}
               thumbs={thumbsByReq[r.id] || []}
-              onOpenLightbox={onOpenLightbox}
+              onOpenLightbox={
+                onOpenLightbox
+              }
               onUploaded={onUploaded}
               onStart={onStart}
               onComplete={onComplete}
-              onReschedule={onReschedule}
+              onReschedule={
+                onReschedule
+              }
               showStart={showStart}
-              showComplete={showComplete}
-              showUploadBefore={showUploadBefore}
-              showUploadAfter={showUploadAfter}
+              showComplete={
+                showComplete
+              }
+              showUploadBefore={
+                showUploadBefore
+              }
+              showUploadAfter={
+                showUploadAfter
+              }
             />
           ))}
         </ul>
@@ -644,7 +745,10 @@ function Section(props: {
 function Card(props: {
   row: Row;
   thumbs: Thumb[];
-  onOpenLightbox: (requestId: string, startUrl?: string) => void;
+  onOpenLightbox: (
+    requestId: string,
+    startUrl?: string
+  ) => void;
   onUploaded: () => void;
   onStart: (id: string) => void;
   onComplete: (id: string) => void;
@@ -674,11 +778,21 @@ function Card(props: {
     <li className="rounded-2xl border p-4 shadow-sm">
       <div className="flex items-center justify-between mb-2">
         <div className="text-sm font-semibold">
-          {fmtDateTime(r.scheduled_at)}
+          {fmtDateTime(
+            r.scheduled_at
+          )}
         </div>
-        <span className="text-xs rounded-full border px-2 py-1">
-          {r.status}
-        </span>
+        <div className="flex flex-col items-end gap-1">
+          <span className="text-xs rounded-full border px-2 py-1">
+            {r.status}
+          </span>
+          {c.total > 0 && (
+            <span className="text-[10px] text-gray-500">
+              {c.before} before • {c.after} after •{" "}
+              {c.total} total
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="space-y-1 text-sm">
@@ -692,13 +806,15 @@ function Card(props: {
           <span className="font-medium">
             Customer:
           </span>{" "}
-          {r.customer?.name || "—"}
+          {r.customer?.name ||
+            "—"}
         </div>
         <div>
           <span className="font-medium">
             Location:
           </span>{" "}
-          {r.location?.name || "—"}
+          {r.location?.name ||
+            "—"}
         </div>
         <div>
           <span className="font-medium">
@@ -706,7 +822,8 @@ function Card(props: {
           </span>{" "}
           {r.vehicle
             ? [
-                r.vehicle.unit_number &&
+                r.vehicle
+                  .unit_number &&
                   `#${r.vehicle.unit_number}`,
                 r.vehicle.year,
                 r.vehicle.make,
@@ -714,8 +831,11 @@ function Card(props: {
                 r.vehicle.plate &&
                   `(${r.vehicle.plate})`,
               ]
-                .filter(Boolean)
-                .join(" ") || "—"
+                .filter(
+                  Boolean
+                )
+                .join(" ") ||
+              "—"
             : "—"}
         </div>
         {r.dispatch_notes && (
@@ -736,20 +856,25 @@ function Card(props: {
         )}
       </div>
 
-      {(showUploadBefore || showUploadAfter) && (
+      {(showUploadBefore ||
+        showUploadAfter) && (
         <div className="mt-3 flex flex-wrap gap-3">
           {showUploadBefore && (
             <Uploader
               requestId={r.id}
               kind="before"
-              onUploaded={onUploaded}
+              onUploaded={
+                onUploaded
+              }
             />
           )}
           {showUploadAfter && (
             <Uploader
               requestId={r.id}
               kind="after"
-              onUploaded={onUploaded}
+              onUploaded={
+                onUploaded
+              }
             />
           )}
         </div>
@@ -757,30 +882,39 @@ function Card(props: {
 
       <div className="mt-2 flex items-center justify-between">
         <div className="flex gap-2 flex-wrap">
-          {thumbs.slice(0, 6).map((t) => (
-            <button
-              key={t.id}
-              onClick={() =>
-                onOpenLightbox(r.id, t.url_work)
-              }
-              title={t.kind}
-              className="border rounded-lg overflow-hidden"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={t.url_thumb}
-                alt={`${t.kind} thumb`}
-                className="h-12 w-12 object-cover block"
-                loading="lazy"
-              />
-            </button>
-          ))}
+          {thumbs
+            .slice(0, 6)
+            .map((t) => (
+              <button
+                key={t.id}
+                onClick={() =>
+                  onOpenLightbox(
+                    r.id,
+                    t.url_work
+                  )
+                }
+                title={t.kind}
+                className="border rounded-lg overflow-hidden"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={t.url_thumb}
+                  alt={`${t.kind} thumb`}
+                  className="h-12 w-12 object-cover block"
+                  loading="lazy"
+                />
+              </button>
+            ))}
         </div>
         <button
-          onClick={() => onOpenLightbox(r.id)}
+          onClick={() =>
+            onOpenLightbox(r.id)
+          }
           className="text-xs rounded-full border px-2 py-1"
           title={`${c.total} photo${c.total !== 1 ? "s" : ""} (${c.before} before, ${c.after} after${
-            c.other ? `, ${c.other} other` : ""
+            c.other
+              ? `, ${c.other} other`
+              : ""
           })`}
         >
           {c.total} photos
@@ -790,25 +924,31 @@ function Card(props: {
       <div className="mt-3 flex flex-wrap gap-2">
         {showStart && (
           <button
-            onClick={() => onStart(r.id)}
+            onClick={() =>
+              onStart(r.id)
+            }
             className="px-3 py-2 text-sm rounded-lg bg-black text-white hover:bg-gray-800"
           >
-            Start
+            Start job
           </button>
         )}
         {showComplete && (
           <button
-            onClick={() => onComplete(r.id)}
+            onClick={() =>
+              onComplete(r.id)
+            }
             className="px-3 py-2 text-sm rounded-lg border"
           >
-            Complete
+            Complete &amp; add notes
           </button>
         )}
         <button
-          onClick={() => onReschedule(r.id)}
+          onClick={() =>
+            onReschedule(r.id)
+          }
           className="px-3 py-2 text-sm rounded-lg border"
         >
-          Send back
+          Send back to Dispatch
         </button>
       </div>
     </li>

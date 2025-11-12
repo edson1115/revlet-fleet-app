@@ -41,7 +41,7 @@ type RequestRow = {
   fmc?: string | null;
   po?: string | null;
   notes?: string | null; // Office notes
-  dispatch_notes?: string | null; // Dispatcher notes
+  dispatch_notes?: string | null; // Dispatcher notes (incl. tech send-backs)
   mileage?: number | null;
   priority?: string | null;
   created_at?: string;
@@ -49,14 +49,17 @@ type RequestRow = {
   customer?: Customer;
   vehicle?: Vehicle;
   location?: Location;
-  technician?: { id: UUID; name?: string | null } | null;
+  technician?: {
+    id: UUID;
+    name?: string | null;
+    full_name?: string | null;
+  } | null;
 
-  // NEW: tech-originated fields
+  // Tech-originated fields / mapped notes (if present)
   notes_from_tech?: string | null;
   tech_notes?: string | null;
 };
 
-// Images
 type Thumb = {
   id: string;
   kind: "before" | "after" | "other" | string;
@@ -65,7 +68,10 @@ type Thumb = {
   taken_at?: string;
 };
 
-// ---- helpers to fetch current role ----
+/* ============================
+   Helpers
+   ============================ */
+
 async function getMeRole(): Promise<string> {
   try {
     const res = await fetch("/api/me", {
@@ -73,7 +79,7 @@ async function getMeRole(): Promise<string> {
       cache: "no-store",
     });
     if (!res.ok) return "VIEWER";
-      const js = await res.json();
+    const js = await res.json();
     return String(js?.role ?? "VIEWER");
   } catch {
     return "VIEWER";
@@ -94,7 +100,7 @@ async function postJSON<T>(url: string, body: any): Promise<T> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  const js = await res.json().catch(() => ({}));
+  const js = await res.json().catch(() => ({} as any));
   if (!res.ok) throw new Error(js?.error || res.statusText);
   return js as T;
 }
@@ -120,7 +126,6 @@ function normStatus(s?: string | null): string {
     .trim();
 }
 
-
 function toLocalDateTimeInputValue(dt?: string | null) {
   if (!dt) return "";
   const d = new Date(dt);
@@ -141,7 +146,7 @@ function fromLocalDateTimeInputValue(val: string) {
   return d.toISOString();
 }
 
-/** Default next business day at 04:00 (local) for <input type="datetime-local"> */
+/** Default next business day at 04:00 (local) */
 function defaultNextBusinessDay4amLocal(): string {
   const d = new Date();
   d.setDate(d.getDate() + 1);
@@ -155,7 +160,6 @@ function defaultNextBusinessDay4amLocal(): string {
   )}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-// Count image kinds for badges
 function countKinds(arr: Thumb[] | undefined) {
   const a = arr || [];
   let before = 0;
@@ -169,7 +173,6 @@ function countKinds(arr: Thumb[] | undefined) {
   return { total: a.length, before, after, other };
 }
 
-// Tiny debounce
 function useDebounced(fn: () => void, delay = 350) {
   const t = useRef<ReturnType<typeof setTimeout> | null>(null);
   return useCallback(() => {
@@ -178,7 +181,7 @@ function useDebounced(fn: () => void, delay = 350) {
   }, [fn, delay]);
 }
 
-// Lazy Supabase client for realtime
+// Supabase client for realtime
 function useSupabaseClient() {
   const ref = useRef<any>(null);
   if (typeof window !== "undefined" && !ref.current) {
@@ -194,8 +197,9 @@ function useSupabaseClient() {
 }
 
 /* ============================
-   Inline editor: Dispatcher Notes
+   Dispatch Notes Editor
    ============================ */
+
 function DispatchNotesEditor({
   requestId,
   initial,
@@ -209,7 +213,6 @@ function DispatchNotesEditor({
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // sync when parent changes
   useEffect(() => {
     setNotes(initial ?? "");
   }, [initial]);
@@ -234,31 +237,36 @@ function DispatchNotesEditor({
 
   return (
     <div className="mt-2">
-      <label className="text-sm font-medium">Dispatcher Notes</label>
+      <label className="text-xs font-medium">Dispatcher Notes</label>
       <textarea
-        className="mt-1 w-full border rounded-lg p-2 text-sm"
+        className="mt-1 w-full border rounded-lg p-2 text-xs"
         rows={3}
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
-        placeholder="Add instructions for the technician…"
+        placeholder="Add instructions or context for the technician…"
       />
       <div className="mt-1 flex items-center gap-2">
         <button
           onClick={save}
           disabled={saving}
-          className="border rounded-lg px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
+          className="border rounded-lg px-3 py-1 text-xs hover:bg-gray-50 disabled:opacity-50"
         >
           {saving ? "Saving…" : "Save notes"}
         </button>
-        {err && <span className="text-xs text-red-600">{err}</span>}
+        {err && (
+          <span className="text-[10px] text-red-600">
+            {err}
+          </span>
+        )}
       </div>
     </div>
   );
 }
 
 /* ============================
-   Inline scheduler
+   Inline Scheduler
    ============================ */
+
 function Scheduler({
   request,
   techs,
@@ -305,7 +313,11 @@ function Scheduler({
 
       onScheduled({
         technician: techId
-          ? { id: techId, name: techName || undefined }
+          ? {
+              id: techId,
+              name: techName || undefined,
+              full_name: techName || undefined,
+            }
           : request.technician || null,
         scheduled_at,
         status: "SCHEDULED",
@@ -327,7 +339,7 @@ function Scheduler({
   return (
     <div className="mt-3 grid gap-2 sm:grid-cols-[1fr,220px,200px]">
       <select
-        className="border rounded-lg px-3 py-2 text-sm"
+        className="border rounded-lg px-3 py-2 text-xs"
         value={techId}
         onChange={(e) => setTechId(e.target.value)}
       >
@@ -341,7 +353,7 @@ function Scheduler({
 
       <input
         type="datetime-local"
-        className="border rounded-lg px-3 py-2 text-sm"
+        className="border rounded-lg px-3 py-2 text-xs"
         value={dt}
         onChange={(e) => setDt(e.target.value)}
       />
@@ -349,18 +361,18 @@ function Scheduler({
       <button
         onClick={save}
         disabled={saving}
-        className="border rounded-lg px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
-        title={techId ? `Save to ${picked} Schedule` : "Save schedule"}
+        className="border rounded-lg px-3 py-2 text-xs hover:bg-gray-50 disabled:opacity-50"
+        title={techId ? `Save to ${picked} schedule` : "Save schedule"}
       >
         {saving
           ? "Saving…"
           : techId
-          ? `Save to ${picked} Schedule`
-          : "Save Schedule"}
+          ? `Save to ${picked} schedule`
+          : "Save schedule"}
       </button>
 
       {err && (
-        <div className="sm:col-span-3 text-xs text-red-600">
+        <div className="sm:col-span-3 text-[10px] text-red-600">
           {err}
         </div>
       )}
@@ -369,10 +381,15 @@ function Scheduler({
 }
 
 /* ============================
-   Shared info renderer (incl. Notes from Tech)
+   Shared Info (with Tech send-back highlight)
    ============================ */
+
 function SharedInfo({ r }: { r: RequestRow }) {
   const techNotes = r.notes_from_tech || r.tech_notes;
+  const dn = r.dispatch_notes || "";
+
+  const isTechSendBack = dn.toLowerCase().startsWith("tech send-back:");
+  const hasOtherDispatchNotes = dn && !isTechSendBack;
 
   return (
     <>
@@ -410,17 +427,28 @@ function SharedInfo({ r }: { r: RequestRow }) {
         </div>
       )}
 
+      {/* Tech send-back callout */}
+      {isTechSendBack && (
+        <div className="mt-1 inline-flex items-start gap-2 rounded-md bg-amber-50 border border-amber-300 px-2 py-1 text-[11px] text-amber-900">
+          <span className="font-semibold uppercase tracking-wide">
+            Tech send-back
+          </span>
+          <span>{dn.replace(/^Tech send-back:\s*/i, "")}</span>
+        </div>
+      )}
+
+      {/* Other dispatcher notes (non send-back) */}
+      {hasOtherDispatchNotes && (
+        <div className="text-gray-700">
+          <span className="font-medium">Dispatcher Notes:</span>{" "}
+          {dn}
+        </div>
+      )}
+
       {r.notes && (
         <div className="text-gray-700">
           <span className="font-medium">Office Notes:</span>{" "}
           {r.notes}
-        </div>
-      )}
-
-      {r.dispatch_notes && (
-        <div className="text-gray-700">
-          <span className="font-medium">Dispatcher Notes:</span>{" "}
-          {r.dispatch_notes}
         </div>
       )}
     </>
@@ -428,8 +456,21 @@ function SharedInfo({ r }: { r: RequestRow }) {
 }
 
 /* ============================
+   Types
+   ============================ */
+
+type Bundle = {
+  key: string;
+  customerName: string;
+  locationName: string;
+  ids: string[];
+  labels: string[];
+};
+
+/* ============================
    Page
    ============================ */
+
 export default function DispatchPage() {
   const [canMutate, setCanMutate] = useState(false);
 
@@ -456,6 +497,7 @@ export default function DispatchPage() {
     () => Object.keys(selected).filter((k) => selected[k]),
     [selected]
   );
+
   const [toolbarTechId, setToolbarTechId] = useState("");
   const [toolbarDtLocal, setToolbarDtLocal] = useState(
     defaultNextBusinessDay4amLocal()
@@ -464,10 +506,12 @@ export default function DispatchPage() {
 
   const [thumbsByReq, setThumbsByReq] = useState<Record<string, Thumb[]>>({});
   const [lbOpen, setLbOpen] = useState(false);
-  const [lbImages, setLbImages] = useState<{ url_work: string; alt?: string }[]>(
-    []
-  );
+  const [lbImages, setLbImages] = useState<
+    { url_work: string; alt?: string }[]
+  >([]);
   const [lbIndex, setLbIndex] = useState(0);
+
+  const supabase = useSupabaseClient();
 
   function openLightbox(requestId: string, startUrl?: string) {
     const arr = thumbsByReq[requestId] || [];
@@ -483,17 +527,15 @@ export default function DispatchPage() {
     setLbOpen(true);
   }
 
-  const supabase = useSupabaseClient();
-
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const qs = new URLSearchParams();
       qs.set("status", statusFilter);
-      // sort so upcoming / scheduled items make sense
       qs.set("sortBy", "scheduled_at");
       qs.set("sortDir", "asc");
+
       const out = await getJSON<{ rows: RequestRow[] }>(
         `/api/requests?${qs.toString()}`
       );
@@ -534,6 +576,7 @@ export default function DispatchPage() {
     load();
   }, [load]);
 
+  // load techs
   useEffect(() => {
     (async () => {
       try {
@@ -549,6 +592,7 @@ export default function DispatchPage() {
     })();
   }, []);
 
+  // realtime
   useEffect(() => {
     if (!supabase) return;
     const channel = supabase
@@ -569,23 +613,39 @@ export default function DispatchPage() {
     };
   }, [supabase, debouncedReload]);
 
+  // grouped lanes
   const grouped = useMemo(() => {
-  const waiting = rows.filter(
-    (r) => normStatus(r.status) === "WAITING TO BE SCHEDULED"
-  );
+  const waiting = rows.filter((r) => {
+    const ns = normStatus(r.status);
+    const dn = (r.dispatch_notes || "").toLowerCase();
+    const isTechSendBack = dn.startsWith("tech send-back:");
+    // Waiting lane: WAITING_TO_BE_SCHEDULED but not tech send-back (those go to Needs Reschedule)
+    return ns === "WAITING TO BE SCHEDULED" && !isTechSendBack;
+  });
+
   const scheduled = rows.filter(
     (r) => normStatus(r.status) === "SCHEDULED"
   );
-  const needsReschedule = rows.filter(
-    (r) => normStatus(r.status) === "RESCHEDULE"
-  );
+
+  const needsReschedule = rows.filter((r) => {
+    const ns = normStatus(r.status);
+    const dn = (r.dispatch_notes || "").toLowerCase();
+    const isTechSendBack = dn.startsWith("tech send-back:");
+    return (
+      ns === "RESCHEDULE" ||
+      (ns === "WAITING TO BE SCHEDULED" && isTechSendBack)
+    );
+  });
+
   const inProgress = rows.filter(
     (r) => normStatus(r.status) === "IN PROGRESS"
   );
+
   return { waiting, scheduled, needsReschedule, inProgress };
 }, [rows]);
 
 
+  // selection helpers
   function toggle(id: string) {
     setSelected((s) => ({ ...s, [id]: !s[id] }));
   }
@@ -602,20 +662,13 @@ export default function DispatchPage() {
     setSelected(next);
   }
 
-  type Bundle = {
-    key: string;
-    customerName: string;
-    locationName: string;
-    ids: string[];
-    labels: string[];
-  };
-
+  // bundle detection (same customer + location, waiting, unassigned)
   const bundles = useMemo<Bundle[]>(() => {
     const candidates = rows.filter(
-  (r) =>
-    normStatus(r.status) === "WAITING TO BE SCHEDULED" &&
-    (!r.technician || !r.technician.id)
-);
+      (r) =>
+        normStatus(r.status) === "WAITING TO BE SCHEDULED" &&
+        (!r.technician || !r.technician.id)
+    );
 
     const map = new Map<string, Bundle>();
     for (const r of candidates) {
@@ -659,6 +712,7 @@ export default function DispatchPage() {
     });
   }, []);
 
+  // quick bundle assign/schedule
   async function quickAssignBundle(b: Bundle) {
     if (!toolbarTechId) {
       setBanner("Choose a technician first.");
@@ -712,6 +766,7 @@ export default function DispatchPage() {
     }
   }
 
+  // batch ops
   async function batchAssign() {
     if (!selectedIds.length) {
       setBanner("Select at least one request.");
@@ -781,8 +836,11 @@ export default function DispatchPage() {
     !toolbarTechId ||
     !fromLocalDateTimeInputValue(toolbarDtLocal);
 
+  /* ========== RENDER ========== */
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+      {/* Header */}
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Dispatch</h1>
@@ -812,10 +870,18 @@ export default function DispatchPage() {
             <option value="WAITING_TO_BE_SCHEDULED,SCHEDULED">
               Waiting + Scheduled
             </option>
-            <option value="WAITING_TO_BE_SCHEDULED">Waiting only</option>
-            <option value="SCHEDULED">Scheduled only</option>
-            <option value="RESCHEDULE">Reschedule only</option>
-            <option value="IN_PROGRESS">In Progress only</option>
+            <option value="WAITING_TO_BE_SCHEDULED">
+              Waiting only
+            </option>
+            <option value="SCHEDULED">
+              Scheduled only
+            </option>
+            <option value="RESCHEDULE">
+              Reschedule only
+            </option>
+            <option value="IN_PROGRESS">
+              In Progress only
+            </option>
           </select>
           <button
             onClick={load}
@@ -885,6 +951,7 @@ export default function DispatchPage() {
         </div>
       )}
 
+      {/* Messages */}
       {banner && (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
           {banner}
@@ -897,8 +964,50 @@ export default function DispatchPage() {
       )}
 
       {/* Bundle opportunities */}
-      {/* ...unchanged except now SharedInfo shows tech notes when present... */}
-      {/* For brevity here: keep your existing bundle rendering; inside each card use <SharedInfo r={r} /> instead of repeating fields. */}
+      {canMutate && bundles.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-sm font-semibold">
+            Bundle opportunities (same customer + location)
+          </h2>
+          <div className="flex flex-col gap-2">
+            {bundles.map((b) => (
+              <div
+                key={b.key}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs"
+              >
+                <div>
+                  <div className="font-medium">
+                    {b.customerName} • {b.locationName}
+                  </div>
+                  <div className="text-gray-600">
+                    {b.labels.join(" • ")}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    className="px-2 py-1 border rounded-lg hover:bg-gray-50"
+                    onClick={() => selectBundle(b)}
+                  >
+                    Select all
+                  </button>
+                  <button
+                    className="px-2 py-1 border rounded-lg hover:bg-gray-50"
+                    onClick={() => quickAssignBundle(b)}
+                  >
+                    Assign bundle
+                  </button>
+                  <button
+                    className="px-2 py-1 bg-black text-white rounded-lg hover:bg-gray-800"
+                    onClick={() => quickScheduleBundle(b)}
+                  >
+                    Schedule bundle
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Waiting */}
       <section className="space-y-3">
@@ -922,7 +1031,9 @@ export default function DispatchPage() {
           )}
         </div>
         {grouped.waiting.length === 0 ? (
-          <div className="text-gray-500 text-sm">Nothing waiting.</div>
+          <div className="text-gray-500 text-sm">
+            Nothing waiting.
+          </div>
         ) : (
           <ul className="grid md:grid-cols-2 gap-3">
             {grouped.waiting.map((r) => {
@@ -938,8 +1049,8 @@ export default function DispatchPage() {
                         aria-label="select request"
                         disabled={!canMutate}
                       />
-                      <div className="text-sm font-semibold">
-                        {fmtDateTime(r.scheduled_at)}
+                      <div className="text-xs text-gray-600">
+                        Created: {fmtDateTime(r.created_at)}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -950,13 +1061,13 @@ export default function DispatchPage() {
                         other={c.other}
                         onClick={() => openLightbox(r.id)}
                       />
-                      <span className="text-xs rounded-full border px-2 py-1">
+                      <span className="text-[10px] rounded-full border px-2 py-1">
                         {r.status}
                       </span>
                     </div>
                   </div>
 
-                  <div className="space-y-1 text-sm">
+                  <div className="space-y-1 text-xs">
                     <SharedInfo r={r} />
                   </div>
 
@@ -989,7 +1100,9 @@ export default function DispatchPage() {
                         onScheduled={(upd) =>
                           setRows((prev) =>
                             prev.map((x) =>
-                              x.id === r.id ? ({ ...x, ...upd } as RequestRow) : x
+                              x.id === r.id
+                                ? ({ ...x, ...upd } as RequestRow)
+                                : x
                             )
                           )
                         }
@@ -1016,7 +1129,300 @@ export default function DispatchPage() {
         )}
       </section>
 
-      {/* Repeat the same SharedInfo + controls pattern for Needs Reschedule, Scheduled, In Progress sections */}
+      {/* Needs Reschedule */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-medium text-amber-700">
+          Needs Reschedule
+        </h2>
+        {grouped.needsReschedule.length === 0 ? (
+          <div className="text-gray-500 text-sm">
+            No jobs flagged for reschedule.
+          </div>
+        ) : (
+          <ul className="grid md:grid-cols-2 gap-3">
+            {grouped.needsReschedule.map((r) => {
+              const c = countKinds(thumbsByReq[r.id]);
+              return (
+                <li
+                  key={r.id}
+                  className="rounded-2xl border border-amber-300 bg-amber-50/40 p-4 shadow-sm"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={!!selected[r.id]}
+                        onChange={() => toggle(r.id)}
+                        aria-label="select request"
+                        disabled={!canMutate}
+                      />
+                      <div className="text-xs text-gray-700">
+                        Last scheduled: {fmtDateTime(r.scheduled_at)}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <ImageCountPill
+                        total={c.total}
+                        before={c.before}
+                        after={c.after}
+                        other={c.other}
+                        onClick={() => openLightbox(r.id)}
+                      />
+                      <span className="text-[10px] rounded-full border px-2 py-1 bg-amber-100">
+                        {r.status}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1 text-xs">
+                    <SharedInfo r={r} />
+                  </div>
+
+                  {thumbsByReq[r.id]?.length ? (
+                    <div className="mt-2 flex gap-2 flex-wrap">
+                      {thumbsByReq[r.id].slice(0, 6).map((t) => (
+                        <button
+                          key={t.id}
+                          onClick={() => openLightbox(r.id, t.url_work)}
+                          title={t.kind}
+                          className="border rounded-lg overflow-hidden"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={t.url_thumb}
+                            alt={`${t.kind} thumb`}
+                            className="h-12 w-12 object-cover block"
+                            loading="lazy"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {canMutate && (
+                    <>
+                      <Scheduler
+                        request={r}
+                        techs={techs}
+                        onScheduled={(upd) =>
+                          setRows((prev) =>
+                            prev.map((x) =>
+                              x.id === r.id
+                                ? ({ ...x, ...upd } as RequestRow)
+                                : x
+                            )
+                          )
+                        }
+                      />
+                      <DispatchNotesEditor
+                        requestId={r.id}
+                        initial={r.dispatch_notes}
+                        onSaved={(next) =>
+                          setRows((prev) =>
+                            prev.map((x) =>
+                              x.id === r.id
+                                ? { ...x, dispatch_notes: next }
+                                : x
+                            )
+                          )
+                        }
+                      />
+                    </>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      {/* Scheduled */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-medium">Scheduled</h2>
+        {grouped.scheduled.length === 0 ? (
+          <div className="text-gray-500 text-sm">
+            No upcoming scheduled jobs.
+          </div>
+        ) : (
+          <ul className="grid md:grid-cols-2 gap-3">
+            {grouped.scheduled.map((r) => {
+              const c = countKinds(thumbsByReq[r.id]);
+              return (
+                <li key={r.id} className="rounded-2xl border p-4 shadow-sm">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={!!selected[r.id]}
+                          onChange={() => toggle(r.id)}
+                          aria-label="select request"
+                          disabled={!canMutate}
+                        />
+                        <div className="text-xs font-semibold">
+                          {fmtDateTime(r.scheduled_at)}
+                        </div>
+                      </div>
+                      {r.technician && (
+                        <div className="text-[10px] text-gray-600">
+                          Tech:{" "}
+                          {r.technician.full_name ||
+                            r.technician.name ||
+                            r.technician.id}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <ImageCountPill
+                        total={c.total}
+                        before={c.before}
+                        after={c.after}
+                        other={c.other}
+                        onClick={() => openLightbox(r.id)}
+                      />
+                      <span className="text-[10px] rounded-full border px-2 py-1">
+                        {r.status}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1 text-xs">
+                    <SharedInfo r={r} />
+                  </div>
+
+                  {thumbsByReq[r.id]?.length ? (
+                    <div className="mt-2 flex gap-2 flex-wrap">
+                      {thumbsByReq[r.id].slice(0, 6).map((t) => (
+                        <button
+                          key={t.id}
+                          onClick={() => openLightbox(r.id, t.url_work)}
+                          title={t.kind}
+                          className="border rounded-lg overflow-hidden"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={t.url_thumb}
+                            alt={`${t.kind} thumb`}
+                            className="h-12 w-12 object-cover block"
+                            loading="lazy"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {canMutate && (
+                    <>
+                      <Scheduler
+                        request={r}
+                        techs={techs}
+                        onScheduled={(upd) =>
+                          setRows((prev) =>
+                            prev.map((x) =>
+                              x.id === r.id
+                                ? ({ ...x, ...upd } as RequestRow)
+                                : x
+                            )
+                          )
+                        }
+                      />
+                      <DispatchNotesEditor
+                        requestId={r.id}
+                        initial={r.dispatch_notes}
+                        onSaved={(next) =>
+                          setRows((prev) =>
+                            prev.map((x) =>
+                              x.id === r.id
+                                ? { ...x, dispatch_notes: next }
+                                : x
+                            )
+                          )
+                        }
+                      />
+                    </>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      {/* In Progress (read-only) */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-medium text-sky-800">
+          In Progress (read-only)
+        </h2>
+        {grouped.inProgress.length === 0 ? (
+          <div className="text-gray-500 text-sm">
+            No active jobs in progress.
+          </div>
+        ) : (
+          <ul className="grid md:grid-cols-2 gap-3">
+            {grouped.inProgress.map((r) => {
+              const c = countKinds(thumbsByReq[r.id]);
+              return (
+                <li
+                  key={r.id}
+                  className="rounded-2xl border border-sky-200 bg-sky-50/40 p-4 shadow-sm"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex flex-col gap-1">
+                      <div className="text-xs font-semibold">
+                        Started: {fmtDateTime(r.scheduled_at)}
+                      </div>
+                      {r.technician && (
+                        <div className="text-[10px] text-gray-600">
+                          Tech:{" "}
+                          {r.technician.full_name ||
+                            r.technician.name ||
+                            r.technician.id}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <ImageCountPill
+                        total={c.total}
+                        before={c.before}
+                        after={c.after}
+                        other={c.other}
+                        onClick={() => openLightbox(r.id)}
+                      />
+                      <span className="text-[10px] rounded-full border px-2 py-1 bg-sky-100">
+                        {r.status}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="space-y-1 text-xs">
+                    <SharedInfo r={r} />
+                  </div>
+                  {thumbsByReq[r.id]?.length ? (
+                    <div className="mt-2 flex gap-2 flex-wrap">
+                      {thumbsByReq[r.id].slice(0, 6).map((t) => (
+                        <button
+                          key={t.id}
+                          onClick={() => openLightbox(r.id, t.url_work)}
+                          title={t.kind}
+                          className="border rounded-lg overflow-hidden"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={t.url_thumb}
+                            alt={`${t.kind} thumb`}
+                            className="h-12 w-12 object-cover block"
+                            loading="lazy"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  {/* read-only; no scheduler/notes here */}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
 
       <Lightbox
         open={lbOpen}
