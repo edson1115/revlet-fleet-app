@@ -17,22 +17,31 @@ type Vehicle = {
   make?: string | null;
   model?: string | null;
   vin?: string | null;
+  created_at?: string | null;
 };
 
 export default function CreateRequestPage() {
   const router = useRouter();
-  const { locationId: scopedLocationId } = useLocationScope();
+
+  // Global scope (gear shift)
+  const {
+    locationId: scopedLocationId,
+    setLocationId: setScopedLocationId,
+  } = useLocationScope();
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [loadingLookups, setLoadingLookups] = useState(true);
+
+  // Who am I? (to know if we’re SUPERADMIN / ADMIN)
+  const [role, setRole] = useState<string>("VIEWER");
 
   // Lookups
   const [locations, setLocations] = useState<Location[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
 
-  // Selections
-  const [locationId, setLocationId] = useState<UUID | "">("");
+  // Selections (form state)
+  const [locationId, setFormLocationId] = useState<UUID | "">("");
   const [customerId, setCustomerId] = useState<UUID | "">("");
   const [vehicleId, setVehicleId] = useState<UUID | "">("");
 
@@ -56,9 +65,40 @@ export default function CreateRequestPage() {
   // Only disable Add Vehicle if no customer selected
   const addVehicleDisabled = useMemo(() => !customerId, [customerId]);
 
-  // Prefill from scope (only when empty)
+  const isSuperOrAdmin =
+    role === "SUPERADMIN" || role === "ADMIN";
+
+  // Fetch role so we know whether to show the Location dropdown
   useEffect(() => {
-    if (scopedLocationId && !locationId) setLocationId(scopedLocationId as UUID);
+    let live = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/me", {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+        const js = await res.json();
+        const rawRole =
+          js?.me?.role ??
+          js?.role ??
+          "VIEWER";
+        if (!live) return;
+        setRole(String(rawRole).toUpperCase());
+      } catch {
+        // ignore, default VIEWER
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  // Keep form location in sync with scoped location when we *have* a scope
+  useEffect(() => {
+    if (scopedLocationId && scopedLocationId !== locationId) {
+      setFormLocationId(scopedLocationId as UUID);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopedLocationId]);
 
@@ -68,11 +108,17 @@ export default function CreateRequestPage() {
       setLoadingLookups(true);
       setErrorMsg(null);
       try {
-        const res = await fetch("/api/lookups?type=locations", { credentials: "include" });
+        const res = await fetch("/api/lookups?type=locations", {
+          credentials: "include",
+        });
         const js = await res.json();
         const list = Array.isArray(js) ? js : js.data ?? js.rows ?? [];
-        if (!Array.isArray(list)) throw new Error("Bad payload from /api/lookups?type=locations");
-        const rows: Location[] = list.map((r: any) => ({ id: r.id, name: r.name ?? r.label }));
+        if (!Array.isArray(list))
+          throw new Error("Bad payload from /api/lookups?type=locations");
+        const rows: Location[] = list.map((r: any) => ({
+          id: r.id,
+          name: r.name ?? r.label,
+        }));
         setLocations(rows);
       } catch (e: any) {
         setErrorMsg(e?.message || "Failed to load locations");
@@ -94,13 +140,20 @@ export default function CreateRequestPage() {
 
       setErrorMsg(null);
       try {
-        const res = await fetch(`/api/lookups?type=customers&location_id=${locationId}`, {
-          credentials: "include",
-        });
+        const res = await fetch(
+          `/api/lookups?type=customers&location_id=${locationId}`,
+          {
+            credentials: "include",
+          }
+        );
         const js = await res.json();
         const list = Array.isArray(js) ? js : js.data ?? js.rows ?? [];
-        if (!Array.isArray(list)) throw new Error("Bad payload from /api/lookups?type=customers");
-        const rows: Customer[] = list.map((r: any) => ({ id: r.id, name: r.name ?? r.label }));
+        if (!Array.isArray(list))
+          throw new Error("Bad payload from /api/lookups?type=customers");
+        const rows: Customer[] = list.map((r: any) => ({
+          id: r.id,
+          name: r.name ?? r.label,
+        }));
         setCustomers(rows);
       } catch (e: any) {
         setErrorMsg(e?.message || "Failed to load customers");
@@ -121,10 +174,16 @@ export default function CreateRequestPage() {
           credentials: "include",
         });
         const js = await res.json();
-        const rows: Vehicle[] = Array.isArray(js) ? js : (js?.data ?? js?.rows ?? []);
-        const sorted = [...rows].sort((a: any, b: any) => {
-          const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
-          const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+        const rows: Vehicle[] = Array.isArray(js)
+          ? js
+          : (js?.data ?? js?.rows ?? []);
+        const sorted = [...rows].sort((a: Vehicle, b: Vehicle) => {
+          const ta = a.created_at
+            ? new Date(a.created_at).getTime()
+            : 0;
+          const tb = b.created_at
+            ? new Date(b.created_at).getTime()
+            : 0;
           return tb - ta;
         });
         setVehicles(sorted);
@@ -134,13 +193,19 @@ export default function CreateRequestPage() {
     })();
   }, [customerId]);
 
+  // Current location name for display
+  const currentLocationName =
+    locations.find((l) => l.id === locationId)?.name ?? "";
+
   // Create Request → POST to /api/requests
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
     if (!locationId || !customerId || !vehicleId || !service.trim()) {
-      setErrorMsg("Select Location, Customer, Vehicle, and provide a Service.");
+      setErrorMsg(
+        "Select Location, Customer, Vehicle, and provide a Service."
+      );
       return;
     }
 
@@ -154,8 +219,8 @@ export default function CreateRequestPage() {
           location_id: locationId,
           customer_id: customerId,
           service,
-          fmc: fmc || null,    // server maps fmc_text with enum fallback
-          priority,            // harmless if server ignores it
+          fmc: fmc || null, // server maps fmc_text with enum fallback
+          priority, // harmless if server ignores it
           mileage: mileage ? Number(mileage) : null,
           po: po || null,
           notes: notes || null,
@@ -224,19 +289,40 @@ export default function CreateRequestPage() {
         {/* Location */}
         <div>
           <label className="block text-sm font-medium mb-1">Location</label>
-          <select
-            className="w-full rounded-lg border px-3 py-2"
-            value={locationId}
-            onChange={(e) => setLocationId(e.target.value as UUID)}
-            disabled={loadingLookups}
-          >
-            <option value="">Select a location…</option>
-            {locations.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
+
+          {isSuperOrAdmin ? (
+            // SUPERADMIN / ADMIN → read-only, driven by header LocationSwitcher
+            <div className="rounded-lg border px-3 py-2 bg-gray-50 text-sm">
+              {currentLocationName || "Select a location from the header"}
+              {!currentLocationName && (
+                <p className="mt-1 text-xs text-gray-500">
+                  Use the Location selector in the top bar to choose a market.
+                </p>
+              )}
+            </div>
+          ) : (
+            // Other roles → keep dropdown for now
+            <select
+              className="w-full rounded-lg border px-3 py-2"
+              value={locationId}
+              onChange={(e) => {
+                const v = e.target.value as UUID;
+                setFormLocationId(v);
+                // For non-admin roles, we can still push this into scope
+                if (v) {
+                  setScopedLocationId(v);
+                }
+              }}
+              disabled={loadingLookups}
+            >
+              <option value="">Select a location…</option>
+              {locations.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
         {/* Customer */}
@@ -255,7 +341,11 @@ export default function CreateRequestPage() {
               </option>
             ))}
           </select>
-          {!locationId && <p className="mt-1 text-xs text-gray-500">Pick a Location first.</p>}
+          {!locationId && (
+            <p className="mt-1 text-xs text-gray-500">
+              Pick a Location first.
+            </p>
+          )}
         </div>
 
         {/* Vehicle + Add Vehicle */}
@@ -267,7 +357,9 @@ export default function CreateRequestPage() {
               className="text-sm underline"
               onClick={() => setShowAddVehicle(true)}
               disabled={!customerId}
-              title={!customerId ? "Select a Customer first" : "Add a new vehicle"}
+              title={
+                !customerId ? "Select a Customer first" : "Add a new vehicle"
+              }
             >
               + Add Vehicle
             </button>
@@ -282,7 +374,10 @@ export default function CreateRequestPage() {
             {vehicles.map((v) => {
               const main =
                 v.unit_number ||
-                [v.year || "", v.make || "", v.model || ""].filter(Boolean).join(" ").trim() ||
+                [v.year || "", v.make || "", v.model || ""]
+                  .filter(Boolean)
+                  .join(" ")
+                  .trim() ||
                 v.vin ||
                 v.plate ||
                 "Vehicle";
@@ -322,7 +417,9 @@ export default function CreateRequestPage() {
             <select
               className="w-full rounded-lg border px-3 py-2"
               value={priority}
-              onChange={(e) => setPriority(e.target.value as "NORMAL" | "URGENT")}
+              onChange={(e) =>
+                setPriority(e.target.value as "NORMAL" | "URGENT")
+              }
             >
               <option value="NORMAL">Normal</option>
               <option value="URGENT">Urgent</option>
@@ -377,16 +474,25 @@ export default function CreateRequestPage() {
           <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-lg">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Add Vehicle</h2>
-              <button className="text-sm text-gray-600" onClick={() => setShowAddVehicle(false)}>
+              <button
+                className="text-sm text-gray-600"
+                onClick={() => setShowAddVehicle(false)}
+              >
                 Close
               </button>
             </div>
 
-            {!customerId && <p className="mt-2 text-sm text-red-600">Select a Customer before adding a vehicle.</p>}
+            {!customerId && (
+              <p className="mt-2 text-sm text-red-600">
+                Select a Customer before adding a vehicle.
+              </p>
+            )}
 
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium mb-1">Unit # (optional)</label>
+                <label className="block text-sm font-medium mb-1">
+                  Unit # (optional)
+                </label>
                 <input
                   className="w-full rounded-lg border px-3 py-2"
                   value={avUnit}
@@ -418,7 +524,11 @@ export default function CreateRequestPage() {
                   type="number"
                   className="w-full rounded-lg border px-3 py-2"
                   value={avYear ?? ""}
-                  onChange={(e) => setAvYear(e.target.value ? Number(e.target.value) : undefined)}
+                  onChange={(e) =>
+                    setAvYear(
+                      e.target.value ? Number(e.target.value) : undefined
+                    )
+                  }
                   placeholder="2025"
                 />
               </div>
@@ -443,14 +553,21 @@ export default function CreateRequestPage() {
             </div>
 
             <div className="mt-5 flex items-center justify-end gap-2">
-              <button className="rounded-lg border px-4 py-2" onClick={() => setShowAddVehicle(false)}>
+              <button
+                className="rounded-lg border px-4 py-2"
+                onClick={() => setShowAddVehicle(false)}
+              >
                 Cancel
               </button>
               <button
                 className="rounded-lg bg-black px-4 py-2 text-white disabled:opacity-50"
                 onClick={onAddVehicle}
                 disabled={addVehicleDisabled}
-                title={addVehicleDisabled ? "Select a customer first" : "Add vehicle"}
+                title={
+                  addVehicleDisabled
+                    ? "Select a customer first"
+                    : "Add vehicle"
+                }
               >
                 Save Vehicle
               </button>

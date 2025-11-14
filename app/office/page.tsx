@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState } from "react";
 import { InviteUserButton } from "@/components/InviteUserButton";
 import { UI_STATUSES, type UiStatus } from "@/lib/status";
 import ReadonlyScheduled from "@/components/office/ReadonlyScheduled";
-import TechSendBackTag from "@/components/dispatch/TechSendBackTag";
 import { useLocationScope } from "@/lib/useLocationScope";
 
 type RequestRow = {
@@ -16,8 +15,8 @@ type RequestRow = {
   fmc?: string | null;
   mileage?: number | null;
   po?: string | null;
-  notes?: string | null;           // used as "Notes from Tech" when completed via Tech flow
-  dispatch_notes?: string | null;  // dispatcher / send-back notes
+  notes?: string | null; // used as "Notes from Tech" when completed via Tech flow
+  dispatch_notes?: string | null; // dispatcher / send-back notes
   notes_from_tech?: string | null;
   tech_notes?: string | null;
   created_at?: string | null;
@@ -98,13 +97,25 @@ function classifyNote(text: string) {
   const lower = raw.toLowerCase();
 
   if (lower.startsWith("tech:")) {
-    return { kind: "tech", label: "Notes from Tech", content: raw.slice("tech:".length).trim() || raw } as const;
+    return {
+      kind: "tech",
+      label: "Notes from Tech",
+      content: raw.slice("tech:".length).trim() || raw,
+    } as const;
   }
   if (lower.startsWith("sent back by tech:")) {
-    return { kind: "tech-return", label: "Sent back by Tech", content: raw.slice("sent back by tech:".length).trim() || raw } as const;
+    return {
+      kind: "tech-return",
+      label: "Sent back by Tech",
+      content: raw.slice("sent back by tech:".length).trim() || raw,
+    } as const;
   }
   if (lower.startsWith("dispatch reschedule:")) {
-    return { kind: "dispatch", label: "Dispatch", content: raw.slice("dispatch reschedule:".length).trim() || raw } as const;
+    return {
+      kind: "dispatch",
+      label: "Dispatch",
+      content: raw.slice("dispatch reschedule:".length).trim() || raw,
+    } as const;
   }
   return { kind: "other", label: null, content: raw } as const;
 }
@@ -125,7 +136,8 @@ function renderVehicle(v?: RequestRow["vehicle"]) {
 }
 
 export default function OfficeQueuePage() {
-  const { queryFragment } = useLocationScope();
+  // Location scope from header gear shift
+  const { locationId: scopedLocationId } = useLocationScope();
 
   // table
   const [rows, setRows] = useState<RequestRow[]>([]);
@@ -147,7 +159,9 @@ export default function OfficeQueuePage() {
   const [dMileage, setDMileage] = useState<string>("");
 
   // notes in drawer (Office-only threaded notes)
-  const [notes, setNotes] = useState<Array<{ id: string; text: string; created_at?: string | null }>>([]);
+  const [notes, setNotes] = useState<
+    Array<{ id: string; text: string; created_at?: string | null }>
+  >([]);
   const [newNote, setNewNote] = useState("");
   const [noteBusy, setNoteBusy] = useState(false);
   const [noteErr, setNoteErr] = useState("");
@@ -169,6 +183,11 @@ export default function OfficeQueuePage() {
     []
   );
 
+  // Build query fragment when scoped by location
+  const queryFragment = useMemo(() => {
+    return scopedLocationId ? `&location_id=${encodeURIComponent(scopedLocationId)}` : "";
+  }, [scopedLocationId]);
+
   // load table (scoped by location if chosen)
   useEffect(() => {
     let live = true;
@@ -176,8 +195,10 @@ export default function OfficeQueuePage() {
       setLoading(true);
       setErr(null);
       const base =
-        "/api/requests?status=NEW,SCHEDULED,WAITING_TO_BE_SCHEDULED,IN_PROGRESS&limit=200&sortBy=created_at&sortDir=desc";
-      const url = queryFragment ? `${base}&${queryFragment}` : base;
+        "/api/requests?status=NEW,SCHEDULED,WAITING_TO_BE_SCHEDULED,IN_PROGRESS" +
+        "&limit=200&sortBy=created_at&sortDir=desc";
+      const url = `${base}${queryFragment}`;
+
       try {
         const data = await fetchJSON<{ rows: RequestRow[] }>(url);
         if (!live) return;
@@ -256,7 +277,9 @@ export default function OfficeQueuePage() {
     setDrawerBusy(true);
 
     try {
-      const detail = await fetchJSON<RequestDetails>(`/api/requests/${encodeURIComponent(id)}`);
+      const detail = await fetchJSON<RequestDetails>(
+        `/api/requests/${encodeURIComponent(id)}`
+      );
       const fromList = rows.find((r) => r.id === id) || ({} as RequestRow);
 
       const merged: RequestDetails = {
@@ -264,7 +287,10 @@ export default function OfficeQueuePage() {
         status: (detail.status ?? fromList.status ?? "NEW") as UiStatus,
         service: detail.service ?? fromList.service ?? null,
         fmc: (detail as any).fmc ?? (fromList as any).fmc ?? null,
-        po: detail.po !== undefined && detail.po !== null ? detail.po : fromList.po ?? null,
+        po:
+          detail.po !== undefined && detail.po !== null
+            ? detail.po
+            : fromList.po ?? null,
         mileage:
           detail.mileage !== undefined && detail.mileage !== null
             ? detail.mileage
@@ -277,7 +303,8 @@ export default function OfficeQueuePage() {
         location: detail.location || fromList.location || null,
         technician: detail.technician || fromList.technician || null,
         notes: detail.notes ?? fromList.notes ?? null,
-        dispatch_notes: detail.dispatch_notes ?? fromList.dispatch_notes ?? null,
+        dispatch_notes:
+          detail.dispatch_notes ?? fromList.dispatch_notes ?? null,
         notes_list: detail.notes_list ?? fromList.notes_list ?? null,
       };
 
@@ -286,9 +313,13 @@ export default function OfficeQueuePage() {
       setDStatus(merged.status as UiStatus);
       setDService(merged.service || "");
       setDFmc((merged as any).fmc || "");
-      setDPo(merged.po !== undefined && merged.po !== null ? String(merged.po) : "");
+      setDPo(
+        merged.po !== undefined && merged.po !== null ? String(merged.po) : ""
+      );
       setDMileage(
-        merged.mileage !== undefined && merged.mileage !== null && merged.mileage !== ("" as any)
+        merged.mileage !== undefined &&
+          merged.mileage !== null &&
+          merged.mileage !== ("" as any)
           ? String(merged.mileage)
           : ""
       );
@@ -325,7 +356,10 @@ export default function OfficeQueuePage() {
     try {
       const forbidden = new Set(["SCHEDULED", "DISPATCHED"]);
       const safeStatus =
-        dStatus && forbidden.has(String(dStatus).toUpperCase() as UiStatus) ? undefined : dStatus;
+        dStatus &&
+        forbidden.has(String(dStatus).toUpperCase() as UiStatus)
+          ? undefined
+          : dStatus;
 
       const body: any = {
         status: safeStatus ?? null,
@@ -356,9 +390,12 @@ export default function OfficeQueuePage() {
                 scheduled_at: updated.scheduled_at,
                 vehicle: updated.vehicle ?? r.vehicle,
                 technician: updated.technician ?? r.technician,
-                notes: updated.notes !== undefined ? updated.notes : r.notes,
+                notes:
+                  updated.notes !== undefined ? updated.notes : r.notes,
                 dispatch_notes:
-                  updated.dispatch_notes !== undefined ? updated.dispatch_notes : r.dispatch_notes,
+                  updated.dispatch_notes !== undefined
+                    ? updated.dispatch_notes
+                    : r.dispatch_notes,
               }
             : r
         )
@@ -377,16 +414,29 @@ export default function OfficeQueuePage() {
     setNoteBusy(true);
     setNoteErr("");
     try {
-      let noteResp: { id: string; text: string; created_at?: string | null } | null = null;
+      let noteResp:
+        | { id: string; text: string; created_at?: string | null }
+        | null = null;
 
       try {
-        noteResp = await postJSON(`/api/requests/${encodeURIComponent(drawerId)}/notes`, { text });
+        noteResp = await postJSON(
+          `/api/requests/${encodeURIComponent(drawerId)}/notes`,
+          { text }
+        );
       } catch {
-        const d = await patchJSON<RequestDetails>(`/api/requests/${encodeURIComponent(drawerId)}`, {
-          add_note: text,
-        });
+        const d = await patchJSON<RequestDetails>(
+          `/api/requests/${encodeURIComponent(drawerId)}`,
+          {
+            add_note: text,
+          }
+        );
         const latest = (d.notes_list || [])[0];
-        if (latest) noteResp = { id: latest.id, text: latest.text, created_at: latest.created_at ?? null };
+        if (latest)
+          noteResp = {
+            id: latest.id,
+            text: latest.text,
+            created_at: latest.created_at ?? null,
+          };
       }
 
       if (noteResp) {
@@ -406,11 +456,18 @@ export default function OfficeQueuePage() {
     setNoteErr("");
     try {
       try {
-        await delJSON(`/api/requests/${encodeURIComponent(drawerId)}/notes/${encodeURIComponent(id)}`);
+        await delJSON(
+          `/api/requests/${encodeURIComponent(
+            drawerId
+          )}/notes/${encodeURIComponent(id)}`
+        );
       } catch {
-        await patchJSON<RequestDetails>(`/api/requests/${encodeURIComponent(drawerId)}`, {
-          remove_note_id: id,
-        });
+        await patchJSON<RequestDetails>(
+          `/api/requests/${encodeURIComponent(drawerId)}`,
+          {
+            remove_note_id: id,
+          }
+        );
       }
       setNotes((prev) => prev.filter((n) => n.id !== id));
     } catch (e: any) {
@@ -441,7 +498,11 @@ export default function OfficeQueuePage() {
           ["COMPLETED", showCompleted, setShowCompleted],
         ].map(([label, val, setter]) => (
           <label key={label as string} className="flex items-center gap-2">
-            <input type="checkbox" checked={val as boolean} onChange={(e) => (setter as any)(e.target.checked)} />
+            <input
+              type="checkbox"
+              checked={val as boolean}
+              onChange={(e) => (setter as any)(e.target.checked)}
+            />
             <span>{label}</span>
           </label>
         ))}
@@ -504,19 +565,25 @@ export default function OfficeQueuePage() {
         <div
           className="fixed inset-0 z-50 flex items-start justify-end bg-black/40"
           onClick={(e) => {
-            if (e.target === e.currentTarget && !drawerBusy && !noteBusy) closeDrawer();
+            if (e.target === e.currentTarget && !drawerBusy && !noteBusy)
+              closeDrawer();
           }}
         >
           <div className="w-full max-w-2xl bg-white h-full overflow-y-auto shadow-xl p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">Request Details</h2>
-              <button onClick={() => !drawerBusy && !noteBusy && closeDrawer()} className="px-3 py-1 border rounded">
+              <button
+                onClick={() => !drawerBusy && !noteBusy && closeDrawer()}
+                className="px-3 py-1 border rounded"
+              >
                 ✕
               </button>
             </div>
 
             {drawerErr ? (
-              <div className="border border-red-300 bg-red-50 text-red-800 p-2 rounded mb-3">{drawerErr}</div>
+              <div className="border border-red-300 bg-red-50 text-red-800 p-2 rounded mb-3">
+                {drawerErr}
+              </div>
             ) : null}
 
             {!drawerRow ? (
@@ -530,7 +597,9 @@ export default function OfficeQueuePage() {
                     <select
                       className="border rounded-md px-3 py-2 w-full"
                       value={dStatus}
-                      onChange={(e) => setDStatus(e.target.value as UiStatus)}
+                      onChange={(e) =>
+                        setDStatus(e.target.value as UiStatus)
+                      }
                       disabled={drawerBusy}
                     >
                       {statusOptions.map((s) => (
@@ -540,7 +609,8 @@ export default function OfficeQueuePage() {
                       ))}
                     </select>
                     <span className="text-xs text-gray-500">
-                      Office cannot set <strong>SCHEDULED</strong> or <strong>DISPATCHED</strong>. Use Dispatch.
+                      Office cannot set <strong>SCHEDULED</strong> or{" "}
+                      <strong>DISPATCHED</strong>. Use Dispatch.
                     </span>
                   </label>
 
@@ -587,7 +657,10 @@ export default function OfficeQueuePage() {
 
                   {/* Read-only Scheduled */}
                   <div className="mt-3">
-                    <ReadonlyScheduled value={drawerRow?.scheduled_at ?? null} className="mt-2" />
+                    <ReadonlyScheduled
+                      value={drawerRow?.scheduled_at ?? null}
+                      className="mt-2"
+                    />
                   </div>
                 </div>
 
@@ -611,13 +684,21 @@ export default function OfficeQueuePage() {
                   </div>
                   <div className="text-sm">
                     <div className="text-gray-500">Technician</div>
-                    <div>{drawerRow.technician?.name || drawerRow.technician?.id || "—"}</div>
+                    <div>
+                      {drawerRow.technician?.name ||
+                        drawerRow.technician?.id ||
+                        "—"}
+                    </div>
                   </div>
                 </div>
 
                 {/* Action buttons */}
                 <div className="flex items-center justify-end gap-3">
-                  <button className="px-4 py-2 border rounded" onClick={closeDrawer} disabled={drawerBusy || noteBusy}>
+                  <button
+                    className="px-4 py-2 border rounded"
+                    onClick={closeDrawer}
+                    disabled={drawerBusy || noteBusy}
+                  >
                     Close
                   </button>
                   <button
@@ -634,14 +715,20 @@ export default function OfficeQueuePage() {
                   {drawerRow.dispatch_notes && (
                     <div className="text-sm">
                       <div className="font-semibold">Dispatcher Notes</div>
-                      <div className="text-gray-800 whitespace-pre-wrap">{drawerRow.dispatch_notes}</div>
+                      <div className="text-gray-800 whitespace-pre-wrap">
+                        {drawerRow.dispatch_notes}
+                      </div>
                     </div>
                   )}
-                  {(drawerRow.notes_from_tech || drawerRow.tech_notes || drawerRow.notes) && (
+                  {(drawerRow.notes_from_tech ||
+                    drawerRow.tech_notes ||
+                    drawerRow.notes) && (
                     <div className="text-sm">
                       <div className="font-semibold">Notes from Tech</div>
                       <div className="text-gray-800 whitespace-pre-wrap">
-                        {drawerRow.notes_from_tech || drawerRow.tech_notes || drawerRow.notes}
+                        {drawerRow.notes_from_tech ||
+                          drawerRow.tech_notes ||
+                          drawerRow.notes}
                       </div>
                     </div>
                   )}
@@ -649,7 +736,9 @@ export default function OfficeQueuePage() {
 
                 {/* Office internal notes thread */}
                 <div className="pt-3">
-                  <div className="text-base font-semibold mb-2">Office Notes</div>
+                  <div className="text-base font-semibold mb-2">
+                    Office Notes
+                  </div>
 
                   {noteErr ? (
                     <div className="border border-amber-300 bg-amber-50 text-amber-800 p-2 rounded mb-2 text-sm">
@@ -687,8 +776,12 @@ export default function OfficeQueuePage() {
                                 {label}
                               </div>
                             )}
-                            <div className="text-sm whitespace-pre-wrap">{content || n.text}</div>
-                            <div className="text-xs text-gray-500 mt-1">{fmtDate(n.created_at)}</div>
+                            <div className="text-sm whitespace-pre-wrap">
+                              {content || n.text}
+                            </div>
+                            <div className="text-xs text-gray-500 mt-1">
+                              {fmtDate(n.created_at)}
+                            </div>
                             <div className="mt-2">
                               <button
                                 className="text-xs px-2 py-1 border rounded"

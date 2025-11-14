@@ -1,141 +1,153 @@
-// components/MainNav.tsx
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import { normalizeRole, permsFor, type Perms } from "@/lib/permissions";
+import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import LocationSwitcher from "@/components/LocationSwitcher";
 
-
-
 type Me = {
-  role?: string | null;
-  name?: string | null;
   email?: string | null;
+  role?: string | null;
 };
 
-type MeResponse = {
-  ok: boolean;
-  authed: boolean;
-  me: Me | null;
-  permissions?: Partial<Perms>;
-};
-
-async function getMe(): Promise<MeResponse> {
-  try {
-    const res = await fetch("/api/me", {
-      credentials: "include",
-      cache: "no-store",
-    });
-    if (!res.ok) return { ok: false, authed: false, me: null };
-    const json = await res.json();
-    const me: Me = json.me ?? json;
-    const perms: Partial<Perms> | undefined = json.permissions;
-    const authed = Boolean(json.ok ?? true);
-    return { ok: true, authed, me, permissions: perms };
-  } catch {
-    return { ok: false, authed: false, me: null };
-  }
+function classNames(...xs: Array<string | false | null | undefined>) {
+  return xs.filter(Boolean).join(" ");
 }
 
-async function postJSON(url: string) {
-  await fetch(url, { method: "POST", credentials: "include" });
+function normalizeRole(role?: string | null) {
+  if (!role) return "VIEWER";
+  return String(role).trim().toUpperCase();
 }
 
 export default function MainNav() {
+  const pathname = usePathname();
   const [me, setMe] = useState<Me | null>(null);
-  const [authed, setAuthed] = useState(false);
-  const [permsOverride, setPermsOverride] = useState<Partial<Perms> | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let live = true;
     (async () => {
-      const r = await getMe();
-      if (!live) return;
-      setMe(r.me);
-      setAuthed(r.authed);
-      if (r.permissions) setPermsOverride(r.permissions);
+      try {
+        const res = await fetch("/api/me", {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!res.ok) throw new Error("me_failed");
+        const js = await res.json();
+        if (!live) return;
+        setMe({ email: js?.email ?? null, role: js?.role ?? null });
+      } catch {
+        if (!live) return;
+        setMe(null);
+      } finally {
+        if (live) setLoading(false);
+      }
     })();
-    return () => { live = false; };
+    return () => {
+      live = false;
+    };
   }, []);
 
-  const role = normalizeRole(me?.role || "VIEWER");
-  let perms: Perms = permsFor(role);
-  if (permsOverride) perms = { ...perms, ...permsOverride };
+  const role = normalizeRole(me?.role);
+  const isInternal = ["SUPERADMIN", "ADMIN", "OFFICE", "DISPATCH"].includes(role);
+  const isTech = role === "TECH";
+  const isCustomer = role.startsWith("CUSTOMER") || role === "CLIENT" || role === "FM";
 
-  async function signOut() {
-    try { await postJSON("/api/auth/logout"); } catch {}
-    window.location.href = "/?msg=signedout";
+  function isActive(href: string) {
+    if (!pathname) return false;
+    if (href === "/") return pathname === "/";
+    if (href === "/reports") {
+      return pathname === "/reports" || pathname.startsWith("/reports/");
+    }
+    return pathname === href || pathname.startsWith(href + "/");
   }
 
-  const label = authed ? me?.email || me?.name || "User" : "Guest";
+  // INTERNAL NAVIGATION (Office / Dispatch / Admin)
+  const internalLinks = [
+    { href: "/fm/requests/new", label: "Create Request" },
+    { href: "/office", label: "Office Queue" },
+    { href: "/dispatch", label: "Dispatch" },
+    { href: "/tech", label: "Tech" },
+    { href: "/reports", label: "Reports" },
+    { href: "/admin/users", label: "Users" },
+  ];
+
+  // CUSTOMER PORTAL NAVIGATION
+  const customerLinks = [
+    { href: "/portal", label: "Dashboard" },
+    { href: "/portal/requests", label: "Requests" },
+    { href: "/portal/vehicles", label: "Vehicles" },
+    { href: "/portal/profile", label: "Profile" },
+    { href: "/portal/profile", label: "Profile", show: isCustomer,
+      
+    },
+
+  ];
 
   return (
-    <nav className="w-full border-b bg-white">
-      <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-        {/* Left: brand + links */}
-        <div className="flex items-center gap-4">
-          <Link href="/" className="font-semibold">Revlet Fleet</Link>
+    <header className="w-full border-b bg-white">
+      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 gap-4">
 
-          {perms.canSeeCreateRequest && (
-            <Link href="/fm/requests/new" className="text-sm hover:underline">
-              Create Request
-            </Link>
-          )}
+        {/* LEFT SIDE: BRAND + NAV */}
+        <div className="flex items-center gap-6">
+          <Link href="/" className="text-sm font-semibold whitespace-nowrap">
+            Revlet Fleet
+          </Link>
 
-          {perms.canSeeCustomerPortal && (
-            <Link href="/customer" className="text-sm hover:underline">
-              My Portal
-            </Link>
-          )}
+          <nav className="flex flex-wrap items-center gap-4 text-sm">
+            {isInternal &&
+              internalLinks.map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className={classNames(
+                    "whitespace-nowrap",
+                    isActive(link.href)
+                      ? "font-semibold text-black"
+                      : "text-gray-600 hover:text-black"
+                  )}
+                >
+                  {link.label}
+                </Link>
+              ))}
 
-          {perms.canSeeOffice && (
-            <Link href="/office" className="text-sm hover:underline">
-              Office Queue
-            </Link>
-          )}
-
-          {perms.canSeeDispatch && (
-            <Link href="/dispatch" className="text-sm hover:underline">
-              Dispatch
-            </Link>
-          )}
-
-          {perms.canSeeTech && (
-            <Link href="/tech" className="text-sm hover:underline">
-              Tech
-            </Link>
-          )}
-
-          {perms.canSeeReports && (
-            <Link href="/reports" className="text-sm hover:underline">
-              Reports
-            </Link>
-          )}
-
-          {/* SUPERADMIN-only Users link */}
-          {role === "SUPERADMIN" && (
-            <Link href="/admin/users" className="text-sm hover:underline">
-              Users
-            </Link>
-          )}
+            {isCustomer &&
+              customerLinks.map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className={classNames(
+                    "whitespace-nowrap",
+                    isActive(link.href)
+                      ? "font-semibold text-black"
+                      : "text-gray-600 hover:text-black"
+                  )}
+                >
+                  {link.label}
+                </Link>
+              ))}
+          </nav>
         </div>
 
-        {/* Right: user info */}
-<div className="flex items-center gap-3 text-xs text-gray-600">
-  {(perms.canSeeOffice || perms.canSeeDispatch || perms.canSeeTech) && (
-    <LocationSwitcher />
-  )}
-  <div>{label} • {role}</div>
-  {authed ? (
-    <button onClick={signOut} className="border px-2 py-1 rounded">Sign out</button>
-  ) : (
-    <Link href="/login" className="border px-2 py-1 rounded">Sign in</Link>
-  )}
-</div>
+        {/* RIGHT SIDE: Location + User + Logout */}
+        <div className="flex items-center gap-3 text-xs">
 
+          {(isInternal || isTech || isCustomer) && <LocationSwitcher />}
 
+          {!loading && me && (
+            <span className="hidden sm:inline text-gray-600">
+              {me.email} • {role}
+            </span>
+          )}
+
+          <Link
+            href="/auth/signout"
+            className="rounded border px-3 py-1 text-xs hover:bg-gray-50"
+          >
+            Sign out
+          </Link>
+        </div>
       </div>
-    </nav>
+    </header>
   );
 }

@@ -4,11 +4,11 @@ import { supabaseServer } from "@/lib/supabase/server";
 import SignInForm from "@/components/auth/SignInForm";
 import ToastOnMount from "@/components/ToastOnMount";
 
-// server component – safe to read searchParams directly in the signature
+// server component – searchParams is now a Promise in Next 15
 export default async function Home({
   searchParams,
 }: {
-  searchParams?: { msg?: string };
+  searchParams: Promise<{ msg?: string }>;
 }) {
   const supabase = await supabaseServer();
   const {
@@ -30,12 +30,13 @@ export default async function Home({
   }
 
   // not authed: show hero + magic link form
-  const msg = searchParams?.msg ?? null;
+  const { msg } = await searchParams;
+  const message = msg ?? null;
 
   return (
     <main className="relative flex flex-col items-center justify-center min-h-[calc(100vh-64px)] bg-gradient-to-br from-gray-50 via-white to-gray-100">
       {/* Client shim to show toast when ?msg=signedout */}
-      <ToastOnMount when={msg} success="Signed out successfully!" />
+      <ToastOnMount when={message} success="Signed out successfully!" />
 
       <div className="text-center px-6">
         <h1 className="text-5xl font-semibold mb-3 text-gray-900">Revlet Fleet</h1>

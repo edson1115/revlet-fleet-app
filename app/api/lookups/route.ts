@@ -3,107 +3,116 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
-function pickCompanyScope(meta: any, prof: any, email?: string | null) {
-  const company_id = prof?.company_id ?? meta?.company_id ?? null;
-  const role = String(prof?.role ?? meta?.role ?? "").toUpperCase();
-  const isSuper =
-    role === "SUPERADMIN" ||
-    role === "ADMIN" ||
-    (email || "").toLowerCase() === "edson.cortes@bigo.com";
-  return { company_id, isSuper };
-}
 
 export async function GET(req: NextRequest) {
   try {
     const supabase = await supabaseServer();
-    const { data: auth } = await supabase.auth.getUser();
-    const uid = auth?.user?.id || null;
-    const email = auth?.user?.email || null;
-
-    if (!uid) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
-
-    const { data: prof } = await supabase
-      .from("profiles")
-      .select("company_id, role, customer_id")
-      .eq("id", uid)
-      .maybeSingle();
-
-    const meta = (auth?.user?.user_metadata ?? {}) as Record<string, any>;
-    const { company_id, isSuper } = pickCompanyScope(meta, prof, email);
-
     const url = new URL(req.url);
-    const type = (url.searchParams.get("type") || "").toLowerCase();
 
-    const activeOnly = (url.searchParams.get("active") || "1") !== "0"; // default true
-    const location_id = url.searchParams.get("location_id") || null;
+    const type = url.searchParams.get("type");
+    const location_id = url.searchParams.get("location_id");
+    const customer_id = url.searchParams.get("customer_id");
+
+    if (!type) {
+      return NextResponse.json(
+        { error: "Missing 'type' query param" },
+        { status: 400 }
+      );
+    }
 
     /* ---------------- LOCATIONS ---------------- */
-    iif (type === "locations") {
-  const keep = ["San Antonio", "Dallas", "Bay Area", "Sacramento", "Washington"];
-  let q = supabase
-    .from("company_locations")
-    .select("id, name, is_active, company_id")
-    .order("name", { ascending: true });
+    if (type === "locations") {
+      // These are the locations we actually want to show in the UI
+      const keep = ["San Antonio", "Dallas", "Bay Area", "Sacramento", "Washington"];
 
-  // scope to company for non-super
-  if (!isSuper && company_id) q = q.eq("company_id", company_id);
+      const { data, error } = await supabase
+        .from("company_locations")
+        .select("id, name")
+        .order("name", { ascending: true });
 
-  // only active rows
-  q = q.eq("is_active", true);
-
-  const { data, error } = await q;
-  if (error) throw error;
-
-  // enforce allow-list + dedupe by lower(name); first occurrence wins
-  const wanted = new Set(keep.map((n) => n.toLowerCase()));
-  const byName = new Map<string, { id: string; name: string }>();
-  for (const r of data || []) {
-    const name = (r.name || "").trim();
-    const key = name.toLowerCase();
-    if (!wanted.has(key)) continue;
-    if (!byName.has(key)) byName.set(key, { id: r.id, name });
-  }
-
-  // return in your preferred fixed order
-  const rows = keep
-    .map((n) => byName.get(n.toLowerCase()))
-    .filter(Boolean) as { id: string; name: string }[];
-
-  return NextResponse.json({ rows });
-}
-
-
-    /* ---------------- CUSTOMERS (by location) ---------------- */
-    if (type === "customers") {
-      if (!location_id) {
-        return NextResponse.json({ rows: [] }); // or {error: 'location_id_required'}
+      if (error) {
+        console.error("[lookups] locations error:", error);
+        return NextResponse.json(
+          { error: "Failed to load locations" },
+          { status: 500 }
+        );
       }
 
-      // Inner-join bridge table to ensure only customers mapped to this location come back
-      let q = supabase
-        .from("company_customers")
-        .select(
-          "id, name, company_id, is_active, company_customers_locations!inner(location_id)"
-        )
-        .order("name", { ascending: true })
-        .eq("company_customers_locations.location_id", location_id);
+      // Filter to allowed names + dedupe by name
+      const seen = new Set<string>();
+      const filtered: { id: string; name: string }[] = [];
 
-      if (!isSuper && company_id) q = q.eq("company_id", company_id);
-      if (activeOnly) q = q.eq("is_active", true);
+      for (const loc of (data || []) as { id: string; name: string }[]) {
+        if (!loc?.name) continue;
+        if (!keep.includes(loc.name)) continue;
 
-      const { data, error } = await q;
-      if (error) throw error;
+        if (seen.has(loc.name)) continue; // prevent duplicates
+        seen.add(loc.name);
 
-      const rows = (data || []).map((c: any) => ({ id: c.id, name: c.name }));
-      return NextResponse.json({ rows });
+        filtered.push({ id: loc.id, name: loc.name });
+      }
+
+      return NextResponse.json({ data: filtered });
     }
 
-    return NextResponse.json({ error: "unsupported_type" }, { status: 400 });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "failed" }, { status: 500 });
+    /* ---------------- CUSTOMERS ---------------- */
+    if (type === "customers") {
+      // Your `customers` table does NOT have `location_id` (per error 42703),
+      // so we only select (id, name) and ignore location filtering for now.
+      const { data, error } = await supabase
+        .from("customers")
+        .select("id, name")
+        .order("name", { ascending: true });
+
+      if (error) {
+        console.error("[lookups] customers error:", error);
+        return NextResponse.json(
+          { error: "Failed to load customers" },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({ data: data ?? [] });
+    }
+
+    /* ---------------- VEHICLES ---------------- */
+    if (type === "vehicles") {
+      let query = supabase
+        .from("vehicles")
+        .select("id, label, vin, plate, customer_id, location_id")
+        .order("label", { ascending: true });
+
+      if (customer_id) {
+        query = query.eq("customer_id", customer_id);
+      }
+      if (location_id) {
+        // Keep this only if `vehicles.location_id` exists in your schema
+        query = query.eq("location_id", location_id);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error("[lookups] vehicles error:", error);
+        return NextResponse.json(
+          { error: "Failed to load vehicles" },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({ data: data ?? [] });
+    }
+
+    /* ---------------- UNKNOWN TYPE ---------------- */
+    return NextResponse.json(
+      { error: `Unknown lookup type: ${type}` },
+      { status: 400 }
+    );
+  } catch (err) {
+    console.error("[lookups] unhandled error:", err);
+    return NextResponse.json(
+      { error: "Unexpected error in lookups endpoint" },
+      { status: 500 }
+    );
   }
 }

@@ -11,6 +11,7 @@ import React, {
 import ImageCountPill from "../../components/images/ImageCountPill";
 import Lightbox from "../../components/common/Lightbox";
 import { permsFor, normalizeRole } from "@/lib/permissions";
+import { useLocationScope } from "@/lib/useLocationScope";
 
 type UUID = string;
 
@@ -483,6 +484,8 @@ export default function DispatchPage() {
     })();
   }, []);
 
+  const { locationId } = useLocationScope();
+
   const [rows, setRows] = useState<RequestRow[]>([]);
   const [techs, setTechs] = useState<Technician[]>([]);
   const [loading, setLoading] = useState(false);
@@ -535,10 +538,13 @@ export default function DispatchPage() {
       qs.set("status", statusFilter);
       qs.set("sortBy", "scheduled_at");
       qs.set("sortDir", "asc");
+      if (locationId) {
+        qs.set("location_id", locationId);
+      }
 
-      const out = await getJSON<{ rows: RequestRow[] }>(
-        `/api/requests?${qs.toString()}`
-      );
+      const url = `/api/requests?${qs.toString()}`;
+
+      const out = await getJSON<{ rows: RequestRow[] }>(url);
       const data = out?.rows || [];
 
       data.sort((a, b) => {
@@ -568,7 +574,7 @@ export default function DispatchPage() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter]);
+  }, [statusFilter, locationId]);
 
   const debouncedReload = useDebounced(load, 300);
 
@@ -615,35 +621,34 @@ export default function DispatchPage() {
 
   // grouped lanes
   const grouped = useMemo(() => {
-  const waiting = rows.filter((r) => {
-    const ns = normStatus(r.status);
-    const dn = (r.dispatch_notes || "").toLowerCase();
-    const isTechSendBack = dn.startsWith("tech send-back:");
-    // Waiting lane: WAITING_TO_BE_SCHEDULED but not tech send-back (those go to Needs Reschedule)
-    return ns === "WAITING TO BE SCHEDULED" && !isTechSendBack;
-  });
+    const waiting = rows.filter((r) => {
+      const ns = normStatus(r.status);
+      const dn = (r.dispatch_notes || "").toLowerCase();
+      const isTechSendBack = dn.startsWith("tech send-back:");
+      // Waiting lane: WAITING_TO_BE_SCHEDULED but not tech send-back (those go to Needs Reschedule)
+      return ns === "WAITING TO BE SCHEDULED" && !isTechSendBack;
+    });
 
-  const scheduled = rows.filter(
-    (r) => normStatus(r.status) === "SCHEDULED"
-  );
-
-  const needsReschedule = rows.filter((r) => {
-    const ns = normStatus(r.status);
-    const dn = (r.dispatch_notes || "").toLowerCase();
-    const isTechSendBack = dn.startsWith("tech send-back:");
-    return (
-      ns === "RESCHEDULE" ||
-      (ns === "WAITING TO BE SCHEDULED" && isTechSendBack)
+    const scheduled = rows.filter(
+      (r) => normStatus(r.status) === "SCHEDULED"
     );
-  });
 
-  const inProgress = rows.filter(
-    (r) => normStatus(r.status) === "IN PROGRESS"
-  );
+    const needsReschedule = rows.filter((r) => {
+      const ns = normStatus(r.status);
+      const dn = (r.dispatch_notes || "").toLowerCase();
+      const isTechSendBack = dn.startsWith("tech send-back:");
+      return (
+        ns === "RESCHEDULE" ||
+        (ns === "WAITING TO BE SCHEDULED" && isTechSendBack)
+      );
+    });
 
-  return { waiting, scheduled, needsReschedule, inProgress };
-}, [rows]);
+    const inProgress = rows.filter(
+      (r) => normStatus(r.status) === "IN PROGRESS"
+    );
 
+    return { waiting, scheduled, needsReschedule, inProgress };
+  }, [rows]);
 
   // selection helpers
   function toggle(id: string) {
