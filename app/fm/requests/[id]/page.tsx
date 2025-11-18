@@ -123,7 +123,9 @@ export default async function RequestDetailPage({
   }
 
   const friendlyId = row.id ? String(row.id).slice(0, 8) : "";
-  const techName = row.technician?.full_name || row.technician?.id || null;
+  const tech = row.technician?.[0];
+  const techName = tech?.full_name || tech?.id || null;
+
 
   return (
     <div className="mx-auto max-w-5xl p-6 space-y-6">
@@ -186,11 +188,15 @@ export default async function RequestDetailPage({
             Vehicle
           </div>
           <div className="text-sm font-medium">{vehLabel(row.vehicle)}</div>
-          {row.vehicle?.id && (
-            <div className="text-[11px] text-gray-500">
-              Vehicle ID: {row.vehicle.id}
-            </div>
-          )}
+{(() => {
+  const vehicle = row.vehicle?.[0];
+  return vehicle?.id ? (
+    <div className="text-[11px] text-gray-500">
+      Vehicle ID: {vehicle.id}
+    </div>
+  ) : null;
+})()}
+
 
           <div className="mt-3 text-xs font-semibold uppercase text-gray-500">
             Technician
@@ -204,16 +210,18 @@ export default async function RequestDetailPage({
             Customer
           </div>
           <div className="text-sm font-medium">
-            {row.customer?.name ?? "—"}
-          </div>
-          <div className="text-xs text-gray-500">
-            Market: {row.customer?.market ?? "—"}
-          </div>
+  {row.customer?.[0]?.name ?? "—"}
+</div>
+<div className="text-xs text-gray-500">
+  Market: {row.customer?.[0]?.market ?? "—"}
+</div>
+
 
           <div className="mt-3 text-xs font-semibold uppercase text-gray-500">
             Location
           </div>
-          <div className="text-sm">{row.location?.name ?? "—"}</div>
+          <div className="text-sm">{row.location?.[0]?.name ?? "—"}</div>
+
 
           <div className="mt-3 text-xs text-gray-500">
             Source:{" "}

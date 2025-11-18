@@ -1,93 +1,45 @@
 // lib/realtime.ts
-"use client";
 
-import { supabaseBrowser } from "@/lib/supabase/client";
+import { createClient } from "@supabase/supabase-js";
 
-export type RealtimeUnsub = () => void;
-
-type EventType = "*" | "INSERT" | "UPDATE" | "DELETE";
-type SubOpts = {
-  /** Which events to listen to (default: "*") */
-  events?: EventType | EventType[];
-  /** Debounce ms to coalesce rapid bursts (default: 150ms) */
-  debounceMs?: number;
-};
-
-/** Internal: tiny debounce wrapper */
-function debounce(fn: () => void, ms: number) {
-  if (ms <= 0) return fn;
-  let t: any;
-  return () => {
-    clearTimeout(t);
-    t = setTimeout(fn, ms);
-  };
-}
-
-/**
- * Subscribe to changes on public.service_requests.
- * Calls onChange() when an INSERT/UPDATE/DELETE arrives.
- *
- * Usage:
- *   const unsub = subscribeServiceRequests(() => reload(), { events: ["INSERT","UPDATE"] });
- */
-export function subscribeServiceRequests(
-  onChange: () => void,
-  opts?: SubOpts
-): RealtimeUnsub {
-  const events = Array.isArray(opts?.events) ? opts!.events : [opts?.events ?? "*"];
-  const handler = debounce(onChange, opts?.debounceMs ?? 150);
-
-  const channel = supabaseBrowser.channel("sr-changes");
-
-  for (const ev of events) {
-    channel.on(
-      "postgres_changes",
-      { event: ev as EventType, schema: "public", table: "service_requests" },
-      handler
-    );
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  {
+    realtime: { params: { eventsPerSecond: 10 } },
   }
+);
 
-  channel.subscribe();
-
-  return () => {
-    supabaseBrowser.removeChannel(channel);
-  };
-}
+type EventType = "INSERT" | "UPDATE" | "DELETE";
 
 /**
- * Subscribe to notes for a single request (public.request_notes).
- * Calls onChange() when any matching note row changes.
- *
- * Usage:
- *   const unsub = subscribeRequestNotes(requestId, () => reloadNotes());
+ * Subscribe to realtime Postgres changes for service_requests table.
+ * This version forces TS to allow "postgres_changes" even on older SDKs.
  */
-export function subscribeRequestNotes(
-  requestId: string,
-  onChange: () => void,
-  opts?: SubOpts
-): RealtimeUnsub {
-  const events = Array.isArray(opts?.events) ? opts!.events : [opts?.events ?? "*"];
-  const handler = debounce(onChange, opts?.debounceMs ?? 150);
-
-  const channel = supabaseBrowser.channel(`notes-${requestId}`);
+export function subscribeToServiceRequests(
+  events: EventType[],
+  handler: (payload: any) => void
+) {
+  // Cast to ANY to bypass strict typings in older supabase-js versions
+  const channel: any = supabase.channel("service-requests");
 
   for (const ev of events) {
     channel.on(
       "postgres_changes",
       {
-        event: ev as EventType,
+        event: ev,
         schema: "public",
-        table: "request_notes",
-        // server-side filter so we only get this request's notes
-        filter: `request_id=eq.${requestId}`,
+        table: "service_requests",
       },
       handler
     );
   }
 
-  channel.subscribe();
+  channel.subscribe((status: string) => {
+    if (status === "SUBSCRIBED") {
+      console.log("Realtime subscribed → service_requests");
+    }
+  });
 
-  return () => {
-    supabaseBrowser.removeChannel(channel);
-  };
+  return () => supabase.removeChannel(channel);
 }

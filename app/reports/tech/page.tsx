@@ -57,14 +57,21 @@ export default function TechReportsPage() {
         const me = await getJSON<Me>("/api/me");
         const role = normalizeRole(me.role);
 
-        const allowedRoles = new Set([
-          "SUPERADMIN",
-          "ADMIN",
-          "OFFICE",
-          "DISPATCH",
-        ]);
+        // Allowed internal roles
+const allowedRoles = new Set([
+  "TECH",
+  "DISPATCH",
+  "ADMIN",
+  "SUPERADMIN",
+]);
 
-        if (!allowedRoles.has(role)) {
+if (!allowedRoles.has(role ?? "")) {
+  setAuthorized(false);
+  return;
+}
+
+
+        if (!allowedRoles.has(role ?? "")) {
           setAuthorized(false);
           return;
         }

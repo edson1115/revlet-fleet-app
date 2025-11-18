@@ -1,67 +1,51 @@
 // components/AppHeader.tsx
-import Link from 'next/link';
-import { supabaseServer } from '@/lib/supabase/server';
-import { signOutAction } from '@/app/actions/auth'; // <— path now exists
+import Link from "next/link";
+import { supabaseServer } from "@/lib/supabase/server";
 
 export default async function AppHeader() {
-  const sb = await supabaseServer(); // must await
+  const sb = await supabaseServer();
 
   const {
     data: { user },
   } = await sb.auth.getUser();
 
-  const { data: me } = user
-    ? await sb
-        .from('users')
-        .select('email, role')
-        .eq('auth_user_id', user.id)
-        .single()
-    : { data: null };
-
-  const links = [
-    { href: '/', label: 'Home' },
-    { href: '/fm/requests/new', label: 'Create Request' },
-    { href: '/office/queue', label: 'Office' },
-    { href: '/dispatch/scheduled', label: 'Dispatch' },
-    { href: '/tech/queue', label: 'Tech' },
-    { href: '/reports', label: 'Reports' },
-    { href: '/admin', label: 'Admin' },
-  ];
-
   return (
-    <header className="sticky top-0 z-40 border-b bg-white/80 backdrop-blur">
-      <div className="mx-auto max-w-6xl px-4 md:px-6 py-3 flex items-center gap-4">
-        <div className="font-semibold">Revlet Fleet</div>
+    <header className="border-b bg-white">
+      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 gap-3">
+        {/* Brand */}
+        <Link href="/" className="text-lg font-semibold tracking-tight">
+          Revlet Fleet
+        </Link>
 
-        <nav className="flex flex-wrap items-center gap-3 text-sm">
-          {links.map((l) => (
-            <Link
-              key={l.href}
-              href={l.href}
-              className="rounded px-2 py-1 hover:bg-slate-100"
-            >
-              {l.label}
-            </Link>
-          ))}
+        {/* Main nav – adjust links as needed */}
+        <nav className="flex items-center gap-4 text-sm text-gray-700">
+          <Link href="/office" className="hover:text-black">
+            Office
+          </Link>
+          <Link href="/dispatch" className="hover:text-black">
+            Dispatch
+          </Link>
+          <Link href="/tech" className="hover:text-black">
+            Tech
+          </Link>
+          <Link href="/reports/completed" className="hover:text-black">
+            Reports
+          </Link>
         </nav>
 
-        <div className="ml-auto flex items-center gap-3 text-sm">
-          {me ? (
+        {/* User section */}
+        <div className="flex items-center gap-3 text-xs text-gray-600">
+          {user ? (
             <>
-              <span className="opacity-70">{me.email}</span>
-              <span className="rounded-full border px-2 py-0.5">
-                {me.role ?? 'none'}
+              <span className="max-w-[180px] truncate" title={user.email || ""}>
+                {user.email}
               </span>
-              <form action={signOutAction}>
-                <button className="rounded px-2 py-1 border hover:bg-slate-100">
-                  Sign out
-                </button>
-              </form>
+              {/* You can wire a real sign-out action later */}
             </>
           ) : (
             <Link
-              href="/login"
-              className="rounded px-2 py-1 border hover:bg-slate-100"
+              href="/auth/login"
+              className="rounded border px-2 py-1 text-xs hover:bg-gray-50"
             >
               Sign in
             </Link>

@@ -1,37 +1,15 @@
-// lib/ai.ts
 import OpenAI from "openai";
-import { getSystemSetting } from "@/lib/systemSettings";
 
-/**
- * Unified AI Engine for:
- * - Portal Insights
- * - Technician Copilot
- * - Dispatch Analysis
- * - Report Summaries
- * - Predictive Maintenance
- */
-export async function aiGenerate(prompt: string) {
-  const apiKey = await getSystemSetting("openai_api_key");
-  const model = (await getSystemSetting("ai_model")) || "gpt-4.1-mini";
-  const temperature = Number(await getSystemSetting("ai_temperature") || 0.2);
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY!,
+});
 
-  if (!apiKey) {
-    return {
-      error: "AI_NOT_CONFIGURED",
-      output: "AI is not currently enabled for this account."
-    };
-  }
-
-  const client = new OpenAI({ apiKey });
-
-  const res = await client.chat.completions.create({
-    model,
-    temperature,
-    messages: [
-      { role: "system", content: "You are Revlet Fleet Assistant — an expert fleet AI." },
-      { role: "user", content: prompt }
-    ]
+export async function runAI(prompt: string) {
+  const completion = await client.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [{ role: "user", content: prompt }],
+    max_tokens: 400,
   });
 
-  return { output: res.choices[0]?.message?.content || "" };
+  return completion.choices[0].message.content || "";
 }

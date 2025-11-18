@@ -3,27 +3,49 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
-// DELETE /api/requests/:id/notes/:noteId
-export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string; noteId: string }> }) {
-  try {
-    const { id, noteId } = await ctx.params;
-    const supabase = await supabaseServer();
+type Params = { id: string; noteId: string };
+type RouteContext = { params: Promise<Params> };
 
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth?.user?.id) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+export async function DELETE(_req: Request, context: RouteContext) {
+  const { id, noteId } = await context.params;
 
-    // Only delete the note that belongs to this request
-    const { error } = await supabase
-      .from("service_request_notes")
-      .delete()
-      .eq("id", noteId)
-      .eq("request_id", id);
+  const supabase = await supabaseServer();
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "failed" }, { status: 500 });
+  // Ensure the note belongs to the correct request
+  const { data: note, error: fetchErr } = await supabase
+    .from("request_notes")
+    .select("*")
+    .eq("id", noteId)
+    .eq("request_id", id)
+    .maybeSingle();
+
+  if (fetchErr) {
+    return NextResponse.json(
+      { error: fetchErr.message },
+      { status: 400 }
+    );
   }
+
+  if (!note) {
+    return NextResponse.json(
+      { error: "Note not found for this request" },
+      { status: 404 }
+    );
+  }
+
+  // Delete the note
+  const { error: deleteErr } = await supabase
+    .from("request_notes")
+    .delete()
+    .eq("id", noteId);
+
+  if (deleteErr) {
+    return NextResponse.json(
+      { error: deleteErr.message },
+      { status: 400 }
+    );
+  }
+
+  return NextResponse.json({ message: "Note deleted" }, { status: 200 });
 }

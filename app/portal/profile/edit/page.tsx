@@ -1,136 +1,113 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
 
-async function postJSON<T>(url: string, body: any) {
-  const res = await fetch(url, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(text || "Request failed");
-  }
-  return res.json() as Promise<T>;
-}
-
-export default function EditCustomerProfilePage() {
-  const router = useRouter();
-
-  const [name, setName] = useState("");
-  const [billingContact, setBillingContact] = useState("");
-  const [billingEmail, setBillingEmail] = useState("");
-  const [billingPhone, setBillingPhone] = useState("");
-  const [secondaryContact, setSecondaryContact] = useState("");
-  const [notes, setNotes] = useState("");
-
+export default function EditProfilePage() {
+  const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [loaded, setLoaded] = useState(false);
 
-  // Load existing data
-  useState(() => {
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [secondaryContact, setSecondaryContact] = useState("");
+
+  async function fetchJSON<T>(url: string): Promise<T> {
+    const res = await fetch(url, { credentials: "include" });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  }
+
+  async function patchJSON<T>(url: string, body: any): Promise<T> {
+    const res = await fetch(url, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  }
+
+  useEffect(() => {
+    let live = true;
     (async () => {
       try {
-        const res = await fetch("/api/portal/profile", {
-          credentials: "include",
-          cache: "no-store",
-        });
-        const js = await res.json();
-        setName(js.name || "");
-        setBillingContact(js.billing_contact || "");
-        setBillingEmail(js.billing_email || "");
-        setBillingPhone(js.billing_phone || "");
-        setSecondaryContact(js.secondary_contact || "");
-        setNotes(js.notes || "");
+        const data = await fetchJSON<{
+          first_name?: string;
+          last_name?: string;
+          phone?: string;
+          secondary_contact?: string;
+        }>("/api/portal/profile");
+
+        if (!live) return;
+
+        setFirstName(data.first_name ?? "");
+        setLastName(data.last_name ?? "");
+        setPhone(data.phone ?? "");
+        setSecondaryContact(data.secondary_contact ?? "");
       } catch (e: any) {
-        setErr(e.message || "Failed to load");
+        setErr(e?.message || "Failed to load profile");
       } finally {
-        setLoaded(true);
+        if (live) setLoading(false);
       }
     })();
-  });
+    return () => {
+      live = false;
+    };
+  }, []);
 
-  async function save() {
-    setBusy(true);
+  async function saveProfile() {
     setErr("");
     try {
-      await postJSON("/api/portal/profile/update", {
-        name,
-        billing_contact: billingContact,
-        billing_email: billingEmail,
-        billing_phone: billingPhone,
-        secondary_contact: secondaryContact,
-        notes,
+      await patchJSON("/api/portal/profile", {
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
+        phone: phone.trim(),
+        secondary_contact: secondaryContact.trim(),
       });
-      router.push("/portal/profile");
+      alert("Saved!");
     } catch (e: any) {
-      setErr(e.message || "Save failed");
-    } finally {
-      setBusy(false);
+      setErr(e?.message || "Update failed");
     }
   }
 
-  if (!loaded) return <div className="p-6">Loading…</div>;
+  if (loading) return <div className="p-6">Loading…</div>;
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-10 space-y-8">
+    <div className="p-6 space-y-6 max-w-xl">
       <h1 className="text-2xl font-semibold">Edit Profile</h1>
 
-      {err && (
-        <div className="border border-red-300 bg-red-50 text-red-700 p-3 rounded text-sm">
+      {err ? (
+        <div className="border border-red-300 bg-red-50 p-2 rounded text-red-700">
           {err}
         </div>
-      )}
+      ) : null}
 
-      <div className="rounded-2xl border p-6 bg-white shadow-sm space-y-5">
-        {[
-          ["Company Name", name, setName],
-          ["Billing Contact", billingContact, setBillingContact],
-          ["Billing Email", billingEmail, setBillingEmail],
-          ["Billing Phone", billingPhone, setBillingPhone],
+      {/* FORM FIELDS */}
+      {(
+        [
+          ["First Name", firstName, setFirstName],
+          ["Last Name", lastName, setLastName],
+          ["Phone", phone, setPhone],
           ["Secondary Contact", secondaryContact, setSecondaryContact],
-        ].map(([label, val, setter]) => (
-          <label key={label} className="block text-sm space-y-1">
-            <span className="text-gray-600">{label}</span>
-            <input
-              className="border rounded-md px-3 py-2 w-full"
-              value={val as string}
-              onChange={(e) => (setter as any)(e.target.value)}
-              disabled={busy}
-            />
-          </label>
-        ))}
-
-        <label className="block text-sm space-y-1">
-          <span className="text-gray-600">Notes</span>
-          <textarea
-            className="border rounded-md px-3 py-2 w-full min-h-[120px]"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            disabled={busy}
+        ] as [string, string, React.Dispatch<React.SetStateAction<string>>][]
+      ).map(([label, val, setter]) => (
+        <label key={label} className="block text-sm space-y-1">
+          <span className="text-gray-600">{label}</span>
+          <input
+            className="border rounded-md px-3 py-2 w-full"
+            value={val}
+            onChange={(e) => setter(e.target.value)}
           />
         </label>
-      </div>
+      ))}
 
-      <div className="flex items-center justify-end gap-3">
+      <div>
         <button
-          className="px-4 py-2 border rounded"
-          onClick={() => router.push("/portal/profile")}
-          disabled={busy}
+          onClick={saveProfile}
+          className="px-4 py-2 bg-black text-white rounded hover:opacity-80"
         >
-          Cancel
-        </button>
-
-        <button
-          className="px-4 py-2 bg-black text-white rounded disabled:opacity-40"
-          onClick={save}
-          disabled={busy}
-        >
-          {busy ? "Saving…" : "Save Changes"}
+          Save
         </button>
       </div>
     </div>

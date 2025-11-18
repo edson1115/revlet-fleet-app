@@ -1,48 +1,31 @@
 // lib/auth/requireRole.ts
-import { NextResponse } from 'next/server';
-import { getSupabase } from '@/lib/supabase/server';
+
+import { NextResponse } from "next/server";
+import { supabaseServer } from "@/lib/supabase/server";
 
 export function json(body: any, status = 200) {
   return new NextResponse(JSON.stringify(body), {
     status,
-    headers: { 'content-type': 'application/json' },
+    headers: { "Content-Type": "application/json" },
   });
 }
 
-export function onError(e: any) {
-  console.error(e);
-  return json({ error: e?.message ?? 'Internal error' }, 500);
+export async function requireRole(req: Request, allowed: string[]) {
+  const supabase = await supabaseServer();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session) {
+    return json({ error: "Unauthorized" }, 401);
+  }
+
+  const role =
+    (session.user.app_metadata as any)?.role?.toUpperCase?.() || "VIEWER";
+
+  if (!allowed.includes(role)) {
+    return json({ error: "Forbidden" }, 403);
+  }
+
+  return null; // allowed
 }
-
-type Role = 'ADMIN' | 'OFFICE' | 'DISPATCH' | 'TECH' | 'CUSTOMER';
-
-export async function requireRole(roles: Role[]) {
-  const supabase = await getSupabase();
-  const { data: auth } = await supabase.auth.getUser();
-  const authId = auth?.user?.id ?? null;
-
-  if (!authId) {
-    throw new Error('unauthorized');
-  }
-
-  const { data: me, error } = await supabase
-    .from('users')
-    .select('auth_user_id, role, company_id')
-    .eq('auth_user_id', authId)
-    .maybeSingle();
-
-  if (error || !me) {
-    throw new Error('forbidden');
-  }
-  if (!roles.includes(me.role as Role)) {
-    throw new Error('forbidden');
-  }
-
-  return {
-    role: me.role as Role,
-    company_id: me.company_id as string,
-    auth_user_id: me.auth_user_id as string,
-  };
-}
-
-export { getSupabase }; // re-export for convenience

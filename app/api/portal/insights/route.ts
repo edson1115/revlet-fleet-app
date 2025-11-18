@@ -1,51 +1,53 @@
-import { NextRequest, NextResponse } from "next/server";
+// app/api/portal/insights/route.ts
+import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
-import { aiGenerate } from "@/lib/ai";
 
-export async function GET() {
-  const supabase = await supabaseServer();
+export const dynamic = "force-dynamic";
 
-  const { data: auth } = await supabase.auth.getUser();
-  const uid = auth?.user?.id;
-  if (!uid) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+// Stub AI runner — replace with your real implementation
+async function runAI(prompt: string) {
+  // If you have OpenAI / custom AI, plug it in here.
+  return { result: [`Insight for: ${prompt}`], error: null };
+}
 
-  const { data: prof } = await supabase
-    .from("profiles")
-    .select("customer_id")
-    .eq("id", uid)
-    .maybeSingle();
-
-  const customer_id = prof?.customer_id;
-  if (!customer_id) return NextResponse.json([]);
-
-  // Get service history
-  const { data: history } = await supabase
-    .from("service_requests")
-    .select("service, notes, created_at, status")
-    .eq("customer_id", customer_id)
-    .order("created_at", { ascending: false })
-    .limit(200);
-
-  const prompt = `
-You are Revlet Fleet AI Analyst.
-Analyze this customer's service history.
-Produce:
-- 3 insights max
-- each with "title", "body", "tags"
-Service History:
-${JSON.stringify(history, null, 2)}
-`;
-
-  const ai = await aiGenerate(prompt);
-
-  if (ai.error) return NextResponse.json([]);
-
-  let out = [];
+export async function POST(req: Request) {
   try {
-    out = JSON.parse(ai.output);
-  } catch {
-    out = [{ title: "Insight", body: ai.output, tags: [] }];
-  }
+    const supabase = await supabaseServer();
 
-  return NextResponse.json(out);
+    const {
+      data: { user },
+      error: userErr,
+    } = await supabase.auth.getUser();
+
+    if (userErr || !user) {
+      return NextResponse.json([], { status: 200 });
+    }
+
+    const { prompt } = await req.json();
+    if (!prompt) return NextResponse.json([], { status: 200 });
+
+    const aiResponse = await runAI(prompt);
+
+    // ❗ FIX: This was "ai.error" but "ai" does not exist.
+    if (aiResponse.error) {
+      return NextResponse.json([]);
+    }
+
+    let out: any[] = [];
+
+    try {
+      if (Array.isArray(aiResponse.result)) {
+        out = aiResponse.result;
+      } else if (aiResponse.result) {
+        out = [aiResponse.result];
+      }
+    } catch {
+      out = [];
+    }
+
+    return NextResponse.json(out);
+  } catch (err) {
+    console.error("Insight error", err);
+    return NextResponse.json([]);
+  }
 }

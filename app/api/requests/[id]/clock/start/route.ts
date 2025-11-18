@@ -1,24 +1,41 @@
+// app/api/requests/[id]/clock/start/route.ts
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 
-export async function PATCH(req, { params }) {
-  const id = params.id;
-  const supabase = supabaseServer();
+export const dynamic = "force-dynamic";
+
+type Params = { id: string };
+type RouteContext = { params: Promise<Params> };
+
+export async function PATCH(_req: Request, context: RouteContext) {
+  const { id } = await context.params;
+  const supabase = await supabaseServer();
+
+  const now = new Date().toISOString();
 
   const { data, error } = await supabase
-    .from("service_requests")
+    .from("requests")
     .update({
-      started_at: new Date().toISOString(),
+      clock_started_at: now,
       status: "IN_PROGRESS",
     })
     .eq("id", id)
-    .select("*")
+    .select()
     .single();
 
   if (error) {
-    console.error(error);
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json(
+      { error: error.message },
+      { status: 400 }
+    );
   }
 
-  return NextResponse.json(data);
+  return NextResponse.json(
+    {
+      message: "Clock started",
+      started_at: now,
+      request: data,
+    },
+    { status: 200 }
+  );
 }

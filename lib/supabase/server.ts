@@ -1,39 +1,35 @@
 // lib/supabase/server.ts
-import { createServerClient } from "@supabase/ssr";
+
 import { cookies } from "next/headers";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 
 export async function supabaseServer() {
-  // ✅ Next 15 requires cookies() to be awaited
+  // Next.js 15: cookies() returns a Promise
   const cookieStore = await cookies();
 
-  const supabase = createServerClient(
+  return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        async get(name: string) {
-          return (await cookieStore).get(name)?.value;
+        get(name: string) {
+          return cookieStore.get(name)?.value;
         },
-        async set(name: string, value: string, options: any) {
+        set(name: string, value: string, options: CookieOptions) {
           try {
-            (await cookieStore).set({ name, value, ...options });
-          } catch {
-            /* ignore write errors during RSC phase */
+            cookieStore.set({ name, value, ...options });
+          } catch (err) {
+            console.warn("Could not set cookie:", err);
           }
         },
-        async remove(name: string, options: any) {
+        remove(name: string, options: CookieOptions) {
           try {
-            (await cookieStore).set({
-              name,
-              value: "",
-              ...options,
-              maxAge: 0,
-            });
-          } catch {}
+            cookieStore.set({ name, value: "", ...options });
+          } catch (err) {
+            console.warn("Could not remove cookie:", err);
+          }
         },
       },
     }
   );
-
-  return supabase;
 }

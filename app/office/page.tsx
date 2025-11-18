@@ -34,11 +34,16 @@ type RequestRow = {
   } | null;
   location?: { id?: string; name?: string | null } | null;
   technician?: { id: string | null; name?: string | null } | null;
+
+  // allow `fromList.notes_list` usage when merging drawer data
+  notes_list?: Array<{ id: string; text: string; created_at?: string | null }> | null;
 };
 
 type RequestDetails = RequestRow & {
   notes_list?: Array<{ id: string; text: string; created_at?: string | null }> | null;
 };
+
+type NoteRow = { id: string; text: string; created_at?: string | null };
 
 async function fetchJSON<T>(url: string) {
   const res = await fetch(url, { credentials: "include", cache: "no-store" });
@@ -135,6 +140,12 @@ function renderVehicle(v?: RequestRow["vehicle"]) {
   return "—";
 }
 
+type FilterToggle = {
+  label: string;
+  value: boolean;
+  setValue: (next: boolean) => void;
+};
+
 export default function OfficeQueuePage() {
   // Location scope from header gear shift
   const { locationId: scopedLocationId } = useLocationScope();
@@ -159,9 +170,7 @@ export default function OfficeQueuePage() {
   const [dMileage, setDMileage] = useState<string>("");
 
   // notes in drawer (Office-only threaded notes)
-  const [notes, setNotes] = useState<
-    Array<{ id: string; text: string; created_at?: string | null }>
-  >([]);
+  const [notes, setNotes] = useState<NoteRow[]>([]);
   const [newNote, setNewNote] = useState("");
   const [noteBusy, setNoteBusy] = useState(false);
   const [noteErr, setNoteErr] = useState("");
@@ -176,6 +185,38 @@ export default function OfficeQueuePage() {
   const [showInProgress, setShowInProgress] = useState(true);
   const [showDispatched, setShowDispatched] = useState(true);
   const [showCompleted, setShowCompleted] = useState(true);
+
+  const filterToggles: FilterToggle[] = [
+    { label: "NEW", value: showNew, setValue: setShowNew },
+    {
+      label: "WAITING TO BE SCHEDULED",
+      value: showWaitingSched,
+      setValue: setShowWaitingSched,
+    },
+    {
+      label: "WAITING APPROVAL",
+      value: showWaitingApproval,
+      setValue: setShowWaitingApproval,
+    },
+    { label: "DECLINED", value: showDeclined, setValue: setShowDeclined },
+    {
+      label: "WAITING FOR PARTS",
+      value: showWaitingParts,
+      setValue: setShowWaitingParts,
+    },
+    { label: "SCHEDULED", value: showScheduled, setValue: setShowScheduled },
+    {
+      label: "IN PROGRESS",
+      value: showInProgress,
+      setValue: setShowInProgress,
+    },
+    {
+      label: "DISPATCHED",
+      value: showDispatched,
+      setValue: setShowDispatched,
+    },
+    { label: "COMPLETED", value: showCompleted, setValue: setShowCompleted },
+  ];
 
   // Office cannot set SCHEDULED or DISPATCHED from here
   const statusOptions = useMemo(
@@ -230,6 +271,7 @@ export default function OfficeQueuePage() {
       const matchDispatched = showDispatched && s === "DISPATCHED";
       const matchCompleted = showCompleted && s === "COMPLETED";
 
+      // if user toggled everything off, show all so the table is not blank/confusing
       if (
         !showNew &&
         !showWaitingSched &&
@@ -324,7 +366,7 @@ export default function OfficeQueuePage() {
           : ""
       );
 
-      const notesList =
+      const notesList: NoteRow[] =
         merged.notes_list?.map((n) => ({
           id: n.id,
           text: n.text,
@@ -354,7 +396,7 @@ export default function OfficeQueuePage() {
     setDrawerBusy(true);
     setDrawerErr("");
     try {
-      const forbidden = new Set(["SCHEDULED", "DISPATCHED"]);
+      const forbidden = new Set<UiStatus | string>(["SCHEDULED", "DISPATCHED"]);
       const safeStatus =
         dStatus &&
         forbidden.has(String(dStatus).toUpperCase() as UiStatus)
@@ -368,6 +410,7 @@ export default function OfficeQueuePage() {
         po: dPo || null,
         mileage: dMileage ? Number(dMileage) : null,
       };
+      // Office cannot change scheduled_at or technician from here
       delete body.scheduled_at;
       delete (body as any).technician_id;
 
@@ -414,12 +457,10 @@ export default function OfficeQueuePage() {
     setNoteBusy(true);
     setNoteErr("");
     try {
-      let noteResp:
-        | { id: string; text: string; created_at?: string | null }
-        | null = null;
+      let noteResp: NoteRow | null = null;
 
       try {
-        noteResp = await postJSON(
+        noteResp = await postJSON<NoteRow>(
           `/api/requests/${encodeURIComponent(drawerId)}/notes`,
           { text }
         );
@@ -486,24 +527,14 @@ export default function OfficeQueuePage() {
 
       {/* FILTER BAR */}
       <div className="flex flex-wrap gap-3 mb-2 text-sm">
-        {[
-          ["NEW", showNew, setShowNew],
-          ["WAITING TO BE SCHEDULED", showWaitingSched, setShowWaitingSched],
-          ["WAITING APPROVAL", showWaitingApproval, setShowWaitingApproval],
-          ["DECLINED", showDeclined, setShowDeclined],
-          ["WAITING FOR PARTS", showWaitingParts, setShowWaitingParts],
-          ["SCHEDULED", showScheduled, setShowScheduled],
-          ["IN PROGRESS", showInProgress, setShowInProgress],
-          ["DISPATCHED", showDispatched, setShowDispatched],
-          ["COMPLETED", showCompleted, setShowCompleted],
-        ].map(([label, val, setter]) => (
-          <label key={label as string} className="flex items-center gap-2">
+        {filterToggles.map((f) => (
+          <label key={f.label} className="flex items-center gap-2">
             <input
               type="checkbox"
-              checked={val as boolean}
-              onChange={(e) => (setter as any)(e.target.checked)}
+              checked={f.value}
+              onChange={(e) => f.setValue(e.target.checked)}
             />
-            <span>{label}</span>
+            <span>{f.label}</span>
           </label>
         ))}
       </div>

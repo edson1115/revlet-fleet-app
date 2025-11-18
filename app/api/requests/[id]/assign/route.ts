@@ -1,47 +1,44 @@
 // app/api/requests/[id]/assign/route.ts
 import { NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabaseServer";
+import { supabaseServer } from "@/lib/supabase/server";
 
-export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type Params = { id: string };
+type RouteContext = { params: Promise<Params> };
 
-export async function PATCH(req: Request, ctx: { params: Promise<Params> }) {
-  try {
-    const { id } = await ctx.params;
-    const body = (await req.json()) as {
-      scheduled_at: string;        // ISO datetime (required)
-      request_techs?: string[];    // optional
-    };
+export async function PATCH(req: Request, context: RouteContext) {
+  const { id } = await context.params;
+  const supabase = await supabaseServer();
 
-    if (!id) {
-      return NextResponse.json({ error: "Missing id" }, { status: 400 });
-    }
-    if (!body?.scheduled_at) {
-      return NextResponse.json({ error: "scheduled_at is required" }, { status: 400 });
-    }
-
-    const updates: Record<string, any> = {
-      status: "SCHEDULED",
-      scheduled_at: body.scheduled_at,
-    };
-    if (Array.isArray(body.request_techs)) {
-      updates.request_techs = body.request_techs;
-    }
-
-    const supabase = await supabaseServer();
-    const { error } = await supabase
-      .from("service_requests")
-      .update(updates)
-      .eq("id", id);
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
-
-    return NextResponse.json({ ok: true, status: "SCHEDULED" });
-  } catch (e: any) {
-    return NextResponse.json({ error: String(e?.message ?? e) }, { status: 500 });
+  const body = await req.json().catch(() => null);
+  if (!body || !body.tech_id) {
+    return NextResponse.json(
+      { error: "tech_id is required" },
+      { status: 400 }
+    );
   }
+
+  const { tech_id } = body;
+
+  const { error } = await supabase
+    .from("requests")
+    .update({
+      assigned_tech: tech_id,
+      status: "SCHEDULED", // dispatcher owns scheduling
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+
+  if (error) {
+    return NextResponse.json(
+      { error: error.message },
+      { status: 400 }
+    );
+  }
+
+  return NextResponse.json(
+    { message: "Technician assigned successfully" },
+    { status: 200 }
+  );
 }

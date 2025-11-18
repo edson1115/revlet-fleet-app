@@ -1,29 +1,10 @@
-// app/office/layout.tsx
 "use client";
 
-import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Permissions, Role } from "@/lib/permissions";
+import type { ReactNode } from "react";
 
-type MePayload =
-  | {
-      ok: true;
-      id: string;
-      role: Role;
-      name: string | null;
-      email: string | null;
-      company_id: string | null;
-      customer_id: string | null;
-      permissions: Permissions;
-      scope: {
-        companyId: string | null;
-        customerId: string | null;
-        locationIds: string[];
-        technicianId: string | null;
-      };
-    }
-  | { error: string };
+import { normalizeRole, roleToPermissions, type Role } from "@/lib/permissions";
 
 export default function OfficeLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -31,53 +12,56 @@ export default function OfficeLayout({ children }: { children: ReactNode }) {
   const [allowed, setAllowed] = useState(false);
 
   useEffect(() => {
-    let alive = true;
-
-    (async () => {
+    async function load() {
       try {
-        const res = await fetch("/api/me", { credentials: "include" });
+        const res = await fetch("/api/me", {
+          credentials: "include",
+          cache: "no-store",
+        });
 
-        // Not signed in → go to login, preserve return path
-        if (res.status === 401) {
-          router.replace("/login?next=/office");
-          return;
-        }
-
-        const data = (await res.json()) as MePayload;
-
-        // If the route returns a non-ok payload, treat as not allowed
-        if (!("ok" in data) || !data.ok) {
-          router.replace("/");
-          return;
-        }
-
-        const canSee = !!data.permissions?.canSeeOffice;
-
-        if (!canSee) {
-          // Signed in but not authorized for Office
-          router.replace("/");
-          return;
-        }
-
-        if (alive) {
-          setAllowed(true);
+        if (!res.ok) {
+          setAllowed(false);
           setReady(true);
+          return;
+        }
+
+        const js = await res.json();
+        const roleRaw = js?.role ?? null;
+        const role = normalizeRole(roleRaw);
+
+        const perms = roleToPermissions(role);
+
+        // Office screen should only be visible to OFFICE, ADMIN, SUPERADMIN
+        if (perms.canOfficeQueue) {
+          setAllowed(true);
+        } else {
+          setAllowed(false);
         }
       } catch {
-        // Network/other error → play it safe and bounce
-        router.replace("/");
+        setAllowed(false);
       } finally {
-        if (alive) setReady(true);
+        setReady(true);
       }
-    })();
+    }
 
-    return () => {
-      alive = false;
-    };
-  }, [router]);
+    load();
+  }, []);
 
-  // Avoid UI flash while we decide
-  if (!ready || !allowed) return null;
+  if (!ready) {
+    return (
+      <div className="p-6 text-gray-600 text-sm">
+        Checking permissions…
+      </div>
+    );
+  }
 
-  return <div className="max-w-7xl mx-auto p-4">{children}</div>;
+  if (!allowed) {
+    return (
+      <div className="p-6 text-red-700 text-sm">
+        You do not have permission to access the Office screen.
+      </div>
+    );
+  }
+
+  return <div className="p-4">{children}</div>;
 }

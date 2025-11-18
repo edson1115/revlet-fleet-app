@@ -6,25 +6,35 @@ import type { ReactNode } from "react";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminUsersLayout({ children }: { children: ReactNode }) {
-  const jar = await cookies();
+export default async function AdminUsersLayout({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  // ✅ Your runtime exposes cookies() as async → await it
+  const cookieStore = await cookies();
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        // Next 15 adapter: use get/set/remove (NOT getAll/setAll)
-        get: (name: string) => jar.get(name)?.value,
-        set: (name: string, value: string, options?: Parameters<typeof jar.set>[0]) =>
-          jar.set({ name, value, ...options }),
-        remove: (name: string, options?: Parameters<typeof jar.set>[0]) =>
-          jar.set({ name, value: "", ...options, expires: new Date(0) }),
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          for (const cookie of cookiesToSet) {
+            cookieStore.set(cookie);
+          }
+        },
       },
     }
   );
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   if (!user) redirect("/?msg=signin");
 
   const superEmails = (process.env.SUPERADMIN_EMAILS || "")
@@ -32,7 +42,6 @@ export default async function AdminUsersLayout({ children }: { children: ReactNo
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
 
-  // read caller’s role
   const { data: profile } = await supabase
     .from("profiles")
     .select("role")
@@ -41,7 +50,8 @@ export default async function AdminUsersLayout({ children }: { children: ReactNo
 
   const role = String(profile?.role || "").toUpperCase();
   const isSuper =
-    superEmails.includes((user.email || "").toLowerCase()) || role === "SUPERADMIN";
+    superEmails.includes((user.email || "").toLowerCase()) ||
+    role === "SUPERADMIN";
 
   if (!isSuper) redirect("/?msg=forbidden");
 

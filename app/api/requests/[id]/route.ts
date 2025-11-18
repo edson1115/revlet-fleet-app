@@ -1,79 +1,58 @@
-import { NextRequest, NextResponse } from "next/server";
+// app/api/requests/[id]/route.ts
+import { NextResponse, NextRequest } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  const id = params.id;
-  const body = await req.json().catch(() => ({}));
+export const dynamic = "force-dynamic";
 
+type RouteParams = { id: string };
+type RouteContext = { params: Promise<RouteParams> };
+
+export async function GET(_req: NextRequest, context: RouteContext) {
+  const { id } = await context.params;
   const supabase = await supabaseServer();
 
-  // Start job → set IN_PROGRESS + started_at
-  if (body.op === "start") {
-    const { error } = await supabase
-      .from("service_requests")
-      .update({
-        status: "IN_PROGRESS",
-        started_at: new Date().toISOString(),
-      })
-      .eq("id", id);
+  const { data, error } = await supabase
+    .from("requests")
+    .select(
+      `
+        id,
+        status,
+        service,
+        mileage,
+        description,
+        po_number,
+        scheduled_at,
+        technician:technicians(id, full_name),
+        customer:customers(id, name),
+        vehicle:vehicles(id, unit_number, year, make, model, plate)
+      `
+    )
+    .eq("id", id)
+    .single();
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
-
-    return NextResponse.json({ ok: true });
+  if (error || !data) {
+    return NextResponse.json({ error: "Request not found" }, { status: 404 });
   }
 
-  // Complete job → set COMPLETED + completed_at + optional tech summary
-  if (body.op === "complete") {
-    const note = body.note || null;
+  return NextResponse.json(data);
+}
 
-    const updates: any = {
-      status: "COMPLETED",
-      completed_at: new Date().toISOString(),
-    };
+export async function PATCH(req: NextRequest, context: RouteContext) {
+  const { id } = await context.params;
+  const supabase = await supabaseServer();
 
-    if (note) {
-      updates.notes = note;
-    }
+  const body = await req.json();
 
-    const { error } = await supabase
-      .from("service_requests")
-      .update(updates)
-      .eq("id", id);
+  const { data, error } = await supabase
+    .from("requests")
+    .update(body)
+    .eq("id", id)
+    .select()
+    .single();
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
-
-    return NextResponse.json({ ok: true });
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
-  // Reschedule → clear times, clear tech, push back to dispatch
-  if (body.op === "reschedule") {
-    const reason = body.reason || "Unknown";
-
-    const { error } = await supabase
-      .from("service_requests")
-      .update({
-        status: "WAITING_TO_BE_SCHEDULED",
-        scheduled_at: null,
-        started_at: null,
-        completed_at: null,
-        technician_id: null,
-        dispatch_notes: `Tech send-back: ${reason}`,
-      })
-      .eq("id", id);
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
-
-    return NextResponse.json({ ok: true });
-  }
-
-  return NextResponse.json({ error: "Invalid op" }, { status: 400 });
+  return NextResponse.json(data);
 }

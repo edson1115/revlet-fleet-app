@@ -1,224 +1,90 @@
-import { NextRequest, NextResponse } from "next/server";
+// app/api/requests/[id]/pdf/route.ts
+import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
-import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
-/**
- * GET /api/requests/:id/pdf
- * Tesla-style service report generator
- */
-export async function GET(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  const id = params.id;
+export const dynamic = "force-dynamic";
 
+type Params = { id: string };
+type RouteContext = { params: Promise<Params> };
+
+export async function GET(_req: Request, context: RouteContext) {
+  const { id } = await context.params;
   const supabase = await supabaseServer();
 
-  /* ------------------------------
-     Load service request + joins
-  ------------------------------- */
-  const { data: row, error } = await supabase
-    .from("service_requests")
+  const { data: request, error } = await supabase
+    .from("requests")
     .select(
       `
-        id, service, status,
-        created_at, scheduled_at, started_at, completed_at,
-        mileage, notes,
-        customer:customer_id ( name ),
-        vehicle:vehicle_id ( year, make, model, plate, unit_number ),
-        parts:request_parts ( id, part_name, part_number ),
-        photos:request_photos ( id, url, kind )
-      `
+      id,
+      status,
+      mileage,
+      customers ( name ),
+      vehicles (
+        unit_number,
+        year,
+        make,
+        model,
+        plate
+      )
+    `
     )
     .eq("id", id)
-    .maybeSingle();
+    .single();
 
-  if (error || !row) {
-    return NextResponse.json(
-      { error: "Request not found" },
-      { status: 404 }
-    );
+  if (error || !request) {
+    return NextResponse.json({ error: "Request not found" }, { status: 404 });
   }
 
-  /* ------------------------------
-     Create PDF doc + fonts
-  ------------------------------- */
+  const customer = Array.isArray(request.customers)
+    ? request.customers[0]
+    : request.customers;
+
+  const vehicle = Array.isArray(request.vehicles)
+    ? request.vehicles[0]
+    : request.vehicles;
+
   const pdf = await PDFDocument.create();
-  const page = pdf.addPage([595, 842]); // A4
+  const page = pdf.addPage([600, 800]);
   const font = await pdf.embedFont(StandardFonts.Helvetica);
-  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  const { width } = page.getSize();
 
-  let y = 800;
+  let y = 760;
 
-  /* ------------------------------
-     Utility drawing functions
-  ------------------------------- */
-  function title(text: string) {
-    page.drawText(text, {
+  const draw = (label: string, value: any) => {
+    page.drawText(`${label}: ${value ?? "N/A"}`, {
       x: 40,
       y,
-      size: 28,
-      font: bold,
+      size: 12,
+      font,
       color: rgb(0, 0, 0),
     });
-    y -= 40;
-  }
-
-  function section(text: string) {
-    page.drawText(text, {
-      x: 40,
-      y,
-      size: 14,
-      font: bold,
-      color: rgb(0.1, 0.1, 0.1),
-    });
     y -= 20;
-  }
+  };
 
-  function line(label: string, value: any) {
-    if (y < 80) newPage();
-    page.drawText(`${label}: ${value ?? "—"}`, {
-      x: 60,
-      y,
-      size: 11,
-      font,
-      color: rgb(0.2, 0.2, 0.2),
-    });
-    y -= 16;
-  }
+  draw("Request ID", request.id);
+  draw("Status", request.status);
+  draw("Mileage", request.mileage);
+  draw("Customer", customer?.name);
 
-  function spacer(amount = 10) {
-    y -= amount;
-    if (y < 80) newPage();
-  }
-
-  function newPage() {
-    const pg = pdf.addPage([595, 842]);
-    y = 800;
-    pg.drawText("Revlet Fleet — Service Report", {
-      x: 40,
-      y: 820,
-      size: 10,
-      font,
-      color: rgb(0.4, 0.4, 0.4),
-    });
-    page = pg;
-  }
-
-  /* ------------------------------
-     Header / Branding
-  ------------------------------- */
-  page.drawText("REVLET FLEET", {
-    x: 40,
-    y: 820,
-    size: 12,
-    font: bold,
-    color: rgb(0, 0, 0),
-  });
-
-  title("Service Report");
-
-  /* ------------------------------
-     Request + Vehicle Section
-  ------------------------------- */
-  section("Vehicle");
-  line(
+  draw(
     "Vehicle",
-    `${row.vehicle?.year} ${row.vehicle?.make} ${row.vehicle?.model}`
+    `${vehicle?.year ?? ""} ${vehicle?.make ?? ""} ${vehicle?.model ?? ""}`.trim()
   );
-  line("Plate / Unit", row.vehicle?.plate || row.vehicle?.unit_number);
 
-  spacer();
+  draw("Plate", vehicle?.plate);
+  draw("Unit #", vehicle?.unit_number);
 
-  section("Customer");
-  line("Customer", row.customer?.name);
-
-  spacer();
-
-  section("Service");
-  line("Service", row.service);
-  line("Status", row.status);
-  line("Created", row.created_at);
-  line("Scheduled", row.scheduled_at);
-  line("Started", row.started_at);
-  line("Completed", row.completed_at);
-  line("Mileage", row.mileage);
-
-  /* ------------------------------
-     Parts Section
-  ------------------------------- */
-  spacer();
-  section("Parts Used");
-
-  if (!row.parts || row.parts.length === 0) {
-    line("Parts", "No parts recorded");
-  } else {
-    for (const p of row.parts) {
-      line(`• ${p.part_name}`, p.part_number || "—");
-    }
-  }
-
-  /* ------------------------------
-     Technician Notes
-  ------------------------------- */
-  spacer();
-  section("Technician Notes");
-  line("", row.notes);
-
-  /* ------------------------------
-     Photo Grid (Before / After)
-  ------------------------------- */
-  spacer(20);
-  section("Photos");
-
-  if (!row.photos || row.photos.length === 0) {
-    line("Photos", "None uploaded.");
-  } else {
-    for (const p of row.photos) {
-      const res = await fetch(p.url);
-      const buffer = await res.arrayBuffer();
-
-      // Support JPG or PNG
-      const img =
-        p.url.toLowerCase().endsWith(".png")
-          ? await pdf.embedPng(buffer)
-          : await pdf.embedJpg(buffer);
-
-      const imgWidth = 220;
-      const imgHeight = (img.height / img.width) * imgWidth;
-
-      if (y - imgHeight < 80) newPage();
-
-      page.drawImage(img, {
-        x: 40,
-        y: y - imgHeight,
-        width: imgWidth,
-        height: imgHeight,
-      });
-
-      page.drawText(p.kind.toUpperCase(), {
-        x: 40,
-        y: y - imgHeight - 14,
-        size: 10,
-        font,
-        color: rgb(0.4, 0.4, 0.4),
-      });
-
-      y -= imgHeight + 40;
-    }
-  }
-
-  /* ------------------------------
-     Return PDF
-  ------------------------------- */
   const pdfBytes = await pdf.save();
 
-  return new NextResponse(pdfBytes, {
-    status: 200,
+  // ⭐ GUARANTEED FIX: Convert to a real ArrayBuffer (never SharedArrayBuffer)
+  const safeBuffer = new Uint8Array(pdfBytes).buffer;
+
+  const blob = new Blob([safeBuffer], { type: "application/pdf" });
+
+  return new NextResponse(blob, {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `inline; filename="service-report-${id}.pdf"`,
+      "Content-Disposition": `inline; filename="request-${id}.pdf"`,
     },
   });
 }

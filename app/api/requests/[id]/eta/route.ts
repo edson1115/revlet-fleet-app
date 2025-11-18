@@ -1,52 +1,54 @@
-import { NextRequest, NextResponse } from "next/server";
+// app/api/requests/[id]/eta/route.ts
+
 import { supabaseServer } from "@/lib/supabase/server";
 
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  const id = params.id;
-  const body = await req.json().catch(() => ({}));
+// Extract request ID from: /api/requests/[id]/eta
+function extractRequestId(url: string) {
+  const parts = new URL(url).pathname.split("/");
+  return parts[parts.length - 2]; 
+}
 
+export async function PATCH(req: Request): Promise<Response> {
   const supabase = await supabaseServer();
+  const requestId = extractRequestId(req.url);
 
-  // activate ETA
-  if (body.op === "set") {
-    const minutes = Number(body.minutes);
+  // Parse ETA update body
+  const body = await req.json().catch(() => ({}));
+  const { eta, reason } = body as {
+    eta?: string | null;
+    reason?: string | null;
+  };
 
-    const { error } = await supabase
-      .from("service_requests")
-      .update({
-        eta_start: new Date().toISOString(),
-        eta_minutes: minutes,
-        eta_live: true,
-      })
-      .eq("id", id);
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
-
-    return NextResponse.json({ ok: true });
+  if (!eta) {
+    return new Response(
+      JSON.stringify({ error: "Missing ETA value" }),
+      { status: 400 }
+    );
   }
 
-  // clear ETA
-  if (body.op === "clear") {
-    const { error } = await supabase
-      .from("service_requests")
-      .update({
-        eta_start: null,
-        eta_minutes: null,
-        eta_live: false,
-      })
-      .eq("id", id);
+  // Update request ETA
+  const { error } = await supabase
+    .from("requests")
+    .update({
+      eta,
+      eta_reason: reason ?? null,
+    })
+    .eq("id", requestId);
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
-
-    return NextResponse.json({ ok: true });
+  if (error) {
+    return new Response(
+      JSON.stringify({ error: error.message }),
+      { status: 400 }
+    );
   }
 
-  return NextResponse.json({ error: "Invalid operation" }, { status: 400 });
+  return new Response(
+    JSON.stringify({
+      success: true,
+      id: requestId,
+      eta,
+      reason: reason ?? null,
+    }),
+    { status: 200 }
+  );
 }

@@ -1,51 +1,53 @@
+// app/api/requests/[id]/photos/route.ts
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 
-export async function POST(req, { params }) {
-  const requestId = params.id;
-  const supabase = supabaseServer();
+export async function POST(req: Request, context: any) {
+  const requestId = context?.params?.id as string | undefined;
 
-  const form = await req.formData();
-  const file = form.get("file");
-  const kind = form.get("kind"); // before | after
-
-  if (!file) {
-    return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
+  if (!requestId) {
+    return NextResponse.json(
+      { error: "Missing request id" },
+      { status: 400 }
+    );
   }
 
-  const ext = file.name.split(".").pop();
-  const fileName = `${requestId}/${crypto.randomUUID()}.${ext}`;
+  const supabase = await supabaseServer();
 
-  // Upload to bucket
-  const { error: uploadError } = await supabase.storage
-    .from("work-photos")
-    .upload(fileName, file, {
-      cacheControl: "3600",
-      upsert: false,
-    });
+  // Expecting JSON body like:
+  // { url_thumb: string, url_work?: string, kind?: "BEFORE" | "AFTER" | "OTHER" }
+  const body = (await req.json().catch(() => ({}))) as {
+    url_thumb?: string;
+    url_work?: string;
+    kind?: string;
+  };
 
-  if (uploadError) {
-    console.error(uploadError);
-    return NextResponse.json({ error: "Upload failed" }, { status: 500 });
+  const { url_thumb, url_work, kind } = body;
+
+  if (!url_thumb && !url_work) {
+    return NextResponse.json(
+      { error: "Missing image URLs" },
+      { status: 400 }
+    );
   }
 
-  const {
-    data: { publicUrl },
-  } = supabase.storage.from("work-photos").getPublicUrl(fileName);
-
-  // Insert DB record
-  const { error: insertError } = await supabase
-    .from("request_photos")
+  const { data, error } = await supabase
+    .from("service_request_images")
     .insert({
       request_id: requestId,
-      kind,
-      url: publicUrl,
-    });
+      url_thumb: url_thumb ?? url_work ?? null,
+      url_work: url_work ?? null,
+      kind: kind ?? null,
+    })
+    .select("*")
+    .maybeSingle();
 
-  if (insertError) {
-    console.error(insertError);
-    return NextResponse.json({ error: "DB insert failed" }, { status: 500 });
+  if (error) {
+    return NextResponse.json(
+      { error: error.message },
+      { status: 400 }
+    );
   }
 
-  return NextResponse.json({ success: true, url: publicUrl });
+  return NextResponse.json({ ok: true, image: data });
 }

@@ -1,54 +1,51 @@
 // app/api/requests/[id]/po/route.ts
-import { NextResponse } from "next/server";
+
 import { supabaseServer } from "@/lib/supabase/server";
 
-export const dynamic = "force-dynamic";
+// Extract ID from URL: /api/requests/<id>/po
+function extractRequestId(url: string) {
+  const parts = new URL(url).pathname.split("/");
+  return parts[3]; // "requests" = 2, "<id>" = 3
+}
 
-/**
- * PATCH /api/requests/:id/po
- * Body: { po_number: string }
- * Office/Admin can set PO number.
- */
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+export async function PATCH(req: Request): Promise<Response> {
   const supabase = await supabaseServer();
-  const { id } = params;
-
-  const { data: auth } = await supabase.auth.getUser();
-  const uid = auth?.user?.id || null;
-  if (!uid) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
-
-  const { data: prof } = await supabase
-    .from("profiles")
-    .select("role, company_id")
-    .eq("id", uid)
-    .maybeSingle();
-
-  const role = String(prof?.role || "").toUpperCase();
-  if (!["OFFICE", "ADMIN", "DISPATCHER"].includes(role)) {
-    return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
-  }
+  const requestId = extractRequestId(req.url);
 
   const body = await req.json().catch(() => ({}));
-  const po_number = typeof body?.po_number === "string" ? body.po_number.trim() : "";
+  const { po_number, po_notes } = body as {
+    po_number?: string | null;
+    po_notes?: string | null;
+  };
 
-  // company check
-  const { data: reqRow } = await supabase
-    .from("service_requests")
-    .select("company_id")
-    .eq("id", id)
-    .maybeSingle();
-
-  if (reqRow?.company_id && prof?.company_id && reqRow.company_id !== prof.company_id && role !== "ADMIN") {
-    return NextResponse.json({ ok: false, error: "cross-company forbidden" }, { status: 403 });
+  if (!po_number) {
+    return new Response(
+      JSON.stringify({ error: "Missing po_number" }),
+      { status: 400 }
+    );
   }
 
-  const { data: updated, error } = await supabase
-    .from("service_requests")
-    .update({ po_number: po_number || null })
-    .eq("id", id)
-    .select("id, po_number, updated_at")
-    .maybeSingle();
+  const { error } = await supabase
+    .from("requests")
+    .update({
+      po_number,
+      po_notes: po_notes ?? null,
+    })
+    .eq("id", requestId);
 
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true, data: updated });
+  if (error) {
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 400,
+    });
+  }
+
+  return new Response(
+    JSON.stringify({
+      success: true,
+      requestId,
+      po_number,
+      po_notes: po_notes ?? null,
+    }),
+    { status: 200 }
+  );
 }

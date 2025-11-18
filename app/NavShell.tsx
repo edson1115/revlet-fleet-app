@@ -1,66 +1,85 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { usePathname } from 'next/navigation';
-import Link from 'next/link';
-import AuthButtons from './AuthButtons';
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { supabaseBrowser } from "@/lib/supabase/browser";
 
-type Role = 'CUSTOMER' | 'OFFICE' | 'DISPATCH' | 'TECH' | 'ADMIN' | 'FLEET_MANAGER';
+type Role =
+  | "SUPERADMIN"
+  | "ADMIN"
+  | "OFFICE"
+  | "DISPATCH"
+  | "TECH"
+  | "FLEET_MANAGER"
+  | "CUSTOMER"
+  | null;
 
 export default function NavShell({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
-  const [role, setRole] = useState<Role | null>(null);
-  const [authed, setAuthed] = useState<boolean | null>(null);
-
-  const hideNav =
-    pathname?.startsWith('/login') ||
-    pathname?.startsWith('/activate');
+  const [role, setRole] = useState<Role>(null);
 
   useEffect(() => {
     (async () => {
-      try {
-        const r = await fetch('/api/me', { cache: 'no-store' });
-        const j = await r.json();
-        setAuthed(!!j?.authenticated);
-        setRole(j?.role ?? null);
-      } catch {
-        setAuthed(false);
+      const supabase = supabaseBrowser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
         setRole(null);
+        return;
       }
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      setRole((profile?.role as Role) ?? null);
     })();
   }, []);
 
-  if (hideNav) return <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>;
+  // --- FIXED ROLE LOGIC ---
+      // -----------------------------------------------------
+  // ROLE NORMALIZATION + PERMISSIONS
+  // -----------------------------------------------------
 
-  const canOffice   = role === 'OFFICE' || role === 'DISPATCH' || role === 'ADMIN' || role === 'FLEET_MANAGER';
-  const canDispatch = role === 'DISPATCH' || role === 'ADMIN' || role === 'FLEET_MANAGER';
-  const canTech     = role === 'TECH'     || role === 'ADMIN';
-  const canReports  = role === 'OFFICE' || role === 'DISPATCH' || role === 'ADMIN' || role === 'FLEET_MANAGER';
-  const canFM       = role === 'CUSTOMER' || canOffice || canDispatch || role === 'ADMIN';
-  const isAdmin     = role === 'ADMIN';
+  const isAdmin = role === "ADMIN" || role === "SUPERADMIN"; // ⭐ ONLY ONE
+
+  const canOffice = role === "OFFICE" || isAdmin;
+  const canDispatch = role === "DISPATCH" || isAdmin;
+  const canTech = role === "TECH" || isAdmin;
+
+  const canReports =
+    role === "OFFICE" ||
+    role === "DISPATCH" ||
+    role === "FLEET_MANAGER" ||
+    isAdmin;
+
+  // ⭐ FIXED: use `isAdmin` instead of repeating "ADMIN"
+  const canFM =
+    role === "CUSTOMER" ||
+    canOffice ||
+    canDispatch ||
+    isAdmin;
+
 
   return (
-    <>
-      <header className="border-b bg-white">
-        <nav className="mx-auto max-w-6xl px-4">
-          <div className="flex items-center justify-between h-12">
-            <Link href="/" className="font-semibold">Revlet</Link>
-            {authed === null ? null : (
-              <div className="flex items-center gap-5 text-sm">
-                {canFM && <Link href="/fm/requests/new">New Request</Link>}
-                {canOffice && <Link href="/office/queue">Office</Link>}
-                {canDispatch && <Link href="/dispatch/scheduled">Dispatch</Link>}
-                {canTech && <Link href="/tech/queue">Tech</Link>}
-                {canReports && <Link href="/reports/completed">Reports</Link>}
-                {isAdmin && <Link href="/admin/access">Admin</Link>}
-                <AuthButtons />
-              </div>
-            )}
-          </div>
-        </nav>
-      </header>
+    <div className="min-h-screen flex flex-col">
+      {/* NAV */}
+      <nav className="border-b p-4 bg-white flex gap-4 text-sm">
+        <Link href="/">Home</Link>
 
-      <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
-    </>
+        {canOffice && <Link href="/office">Office Queue</Link>}
+        {canDispatch && <Link href="/dispatch">Dispatch</Link>}
+        {canTech && <Link href="/tech">Tech Queue</Link>}
+        {canFM && <Link href="/fm">Fleet Manager</Link>}
+        {canReports && <Link href="/reports">Reports</Link>}
+        {isAdmin && <Link href="/admin">Admin</Link>}
+      </nav>
+
+      {/* CONTENT */}
+      <main className="flex-1 bg-gray-50">{children}</main>
+    </div>
   );
 }

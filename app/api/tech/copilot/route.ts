@@ -1,28 +1,48 @@
-if (kind === "verify_part") {
-  const v = JSON.parse(message);
-  const { part_name, part_number, vehicle } = v;
+// app/api/tech/copilot/route.ts
+export const dynamic = "force-dynamic";
+export const runtime = "edge";
 
-  const prompt = `
-You are a fleet mechanic AI assistant.
-Verify if this part fits this vehicle. 
-Vehicle:
-- Year: ${vehicle?.year}
-- Make: ${vehicle?.make}
-- Model: ${vehicle?.model}
-- VIN: ${vehicle?.vin || "N/A"}
+import { NextResponse } from "next/server";
+import OpenAI from "openai";
 
-Part submitted:
-- Name: ${part_name}
-- Number: ${part_number}
+export async function POST(req: Request) {
+  // Prevent OpenAI from running during build
+  if (process.env.NEXT_PHASE === "phase-production-build") {
+    return NextResponse.json(
+      { message: "Build-time skip" },
+      { status: 200 }
+    );
+  }
 
-Respond with:
-1. FIT or NO FIT
-2. Short explanation
-3. If no fit, list the correct part numbers.
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return NextResponse.json(
+      { error: "Missing OPENAI_API_KEY" },
+      { status: 500 }
+    );
+  }
 
-Be accurate. If unsure, say so.
-`;
+  const openai = new OpenAI({ apiKey });
 
-  const answer = await runAI(prompt);
-  return NextResponse.json({ answer });
+  const { prompt } = await req.json();
+  if (!prompt) {
+    return NextResponse.json(
+      { error: "Missing prompt" },
+      { status: 400 }
+    );
+  }
+
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      { role: "user", content: prompt }
+    ]
+  });
+
+  return NextResponse.json(
+    {
+      output: completion.choices[0].message.content
+    },
+    { status: 200 }
+  );
 }
