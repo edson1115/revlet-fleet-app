@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabaseBrowser } from '@/lib/supabase/browser';
 
-export default function AuthCallback() {
+export const dynamic = "force-dynamic"; // ⬅ prevents prerendering
+
+function CallbackInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -18,7 +20,6 @@ export default function AuthCallback() {
       }
 
       const supabase = supabaseBrowser();
-
       const { error } = await supabase.auth.exchangeCodeForSession(code);
 
       if (error) {
@@ -27,15 +28,19 @@ export default function AuthCallback() {
         return;
       }
 
-      router.replace('/'); // Redirect to the app home (Supabase session is now set)
+      router.replace('/');
     }
 
     finishSignIn();
   }, [router, searchParams]);
 
+  return <p>Completing sign-in...</p>;
+}
+
+export default function AuthCallback() {
   return (
-    <div className="p-6 text-center">
-      <p>Completing sign-in...</p>
-    </div>
+    <Suspense fallback={<div className="p-6 text-center">Loading...</div>}>
+      <CallbackInner />
+    </Suspense>
   );
 }
