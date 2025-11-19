@@ -20,7 +20,8 @@ export default function LoginClient() {
       <p className="text-sm text-gray-600 mb-6">
         Enter your work email and we’ll email you a magic link.
       </p>
-      <SignInForm next="/" />
+
+      <SignInForm />
     </main>
   );
 }
