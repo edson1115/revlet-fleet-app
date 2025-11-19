@@ -48,7 +48,7 @@ export default async function Home({
           <p className="text-sm text-gray-600 mb-4">
             Enter your work email and we’ll email you a secure sign-in link.
           </p>
-          <SignInForm next="/" />
+          <SignInForm />
         </div>
       </div>
     </main>
