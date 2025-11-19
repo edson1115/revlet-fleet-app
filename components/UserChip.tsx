@@ -1,4 +1,3 @@
-// components/UserChip.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -19,36 +18,28 @@ export default function UserChip() {
 
   useEffect(() => {
     let cancel = false;
-
-    async function load() {
+    (async () => {
       try {
-        const res = await fetch("/api/auth/session", {
+        const res = await fetch("/api/me", {
           credentials: "include",
           cache: "no-store",
         });
-
-        const data = await res.json();
-
-        if (!cancel) {
-          setMe(data.profile || { error: "no-session" });
-        }
-      } catch (err) {
+        const j = (await res.json()) as Me;
+        if (!cancel) setMe(j);
+      } catch {
         if (!cancel) setMe({ error: "unavailable" });
       } finally {
         if (!cancel) setLoading(false);
       }
-    }
-
-    load();
+    })();
     return () => {
       cancel = true;
     };
   }, []);
 
-  if (loading)
-    return <span className="text-xs text-gray-500">Checking…</span>;
+  if (loading) return <span className="text-xs text-gray-500">Checking…</span>;
 
-  const role = (me?.role ?? "UNKNOWN").toUpperCase();
+  const role = (me?.role ?? "").toUpperCase();
   const signedIn = !!me?.id;
 
   return (
@@ -57,15 +48,20 @@ export default function UserChip() {
         <>
           <span className="text-sm">
             {me?.name || me?.email || "User"}{" "}
-            <span className="text-gray-500">({role})</span>
+            <span className="text-gray-500">({role || "UNKNOWN"})</span>
           </span>
 
-          {/* Sign out */}
           <form action="/api/auth/signout" method="post">
-            <button
-              className="text-sm px-2 py-1 border rounded"
-              type="submit"
-            >
+            <button className="text-sm px-2 py-1 border rounded" type="submit">
               Sign out
             </button>
           </form>
+        </>
+      ) : (
+        <a className="text-sm px-2 py-1 border rounded" href="/login">
+          Sign in
+        </a>
+      )}
+    </div> // ✅ PROPER CLOSING TAG
+  );
+}
