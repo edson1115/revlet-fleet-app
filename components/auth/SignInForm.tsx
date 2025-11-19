@@ -1,64 +1,72 @@
 "use client";
 
 import { useState } from "react";
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+import { supabaseBrowser } from "@/lib/supabase/browser";
 
-export default function SignInForm({ next = "/" }: { next?: string }) {
-  const supabase = createClientComponentClient();
+export default function SignInForm() {
   const [email, setEmail] = useState("");
-  const [sending, setSending] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">(
+    "idle"
+  );
 
-  async function sendLink(e: React.FormEvent) {
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setSending(true);
-    setMsg(null);
-    setErr(null);
-    try {
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: {
-          // Always land on our callback so cookies get written
-          emailRedirectTo:
-            typeof window !== "undefined"
-              ? `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`
-              : undefined,
-        },
-      });
-      if (error) throw error;
-      setMsg("Check your inbox for your secure sign-in link.");
-    } catch (e: any) {
-      setErr(e?.message ?? "Could not send magic link");
-    } finally {
-      setSending(false);
+    setStatus("sending");
+
+    const supabase = supabaseBrowser();
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        // 100% REQUIRED OR MAGIC LINKS WILL LOOP
+        emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`,
+      },
+    });
+
+    if (error) {
+      console.error(error);
+      setStatus("error");
+      return;
     }
+
+    setStatus("sent");
   }
 
   return (
-    <form onSubmit={sendLink} className="space-y-3">
-      <label className="block text-sm">
-        <span className="mb-1 block">Email</span>
-        <input
-          type="email"
-          required
-          className="w-full border rounded px-3 py-2"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="you@company.com"
-        />
-      </label>
+    <form
+      onSubmit={onSubmit}
+      className="space-y-4 max-w-sm mx-auto mt-12 p-6 border rounded"
+    >
+      <h1 className="text-xl font-semibold text-center">Sign in</h1>
+
+      <input
+        type="email"
+        required
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        placeholder="you@example.com"
+        className="w-full border px-3 py-2 rounded"
+      />
 
       <button
         type="submit"
-        disabled={sending || !email}
-        className="w-full rounded border px-4 py-2 font-medium"
+        disabled={status === "sending"}
+        className="w-full bg-black text-white py-2 rounded hover:bg-gray-800 disabled:opacity-50"
       >
-        {sending ? "Sending…" : "Email me a magic link"}
+        {status === "sending" ? "Sending..." : "Send Magic Link"}
       </button>
 
-      {msg && <p className="mt-2 text-green-600 text-sm">{msg}</p>}
-      {err && <p className="mt-2 text-red-600 text-sm">{err}</p>}
+      {status === "sent" && (
+        <p className="text-green-600 text-center">
+          Magic link sent! Check your email.
+        </p>
+      )}
+
+      {status === "error" && (
+        <p className="text-red-600 text-center">
+          There was a problem sending your link.
+        </p>
+      )}
     </form>
   );
 }
