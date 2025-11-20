@@ -1,838 +1,279 @@
-// app/office/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { InviteUserButton } from "@/components/InviteUserButton";
-import { UI_STATUSES, type UiStatus } from "@/lib/status";
-import ReadonlyScheduled from "@/components/office/ReadonlyScheduled";
-import { useLocationScope } from "@/lib/useLocationScope";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 
-type RequestRow = {
-  id: string;
-  status: UiStatus | string;
+import { TeslaServiceCard } from "@/components/tesla/TeslaServiceCard";
+import { TeslaSection } from "@/components/tesla/TeslaSection";
+import { TeslaKV } from "@/components/tesla/TeslaKV";
+import { TeslaStatusChip } from "@/components/tesla/TeslaStatusChip";
+
+
+// Optional Timeline loader
+let TimelineComp: any = null;
+try {
+  TimelineComp =
+    require("@/components/tesla/TeslaRequestTimeline").TeslaRequestTimeline;
+} catch {}
+
+// Types
+type UUID = string;
+
+type Row = {
+  id: UUID;
+  status: string;
   service?: string | null;
-  priority?: string | null;
-  fmc?: string | null;
-  mileage?: number | null;
-  po?: string | null;
-  notes?: string | null; // used as "Notes from Tech" when completed via Tech flow
-  dispatch_notes?: string | null; // dispatcher / send-back notes
-  notes_from_tech?: string | null;
-  tech_notes?: string | null;
-  created_at?: string | null;
-  scheduled_at?: string | null;
-  started_at?: string | null;
-  completed_at?: string | null;
-  customer?: { id: string; name?: string | null } | null;
+  customer?: { name?: string | null } | null;
+  location?: { name?: string | null } | null;
   vehicle?: {
-    id?: string;
-    unit_number?: string | null;
     year?: number | null;
     make?: string | null;
     model?: string | null;
-    plate?: string | null;
+    unit_number?: string | null;
   } | null;
-  location?: { id?: string; name?: string | null } | null;
-  technician?: { id: string | null; name?: string | null } | null;
-
-  // allow `fromList.notes_list` usage when merging drawer data
-  notes_list?: Array<{ id: string; text: string; created_at?: string | null }> | null;
+  created_at?: string | null;
+  scheduled_at?: string | null;
 };
 
-type RequestDetails = RequestRow & {
-  notes_list?: Array<{ id: string; text: string; created_at?: string | null }> | null;
-};
+// Drawer Detail Type
+type RequestDetail = {
+  id: UUID;
+  status: string;
+  service?: string | null;
+  fmc?: string | null;
+  po?: string | null;
+  mileage?: number | null;
 
-type NoteRow = { id: string; text: string; created_at?: string | null };
+  customer?: { name?: string | null } | null;
+  location?: { name?: string | null } | null;
+  vehicle?: Row["vehicle"];
+  technician?: { full_name?: string | null; id?: string } | null;
 
-async function fetchJSON<T>(url: string) {
-  const res = await fetch(url, { credentials: "include", cache: "no-store" });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status} ${res.statusText}${text ? ` – ${text}` : ""}`);
-  }
-  return res.json() as Promise<T>;
-}
-async function patchJSON<T>(url: string, body: any) {
-  const res = await fetch(url, {
-    method: "PATCH",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status} ${res.statusText}${text ? ` – ${text}` : ""}`);
-  }
-  return res.json() as Promise<T>;
-}
-async function postJSON<T>(url: string, body: any) {
-  const res = await fetch(url, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status} ${res.statusText}${text ? ` – ${text}` : ""}`);
-  }
-  return res.json() as Promise<T>;
-}
-async function delJSON<T>(url: string) {
-  const res = await fetch(url, { method: "DELETE", credentials: "include" });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status} ${res.statusText}${text ? ` – ${text}` : ""}`);
-  }
-  return res.json() as Promise<T>;
-}
+  notes?: string | null;
+  dispatch_notes?: string | null;
+  notes_from_tech?: string | null;
+  tech_notes?: string | null;
+  notes_list?: Array<{ id: string; text: string; created_at: string | null }> | null;
 
-function fmtDate(s?: string | null) {
-  if (!s) return "—";
-  try {
-    return new Date(s).toLocaleString();
-  } catch {
-    return s as string;
-  }
-}
+  created_at?: string | null;
+  scheduled_at?: string | null;
 
-function classifyNote(text: string) {
-  const raw = (text || "").trim();
-  const lower = raw.toLowerCase();
-
-  if (lower.startsWith("tech:")) {
-    return {
-      kind: "tech",
-      label: "Notes from Tech",
-      content: raw.slice("tech:".length).trim() || raw,
-    } as const;
-  }
-  if (lower.startsWith("sent back by tech:")) {
-    return {
-      kind: "tech-return",
-      label: "Sent back by Tech",
-      content: raw.slice("sent back by tech:".length).trim() || raw,
-    } as const;
-  }
-  if (lower.startsWith("dispatch reschedule:")) {
-    return {
-      kind: "dispatch",
-      label: "Dispatch",
-      content: raw.slice("dispatch reschedule:".length).trim() || raw,
-    } as const;
-  }
-  return { kind: "other", label: null, content: raw } as const;
-}
-
-function renderVehicle(v?: RequestRow["vehicle"]) {
-  if (!v) return "—";
-  const parts: string[] = [];
-  if (v.year) parts.push(String(v.year));
-  if (v.make) parts.push(v.make);
-  if (v.model) parts.push(v.model);
-  const main = parts.join(" ").trim();
-  if (main && v.unit_number) return `${main} (${v.unit_number})`;
-  if (main) return main;
-  if (v.unit_number) return v.unit_number;
-  if (v.plate) return v.plate;
-  if (v.id) return v.id;
-  return "—";
-}
-
-type FilterToggle = {
-  label: string;
-  value: boolean;
-  setValue: (next: boolean) => void;
+  // REQUIRED FOR TIMELINE
+  preferred_window_start?: string | null;
+  preferred_window_end?: string | null;
 };
 
 export default function OfficeQueuePage() {
-  // Location scope from header gear shift
-  const { locationId: scopedLocationId } = useLocationScope();
-
-  // table
-  const [rows, setRows] = useState<RequestRow[]>([]);
+  const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
 
-  // drawer
-  const [showDrawer, setShowDrawer] = useState(false);
-  const [drawerId, setDrawerId] = useState<string | null>(null);
-  const [drawerRow, setDrawerRow] = useState<RequestDetails | null>(null);
-  const [drawerErr, setDrawerErr] = useState("");
-  const [drawerBusy, setDrawerBusy] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerId, setDrawerId] = useState<UUID | null>(null);
+  const [drawerData, setDrawerData] = useState<RequestDetail | null>(null);
+  const [drawerLoading, setDrawerLoading] = useState(false);
 
-  // drawer editable fields (NO scheduled_at here)
-  const [dStatus, setDStatus] = useState<UiStatus>("NEW");
-  const [dService, setDService] = useState<string>("");
-  const [dFmc, setDFmc] = useState<string>("");
-  const [dPo, setDPo] = useState<string>("");
-  const [dMileage, setDMileage] = useState<string>("");
+  // Load List
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/requests?scope=office", { credentials: "include" });
+      const js = await res.json();
+      if (res.ok) setRows(js.rows || []);
+    } catch (e) {
+      console.error(e);
+    }
+    setLoading(false);
+  };
 
-  // notes in drawer (Office-only threaded notes)
-  const [notes, setNotes] = useState<NoteRow[]>([]);
-  const [newNote, setNewNote] = useState("");
-  const [noteBusy, setNoteBusy] = useState(false);
-  const [noteErr, setNoteErr] = useState("");
-
-  // FILTER TOGGLES
-  const [showNew, setShowNew] = useState(true);
-  const [showWaitingSched, setShowWaitingSched] = useState(true);
-  const [showWaitingApproval, setShowWaitingApproval] = useState(true);
-  const [showDeclined, setShowDeclined] = useState(true);
-  const [showWaitingParts, setShowWaitingParts] = useState(true);
-  const [showScheduled, setShowScheduled] = useState(true);
-  const [showInProgress, setShowInProgress] = useState(true);
-  const [showDispatched, setShowDispatched] = useState(true);
-  const [showCompleted, setShowCompleted] = useState(true);
-
-  const filterToggles: FilterToggle[] = [
-    { label: "NEW", value: showNew, setValue: setShowNew },
-    {
-      label: "WAITING TO BE SCHEDULED",
-      value: showWaitingSched,
-      setValue: setShowWaitingSched,
-    },
-    {
-      label: "WAITING APPROVAL",
-      value: showWaitingApproval,
-      setValue: setShowWaitingApproval,
-    },
-    { label: "DECLINED", value: showDeclined, setValue: setShowDeclined },
-    {
-      label: "WAITING FOR PARTS",
-      value: showWaitingParts,
-      setValue: setShowWaitingParts,
-    },
-    { label: "SCHEDULED", value: showScheduled, setValue: setShowScheduled },
-    {
-      label: "IN PROGRESS",
-      value: showInProgress,
-      setValue: setShowInProgress,
-    },
-    {
-      label: "DISPATCHED",
-      value: showDispatched,
-      setValue: setShowDispatched,
-    },
-    { label: "COMPLETED", value: showCompleted, setValue: setShowCompleted },
-  ];
-
-  // Office cannot set SCHEDULED or DISPATCHED from here
-  const statusOptions = useMemo(
-    () => UI_STATUSES.filter((s) => s !== "SCHEDULED" && s !== "DISPATCHED"),
-    []
-  );
-
-  // Build query fragment when scoped by location
-  const queryFragment = useMemo(() => {
-    return scopedLocationId ? `&location_id=${encodeURIComponent(scopedLocationId)}` : "";
-  }, [scopedLocationId]);
-
-  // load table (scoped by location if chosen)
   useEffect(() => {
-    let live = true;
-    (async () => {
-      setLoading(true);
-      setErr(null);
-      const base =
-        "/api/requests?status=NEW,SCHEDULED,WAITING_TO_BE_SCHEDULED,IN_PROGRESS" +
-        "&limit=200&sortBy=created_at&sortDir=desc";
-      const url = `${base}${queryFragment}`;
+    load();
+  }, []);
 
-      try {
-        const data = await fetchJSON<{ rows: RequestRow[] }>(url);
-        if (!live) return;
-        setRows(data.rows || []);
-      } catch (e: any) {
-        if (!live) return;
-        setErr(e?.message || "Failed to load queue");
-      } finally {
-        if (live) setLoading(false);
-      }
-    })();
-    return () => {
-      live = false;
-    };
-  }, [queryFragment]);
-
-  // client-side filter (using UI labels)
-  const filteredRows = useMemo(() => {
-    return rows.filter((r) => {
-      const s = String(r.status || "").toUpperCase().replace(/_/g, " ");
-
-      const matchNew = showNew && s === "NEW";
-      const matchWaitingSched = showWaitingSched && s === "WAITING TO BE SCHEDULED";
-      const matchWaitingApproval = showWaitingApproval && s === "WAITING APPROVAL";
-      const matchDeclined = showDeclined && s === "DECLINED";
-      const matchWaitingParts = showWaitingParts && s === "WAITING FOR PARTS";
-      const matchScheduled = showScheduled && s === "SCHEDULED";
-      const matchInProgress = showInProgress && s === "IN PROGRESS";
-      const matchDispatched = showDispatched && s === "DISPATCHED";
-      const matchCompleted = showCompleted && s === "COMPLETED";
-
-      // if user toggled everything off, show all so the table is not blank/confusing
-      if (
-        !showNew &&
-        !showWaitingSched &&
-        !showWaitingApproval &&
-        !showDeclined &&
-        !showWaitingParts &&
-        !showScheduled &&
-        !showInProgress &&
-        !showDispatched &&
-        !showCompleted
-      ) {
-        return true;
-      }
-
-      return (
-        matchNew ||
-        matchWaitingSched ||
-        matchWaitingApproval ||
-        matchDeclined ||
-        matchWaitingParts ||
-        matchScheduled ||
-        matchInProgress ||
-        matchDispatched ||
-        matchCompleted
-      );
-    });
-  }, [
-    rows,
-    showNew,
-    showWaitingSched,
-    showWaitingApproval,
-    showDeclined,
-    showWaitingParts,
-    showScheduled,
-    showInProgress,
-    showDispatched,
-    showCompleted,
-  ]);
-
-  // Drawer helpers
-  async function openDrawer(id: string) {
-    setShowDrawer(true);
+  const openDrawer = async (id: UUID) => {
+    setDrawerOpen(true);
+    setDrawerLoading(true);
     setDrawerId(id);
-    setDrawerErr("");
-    setDrawerBusy(true);
 
     try {
-      const detail = await fetchJSON<RequestDetails>(
-        `/api/requests/${encodeURIComponent(id)}`
-      );
-      const fromList = rows.find((r) => r.id === id) || ({} as RequestRow);
-
-      const merged: RequestDetails = {
-        id,
-        status: (detail.status ?? fromList.status ?? "NEW") as UiStatus,
-        service: detail.service ?? fromList.service ?? null,
-        fmc: (detail as any).fmc ?? (fromList as any).fmc ?? null,
-        po:
-          detail.po !== undefined && detail.po !== null
-            ? detail.po
-            : fromList.po ?? null,
-        mileage:
-          detail.mileage !== undefined && detail.mileage !== null
-            ? detail.mileage
-            : fromList.mileage ?? null,
-        priority: detail.priority ?? fromList.priority ?? null,
-        created_at: detail.created_at ?? fromList.created_at ?? null,
-        scheduled_at: detail.scheduled_at ?? fromList.scheduled_at ?? null,
-        customer: detail.customer || fromList.customer || null,
-        vehicle: detail.vehicle || fromList.vehicle || null,
-        location: detail.location || fromList.location || null,
-        technician: detail.technician || fromList.technician || null,
-        notes: detail.notes ?? fromList.notes ?? null,
-        dispatch_notes:
-          detail.dispatch_notes ?? fromList.dispatch_notes ?? null,
-        notes_list: detail.notes_list ?? fromList.notes_list ?? null,
-      };
-
-      setDrawerRow(merged);
-
-      setDStatus(merged.status as UiStatus);
-      setDService(merged.service || "");
-      setDFmc((merged as any).fmc || "");
-      setDPo(
-        merged.po !== undefined && merged.po !== null ? String(merged.po) : ""
-      );
-      setDMileage(
-        merged.mileage !== undefined &&
-          merged.mileage !== null &&
-          merged.mileage !== ("" as any)
-          ? String(merged.mileage)
-          : ""
-      );
-
-      const notesList: NoteRow[] =
-        merged.notes_list?.map((n) => ({
-          id: n.id,
-          text: n.text,
-          created_at: n.created_at ?? null,
-        })) ?? [];
-
-      setNotes(notesList);
-      setNewNote("");
-      setNoteErr("");
-    } catch (e: any) {
-      setDrawerErr(e.message || "Failed to load details");
-    } finally {
-      setDrawerBusy(false);
+      const res = await fetch(`/api/requests/${id}`, { credentials: "include" });
+      const js = await res.json();
+      if (res.ok) setDrawerData(js.request);
+    } catch (e) {
+      console.error(e);
     }
-  }
 
-  function closeDrawer() {
-    if (drawerBusy || noteBusy) return;
-    setShowDrawer(false);
+    setDrawerLoading(false);
+  };
+
+  const closeDrawer = () => {
+    setDrawerOpen(false);
     setDrawerId(null);
-    setDrawerRow(null);
-    setDrawerErr("");
-  }
+    setDrawerData(null);
+  };
 
-  async function saveDetails() {
-    if (!drawerId) return;
-    setDrawerBusy(true);
-    setDrawerErr("");
-    try {
-      const forbidden = new Set<UiStatus | string>(["SCHEDULED", "DISPATCHED"]);
-      const safeStatus =
-        dStatus &&
-        forbidden.has(String(dStatus).toUpperCase() as UiStatus)
-          ? undefined
-          : dStatus;
-
-      const body: any = {
-        status: safeStatus ?? null,
-        service: dService || null,
-        fmc: dFmc || null,
-        po: dPo || null,
-        mileage: dMileage ? Number(dMileage) : null,
-      };
-      // Office cannot change scheduled_at or technician from here
-      delete body.scheduled_at;
-      delete (body as any).technician_id;
-
-      const updated = await patchJSON<RequestDetails>(
-        `/api/requests/${encodeURIComponent(drawerId)}`,
-        body
-      );
-      setDrawerRow(updated);
-
-      setRows((prev) =>
-        prev.map((r) =>
-          r.id === drawerId
-            ? {
-                ...r,
-                status: updated.status,
-                service: updated.service,
-                fmc: updated.fmc,
-                po: updated.po,
-                mileage: updated.mileage,
-                scheduled_at: updated.scheduled_at,
-                vehicle: updated.vehicle ?? r.vehicle,
-                technician: updated.technician ?? r.technician,
-                notes:
-                  updated.notes !== undefined ? updated.notes : r.notes,
-                dispatch_notes:
-                  updated.dispatch_notes !== undefined
-                    ? updated.dispatch_notes
-                    : r.dispatch_notes,
-              }
-            : r
-        )
-      );
-    } catch (e: any) {
-      setDrawerErr(e.message || "Update failed");
-    } finally {
-      setDrawerBusy(false);
-    }
-  }
-
-  async function addNote() {
-    if (!drawerId) return;
-    const text = newNote.trim();
-    if (!text) return;
-    setNoteBusy(true);
-    setNoteErr("");
-    try {
-      let noteResp: NoteRow | null = null;
-
-      try {
-        noteResp = await postJSON<NoteRow>(
-          `/api/requests/${encodeURIComponent(drawerId)}/notes`,
-          { text }
-        );
-      } catch {
-        const d = await patchJSON<RequestDetails>(
-          `/api/requests/${encodeURIComponent(drawerId)}`,
-          {
-            add_note: text,
-          }
-        );
-        const latest = (d.notes_list || [])[0];
-        if (latest)
-          noteResp = {
-            id: latest.id,
-            text: latest.text,
-            created_at: latest.created_at ?? null,
-          };
-      }
-
-      if (noteResp) {
-        setNotes((prev) => [noteResp!, ...prev]);
-        setNewNote("");
-      }
-    } catch (e: any) {
-      setNoteErr(e.message || "Failed to add note");
-    } finally {
-      setNoteBusy(false);
-    }
-  }
-
-  async function removeNote(id: string) {
-    if (!drawerId) return;
-    setNoteBusy(true);
-    setNoteErr("");
-    try {
-      try {
-        await delJSON(
-          `/api/requests/${encodeURIComponent(
-            drawerId
-          )}/notes/${encodeURIComponent(id)}`
-        );
-      } catch {
-        await patchJSON<RequestDetails>(
-          `/api/requests/${encodeURIComponent(drawerId)}`,
-          {
-            remove_note_id: id,
-          }
-        );
-      }
-      setNotes((prev) => prev.filter((n) => n.id !== id));
-    } catch (e: any) {
-      setNoteErr(e.message || "Failed to remove note");
-    } finally {
-      setNoteBusy(false);
-    }
-  }
 
   return (
-    <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between mb-2">
-        <h1 className="text-2xl font-semibold">Office Queue</h1>
-        <InviteUserButton />
-      </div>
+    <div className="max-w-6xl mx-auto p-6 space-y-6">
 
-      {/* FILTER BAR */}
-      <div className="flex flex-wrap gap-3 mb-2 text-sm">
-        {filterToggles.map((f) => (
-          <label key={f.label} className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={f.value}
-              onChange={(e) => f.setValue(e.target.checked)}
-            />
-            <span>{f.label}</span>
-          </label>
-        ))}
-      </div>
-
-      {loading ? (
-        <div>Loading queue…</div>
-      ) : err ? (
-        <div className="text-red-600">Error: {err}</div>
-      ) : filteredRows.length === 0 ? (
-        <div>No service requests found.</div>
-      ) : (
-        <table className="w-full text-sm border-collapse">
-          <thead>
-            <tr className="border-b bg-gray-50">
-              <th className="text-left px-3 py-2">Customer</th>
-              <th className="text-left px-3 py-2">Vehicle</th>
-              <th className="text-left px-3 py-2">Service</th>
-              <th className="text-left px-3 py-2">Status</th>
-              <th className="text-left px-3 py-2">Priority</th>
-              <th className="text-left px-3 py-2">Scheduled</th>
-              <th className="text-left px-3 py-2">Created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredRows.map((r) => {
-              const dn = (r.dispatch_notes || "").toLowerCase();
-              const isTechSendBack = dn.startsWith("tech send-back:");
-              return (
-                <tr
-                  key={r.id}
-                  className="border-b hover:bg-gray-50 cursor-pointer"
-                  onClick={() => openDrawer(r.id)}
-                >
-                  <td className="px-3 py-2">{r.customer?.name || "—"}</td>
-                  <td className="px-3 py-2">{renderVehicle(r.vehicle)}</td>
-                  <td className="px-3 py-2">{r.service || "—"}</td>
-                  <td className="px-3 py-2">
-                    <div className="flex flex-col gap-1">
-                      <span>{r.status}</span>
-                      {isTechSendBack && (
-                        <span className="inline-flex items-center rounded-full bg-amber-50 text-amber-800 text-[10px] px-2 py-0.5 border border-amber-200">
-                          Tech send-back
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2">{r.priority || "—"}</td>
-                  <td className="px-3 py-2">{fmtDate(r.scheduled_at)}</td>
-                  <td className="px-3 py-2">{fmtDate(r.created_at)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
-
-      {/* Drawer */}
-      {showDrawer ? (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-end bg-black/40"
-          onClick={(e) => {
-            if (e.target === e.currentTarget && !drawerBusy && !noteBusy)
-              closeDrawer();
-          }}
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-[26px] font-semibold tracking-tight">Office Queue</h1>
+        <button
+          onClick={load}
+          className="text-sm px-3 py-1 rounded-lg border bg-[#F8F8F8] hover:bg-white"
         >
-          <div className="w-full max-w-2xl bg-white h-full overflow-y-auto shadow-xl p-6">
-            <div className="flex items-center justify-between mb-4">
+          Refresh
+        </button>
+      </div>
+
+      {/* TABLE */}
+      <div className="rounded-2xl bg-white shadow-sm overflow-hidden border border-gray-100">
+        <div className="grid grid-cols-6 px-4 py-3 text-xs font-semibold text-gray-500 bg-[#FAFAFA]">
+          <div>Status</div>
+          <div>Customer</div>
+          <div>Vehicle</div>
+          <div>Service</div>
+          <div>Created</div>
+          <div></div>
+        </div>
+
+        {loading ? (
+          <div className="p-6 text-center text-gray-500">Loading…</div>
+        ) : rows.length === 0 ? (
+          <div className="p-6 text-center text-gray-500">No requests found.</div>
+        ) : (
+          rows.map((r) => (
+            <div
+              key={r.id}
+              onClick={() => openDrawer(r.id)}
+              className="grid grid-cols-6 px-4 py-4 border-t text-sm hover:bg-[#F5F5F5] cursor-pointer"
+            >
+              <div className="flex items-center">{statusChip(r.status)}</div>
+              <div className="flex items-center text-gray-800">{r.customer?.name ?? "—"}</div>
+              <div className="flex items-center text-gray-700">
+                {r.vehicle
+                  ? `${r.vehicle.year ?? ""} ${r.vehicle.make ?? ""} ${r.vehicle.model ?? ""}`
+                  : "—"}
+              </div>
+              <div className="flex items-center text-gray-800">{r.service ?? "—"}</div>
+              <div className="flex items-center text-gray-600">
+                {r.created_at ? new Date(r.created_at).toLocaleDateString() : "—"}
+              </div>
+              <div className="flex items-center justify-end text-gray-400">→</div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* DRAWER */}
+      {drawerOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex justify-end"
+          onClick={(e) => e.target === e.currentTarget && closeDrawer()}
+        >
+          <div className="w-full max-w-xl h-full bg-[#F7F7F7] shadow-2xl rounded-l-2xl overflow-y-auto">
+
+            {/* Drawer Header */}
+            <div className="sticky top-0 bg-[#F7F7F7] border-b px-6 py-4 flex justify-between">
               <h2 className="text-lg font-semibold">Request Details</h2>
-              <button
-                onClick={() => !drawerBusy && !noteBusy && closeDrawer()}
-                className="px-3 py-1 border rounded"
-              >
-                ✕
-              </button>
+              <button className="px-3 py-1 rounded-full" onClick={closeDrawer}>✕</button>
             </div>
 
-            {drawerErr ? (
-              <div className="border border-red-300 bg-red-50 text-red-800 p-2 rounded mb-3">
-                {drawerErr}
-              </div>
-            ) : null}
+            {/* Drawer Body */}
+            <div className="p-6 space-y-6">
+              {drawerLoading || !drawerData ? (
+                <div className="text-gray-500 text-center py-10">Loading…</div>
+              ) : (
+                <>
+                  {/* SUMMARY */}
+                  <TeslaServiceCard title="Summary" badge={drawerData.status}>
+                    <TeslaSection label="Customer">
+                      <TeslaKV k="Name" v={drawerData.customer?.name ?? "—"} />
+                    </TeslaSection>
 
-            {!drawerRow ? (
-              <div>Loading…</div>
-            ) : (
-              <div className="space-y-6">
-                {/* Editable (no scheduling fields) */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <label className="block text-sm">
-                    <span className="block mb-1">Status</span>
-                    <select
-                      className="border rounded-md px-3 py-2 w-full"
-                      value={dStatus}
-                      onChange={(e) =>
-                        setDStatus(e.target.value as UiStatus)
-                      }
-                      disabled={drawerBusy}
-                    >
-                      {statusOptions.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="text-xs text-gray-500">
-                      Office cannot set <strong>SCHEDULED</strong> or{" "}
-                      <strong>DISPATCHED</strong>. Use Dispatch.
-                    </span>
-                  </label>
+                    <TeslaSection label="Location">
+                      <TeslaKV k="Shop" v={drawerData.location?.name ?? "—"} />
+                    </TeslaSection>
 
-                  <label className="block text-sm">
-                    <span className="block mb-1">Service</span>
-                    <input
-                      className="border rounded-md px-3 py-2 w-full"
-                      value={dService}
-                      onChange={(e) => setDService(e.target.value)}
-                      disabled={drawerBusy}
-                    />
-                  </label>
+                    <TeslaSection label="Vehicle">
+                      <TeslaKV
+                        k="Unit"
+                        v={
+                          drawerData.vehicle
+                            ? `${drawerData.vehicle.year ?? ""} ${drawerData.vehicle.make ?? ""} ${
+                                drawerData.vehicle.model ?? ""
+                              }`
+                            : "—"
+                        }
+                      />
+                    </TeslaSection>
 
-                  <label className="block text-sm">
-                    <span className="block mb-1">FMC</span>
-                    <input
-                      className="border rounded-md px-3 py-2 w-full"
-                      value={dFmc}
-                      onChange={(e) => setDFmc(e.target.value)}
-                      disabled={drawerBusy}
-                    />
-                  </label>
+                    <TeslaSection label="Service">
+                      <TeslaKV k="Requested" v={drawerData.service ?? "—"} />
+                    </TeslaSection>
 
-                  <label className="block text-sm">
-                    <span className="block mb-1">PO</span>
-                    <input
-                      className="border rounded-md px-3 py-2 w-full"
-                      value={dPo}
-                      onChange={(e) => setDPo(e.target.value)}
-                      disabled={drawerBusy}
-                    />
-                  </label>
+                    <TeslaSection label="Technician">
+                      <TeslaKV
+                        k="Assigned"
+                        v={drawerData.technician?.full_name ?? "—"}
+                      />
+                    </TeslaSection>
+                  </TeslaServiceCard>
 
-                  <label className="block text-sm">
-                    <span className="block mb-1">Mileage</span>
-                    <input
-                      type="number"
-                      className="border rounded-md px-3 py-2 w-full"
-                      value={dMileage}
-                      onChange={(e) => setDMileage(e.target.value)}
-                      disabled={drawerBusy}
-                    />
-                  </label>
+                  {/* TIMELINE */}
+                  <TeslaServiceCard title="Timeline">
+                    {TimelineComp ? (
+                      <TimelineComp
+                        scheduled={drawerData.scheduled_at}
+                        preferredStart={drawerData.preferred_window_start}
+                        preferredEnd={drawerData.preferred_window_end}
+                      />
+                    ) : (
+                      <TeslaSection label="Events">
+                        <div className="space-y-2 text-sm text-gray-700">
+                          <div>
+                            <span className="opacity-60">Created:</span>{" "}
+                            {drawerData.created_at
+                              ? new Date(drawerData.created_at).toLocaleString()
+                              : "—"}
+                          </div>
 
-                  {/* Read-only Scheduled */}
-                  <div className="mt-3">
-                    <ReadonlyScheduled
-                      value={drawerRow?.scheduled_at ?? null}
-                      className="mt-2"
-                    />
-                  </div>
-                </div>
+                          <div>
+                            <span className="opacity-60">Scheduled:</span>{" "}
+                            {drawerData.scheduled_at
+                              ? new Date(drawerData.scheduled_at).toLocaleString()
+                              : "—"}
+                          </div>
 
-                {/* Readonly context */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="text-sm">
-                    <div className="text-gray-500">Created</div>
-                    <div>{fmtDate(drawerRow.created_at)}</div>
-                  </div>
-                  <div className="text-sm">
-                    <div className="text-gray-500">Customer</div>
-                    <div>{drawerRow.customer?.name || "—"}</div>
-                  </div>
-                  <div className="text-sm">
-                    <div className="text-gray-500">Location</div>
-                    <div>{drawerRow.location?.name || "—"}</div>
-                  </div>
-                  <div className="text-sm">
-                    <div className="text-gray-500">Vehicle</div>
-                    <div>{renderVehicle(drawerRow.vehicle)}</div>
-                  </div>
-                  <div className="text-sm">
-                    <div className="text-gray-500">Technician</div>
-                    <div>
-                      {drawerRow.technician?.name ||
-                        drawerRow.technician?.id ||
-                        "—"}
-                    </div>
-                  </div>
-                </div>
+                          <div>
+                            <span className="opacity-60">Preferred Window:</span>{" "}
+                            {drawerData.preferred_window_start
+                              ? new Date(drawerData.preferred_window_start).toLocaleString()
+                              : "—"}{" "}
+                            →
+                            {drawerData.preferred_window_end
+                              ? new Date(drawerData.preferred_window_end).toLocaleString()
+                              : "—"}
+                          </div>
+                        </div>
+                      </TeslaSection>
+                    )}
+                  </TeslaServiceCard>
 
-                {/* Action buttons */}
-                <div className="flex items-center justify-end gap-3">
-                  <button
-                    className="px-4 py-2 border rounded"
-                    onClick={closeDrawer}
-                    disabled={drawerBusy || noteBusy}
-                  >
-                    Close
-                  </button>
-                  <button
-                    className="px-4 py-2 bg-black text-white rounded disabled:opacity-40"
-                    onClick={saveDetails}
-                    disabled={drawerBusy || noteBusy}
-                  >
-                    {drawerBusy ? "Saving…" : "Save"}
-                  </button>
-                </div>
-
-                {/* Dispatcher + Tech notes (read-only) */}
-                <div className="pt-3 space-y-3">
-                  {drawerRow.dispatch_notes && (
-                    <div className="text-sm">
-                      <div className="font-semibold">Dispatcher Notes</div>
-                      <div className="text-gray-800 whitespace-pre-wrap">
-                        {drawerRow.dispatch_notes}
+                  {/* NOTES */}
+                  <TeslaServiceCard title="Notes">
+                    <TeslaSection label="Office Notes">
+                      <div className="text-sm whitespace-pre-wrap">
+                        {drawerData.notes ?? "—"}
                       </div>
-                    </div>
-                  )}
-                  {(drawerRow.notes_from_tech ||
-                    drawerRow.tech_notes ||
-                    drawerRow.notes) && (
-                    <div className="text-sm">
-                      <div className="font-semibold">Notes from Tech</div>
-                      <div className="text-gray-800 whitespace-pre-wrap">
-                        {drawerRow.notes_from_tech ||
-                          drawerRow.tech_notes ||
-                          drawerRow.notes}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Office internal notes thread */}
-                <div className="pt-3">
-                  <div className="text-base font-semibold mb-2">
-                    Office Notes
-                  </div>
-
-                  {noteErr ? (
-                    <div className="border border-amber-300 bg-amber-50 text-amber-800 p-2 rounded mb-2 text-sm">
-                      {noteErr}
-                    </div>
-                  ) : null}
-
-                  <div className="flex items-start gap-2 mb-3">
-                    <textarea
-                      className="border rounded-md px-3 py-2 w-full min-h-[80px]"
-                      value={newNote}
-                      onChange={(e) => setNewNote(e.target.value)}
-                      placeholder="Add a note…"
-                      disabled={noteBusy}
-                    />
-                    <button
-                      className="px-3 py-2 border rounded bg-black text-white disabled:opacity-40"
-                      onClick={addNote}
-                      disabled={noteBusy || !newNote.trim()}
-                    >
-                      {noteBusy ? "Adding…" : "Add"}
-                    </button>
-                  </div>
-
-                  {notes.length === 0 ? (
-                    <div className="text-sm text-gray-500">No notes yet.</div>
-                  ) : (
-                    <ul className="space-y-2">
-                      {notes.map((n) => {
-                        const { label, content } = classifyNote(n.text || "");
-                        return (
-                          <li key={n.id} className="border rounded-md p-3">
-                            {label && (
-                              <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
-                                {label}
-                              </div>
-                            )}
-                            <div className="text-sm whitespace-pre-wrap">
-                              {content || n.text}
-                            </div>
-                            <div className="text-xs text-gray-500 mt-1">
-                              {fmtDate(n.created_at)}
-                            </div>
-                            <div className="mt-2">
-                              <button
-                                className="text-xs px-2 py-1 border rounded"
-                                onClick={() => removeNote(n.id)}
-                                disabled={noteBusy}
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </div>
-              </div>
-            )}
+                    </TeslaSection>
+                  </TeslaServiceCard>
+                </>
+              )}
+            </div>
           </div>
         </div>
-      ) : null}
+      )}
     </div>
   );
 }

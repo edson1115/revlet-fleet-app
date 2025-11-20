@@ -1,9 +1,11 @@
+// components/MainNav.tsx
 "use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import LocationSwitcher from "@/components/LocationSwitcher";
+import UserChip from "@/components/UserChip";
 
 type Me = {
   email?: string | null;
@@ -26,6 +28,7 @@ export default function MainNav() {
 
   useEffect(() => {
     let live = true;
+
     (async () => {
       try {
         const res = await fetch("/api/me", {
@@ -33,16 +36,16 @@ export default function MainNav() {
           cache: "no-store",
         });
         if (!res.ok) throw new Error("me_failed");
+
         const js = await res.json();
-        if (!live) return;
-        setMe({ email: js?.email ?? null, role: js?.role ?? null });
+        if (live) setMe({ email: js?.email ?? null, role: js?.role ?? null });
       } catch {
-        if (!live) return;
-        setMe(null);
+        if (live) setMe(null);
       } finally {
         if (live) setLoading(false);
       }
     })();
+
     return () => {
       live = false;
     };
@@ -51,60 +54,77 @@ export default function MainNav() {
   const role = normalizeRole(me?.role);
   const isInternal = ["SUPERADMIN", "ADMIN", "OFFICE", "DISPATCH"].includes(role);
   const isTech = role === "TECH";
-  const isCustomer = role.startsWith("CUSTOMER") || role === "CLIENT" || role === "FM";
+  const isCustomer =
+    role.startsWith("CUSTOMER") || role === "CLIENT" || role === "FM";
 
   function isActive(href: string) {
     if (!pathname) return false;
     if (href === "/") return pathname === "/";
-    if (href === "/reports") {
-      return pathname === "/reports" || pathname.startsWith("/reports/");
-    }
     return pathname === href || pathname.startsWith(href + "/");
   }
 
-  // INTERNAL NAVIGATION (Office / Dispatch / Admin)
   const internalLinks = [
     { href: "/fm/requests/new", label: "Create Request" },
-    { href: "/office", label: "Office Queue" },
+    { href: "/office", label: "Office" },
     { href: "/dispatch", label: "Dispatch" },
     { href: "/tech", label: "Tech" },
     { href: "/reports", label: "Reports" },
     { href: "/admin/users", label: "Users" },
   ];
 
-  // CUSTOMER PORTAL NAVIGATION
   const customerLinks = [
     { href: "/portal", label: "Dashboard" },
     { href: "/portal/requests", label: "Requests" },
     { href: "/portal/vehicles", label: "Vehicles" },
     { href: "/portal/profile", label: "Profile" },
-    { href: "/portal/profile", label: "Profile", show: isCustomer,
-      
-    },
-
   ];
 
   return (
-    <header className="w-full border-b bg-white">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 gap-4">
-
-        {/* LEFT SIDE: BRAND + NAV */}
-        <div className="flex items-center gap-6">
-          <Link href="/" className="text-sm font-semibold whitespace-nowrap">
+    <header
+      className="
+        sticky top-0 z-40
+        backdrop-blur-md
+        bg-[var(--surface-bg)]/80
+        shadow-sm
+        border-b border-transparent
+      "
+      style={{ WebkitBackdropFilter: "blur(12px)" }}
+    >
+      <div
+        className="
+          mx-auto max-w-7xl
+          flex items-center justify-between
+          px-4 py-3
+          text-[var(--revlet-black)]
+        "
+      >
+        {/* LEFT SIDE: logo + nav */}
+        <div className="flex items-center gap-8">
+          <Link
+            href="/"
+            className="
+              text-lg font-medium
+              tracking-tight
+              hover:opacity-80
+              transition-opacity
+            "
+            style={{ fontWeight: "500", fontSize: "18px" }}
+          >
             Revlet Fleet
           </Link>
 
-          <nav className="flex flex-wrap items-center gap-4 text-sm">
+          <nav className="hidden md:flex items-center gap-6 text-sm">
             {isInternal &&
               internalLinks.map((link) => (
                 <Link
                   key={link.href}
                   href={link.href}
                   className={classNames(
-                    "whitespace-nowrap",
+                    "transition-opacity",
+                    "hover:opacity-80",
                     isActive(link.href)
-                      ? "font-semibold text-black"
-                      : "text-gray-600 hover:text-black"
+                      ? "text-[var(--revlet-black)] font-medium"
+                      : "text-gray-500"
                   )}
                 >
                   {link.label}
@@ -117,10 +137,11 @@ export default function MainNav() {
                   key={link.href}
                   href={link.href}
                   className={classNames(
-                    "whitespace-nowrap",
+                    "transition-opacity",
+                    "hover:opacity-80",
                     isActive(link.href)
-                      ? "font-semibold text-black"
-                      : "text-gray-600 hover:text-black"
+                      ? "text-[var(--revlet-black)] font-medium"
+                      : "text-gray-500"
                   )}
                 >
                   {link.label}
@@ -129,23 +150,15 @@ export default function MainNav() {
           </nav>
         </div>
 
-        {/* RIGHT SIDE: Location + User + Logout */}
-        <div className="flex items-center gap-3 text-xs">
-
-          {(isInternal || isTech || isCustomer) && <LocationSwitcher />}
-
-          {!loading && me && (
-            <span className="hidden sm:inline text-gray-600">
-              {me.email} • {role}
-            </span>
+        {/* RIGHT SIDE: Location + User */}
+        <div className="flex items-center gap-4">
+          {(isInternal || isTech || isCustomer) && (
+            <div className="hidden sm:block">
+              <LocationSwitcher />
+            </div>
           )}
 
-          <Link
-            href="/auth/signout"
-            className="rounded border px-3 py-1 text-xs hover:bg-gray-50"
-          >
-            Sign out
-          </Link>
+          <UserChip />
         </div>
       </div>
     </header>

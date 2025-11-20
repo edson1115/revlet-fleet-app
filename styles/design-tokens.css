@@ -1,0 +1,122 @@
+:root {
+  /* --------------------------------------------- */
+  /* BRAND COLORS — Tesla-Inspired Electric Palette */
+  /* --------------------------------------------- */
+
+  --revlet-green: #80ff44;
+  --revlet-green-dark: #4bcc1d;
+
+  --revlet-black: #0a0a0a;
+  --revlet-white: #f8f8f8;
+  --revlet-surface: #ffffff;
+  --revlet-gray-50: #f5f5f5;
+  --revlet-gray-100: #e9ecef;
+  --revlet-gray-200: #dfe2e6;
+  --revlet-gray-300: #c5c7ca;
+  --revlet-gray-400: #a3a3a3;
+  --revlet-gray-500: #7c7c7c;
+
+  --revlet-red: #ff3b30;
+  --revlet-amber: #f5a623;
+
+  /* --------------------------------------------- */
+  /* TYPOGRAPHY (Tesla uses Inter w/ thin weights)  */
+  /* --------------------------------------------- */
+
+  --font-family-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Helvetica, Arial, sans-serif;
+
+  --text-display: 32px;
+  --text-h1: 24px;
+  --text-h2: 20px;
+  --text-body: 15px;
+  --text-caption: 12px;
+
+  --font-thin: 200;
+  --font-light: 300;
+  --font-regular: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+  --font-bold: 700;
+
+  /* --------------------------------------------- */
+  /* SPACING SCALE (Tesla is airy + calm)           */
+  /* --------------------------------------------- */
+
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+
+  /* --------------------------------------------- */
+  /* RADII (Tesla uses soft organic edges)          */
+  /* --------------------------------------------- */
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-full: 999px;
+
+  /* --------------------------------------------- */
+  /* SHADOWS (Tesla = soft lift, no hard borders)   */
+  /* --------------------------------------------- */
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 12px 24px rgba(0, 0, 0, 0.12);
+
+  /* --------------------------------------------- */
+  /* ANIMATION CURVES (Tesla = calm, smooth)        */
+  /* --------------------------------------------- */
+
+  --ease-default: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
+
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 260ms;
+
+  /* --------------------------------------------- */
+  /* SURFACE SYSTEM                                 */
+  /* --------------------------------------------- */
+
+  --surface-bg: var(--revlet-white);
+  --surface-card: var(--revlet-surface);
+  --surface-gray: var(--revlet-gray-50);
+
+  /* --------------------------------------------- */
+  /* STATUS COLORS                                  */
+  /* --------------------------------------------- */
+
+  --status-new: var(--revlet-black);
+  --status-waiting: var(--revlet-amber);
+  --status-scheduled: var(--revlet-green-dark);
+  --status-completed: var(--revlet-gray-400);
+
+  /* --------------------------------------------- */
+  /* BORDERLESS DESIGN (Tesla uses shadows only)    */
+  /* --------------------------------------------- */
+
+  --border-light: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+/* --------------------------------------------- */
+/* DARK MODE (Tesla Service Mode / Black UI)      */
+/* --------------------------------------------- */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface-bg: #0d0d0d;
+    --surface-card: #131313;
+
+    --revlet-black: #ffffff;
+    --revlet-white: #0d0d0d;
+
+    --shadow-xs: 0 0 0 rgba(0, 0, 0, 0);
+    --shadow-sm: 0 1px 3px rgba(255, 255, 255, 0.05);
+    --shadow-md: 0 2px 8px rgba(255, 255, 255, 0.08);
+  }
+}

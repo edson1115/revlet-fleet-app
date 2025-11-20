@@ -1,68 +1,42 @@
-// app/api/requests/[id]/schedule/route.ts
-
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 
-// URL: /api/requests/<id>/schedule
-function extractRequestId(url: string) {
-  const parts = new URL(url).pathname.split("/");
-  // ["", "api", "requests", "<id>", "schedule"]
-  return parts[3];
-}
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const requestId = params.id;
+    const payload = await req.json();
 
-export async function PATCH(req: Request): Promise<Response> {
-  const supabase = await supabaseServer();
-  const requestId = extractRequestId(req.url);
+    const { technician_id, start_time, end_time } = payload;
+    if (!technician_id || !start_time || !end_time) {
+      return NextResponse.json(
+        { error: "Missing required fields" },
+        { status: 400 }
+      );
+    }
 
-  const body = await req.json().catch(() => ({}));
+    const supabase = supabaseServer();
 
-  const {
-    scheduled_at,
-    technician_id,
-    notes,
-  }: {
-    scheduled_at?: string | null;
-    technician_id?: string | null;
-    notes?: string | null;
-  } = body;
+    const scheduledAt = `${new Date().toISOString().split("T")[0]}T${start_time}:00`;
 
-  if (!scheduled_at) {
-    return new Response(
-      JSON.stringify({ error: "Missing scheduled_at" }),
-      { status: 400 }
-    );
+    const { error } = await supabase
+      .from("requests")
+      .update({
+        technician_id,
+        scheduled_at: scheduledAt,
+        eta: start_time,
+        status: "SCHEDULED",
+      })
+      .eq("id", requestId);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
   }
-
-  const updates: any = {
-    scheduled_at,
-  };
-
-  if (technician_id !== undefined) {
-    updates.technician_id = technician_id;
-  }
-  if (notes !== undefined) {
-    updates.dispatch_notes = notes;
-  }
-
-  const { error } = await supabase
-    .from("requests")
-    .update(updates)
-    .eq("id", requestId);
-
-  if (error) {
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 400 }
-    );
-  }
-
-  return new Response(
-    JSON.stringify({
-      success: true,
-      id: requestId,
-      scheduled_at,
-      technician_id: technician_id ?? null,
-      notes: notes ?? null,
-    }),
-    { status: 200 }
-  );
 }

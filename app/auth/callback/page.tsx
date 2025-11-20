@@ -1,46 +1,43 @@
-'use client';
+// app/auth/callback/page.tsx
+"use client";
 
-import { useEffect, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { supabaseBrowser } from '@/lib/supabase/browser';
+import { useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { supabaseBrowser } from "@/lib/supabase/browser";
+import toast from "react-hot-toast";
 
-export const dynamic = "force-dynamic"; // ⬅ prevents prerendering
-
-function CallbackInner() {
+export default function AuthCallback() {
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const sp = useSearchParams();
+  const code = sp.get("code");
 
   useEffect(() => {
-    const code = searchParams.get('code');
-
-    async function finishSignIn() {
+    async function finish() {
       if (!code) {
-        router.replace('/');
+        router.replace("/login");
         return;
       }
 
       const supabase = supabaseBrowser();
+
       const { error } = await supabase.auth.exchangeCodeForSession(code);
 
       if (error) {
-        console.error('Auth error:', error);
-        router.replace('/?error=auth_failed');
+        console.error("Auth error:", error);
+        toast.error("Sign-in failed");
+        router.replace("/login?error=1");
         return;
       }
 
-      router.replace('/');
+      router.replace("/");
     }
 
-    finishSignIn();
-  }, [router, searchParams]);
+    finish();
+  }, [code, router]);
 
-  return <p>Completing sign-in...</p>;
-}
-
-export default function AuthCallback() {
   return (
-    <Suspense fallback={<div className="p-6 text-center">Loading...</div>}>
-      <CallbackInner />
-    </Suspense>
+    <div className="min-h-[70vh] flex items-center justify-center animate-fade-in">
+      <p className="text-gray-600">Completing sign-in…</p>
+    </div>
   );
 }

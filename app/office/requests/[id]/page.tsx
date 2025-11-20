@@ -1,10 +1,20 @@
-// app/office/requests/[id]/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import NotesBox from "@/components/NotesBox";
+
+// TESLA LIGHT COMPONENTS
+import { TeslaServiceCard } from "@/components/tesla/TeslaServiceCard";
+import { TeslaSection } from "@/components/tesla/TeslaSection";
+import { TeslaKV } from "@/components/tesla/TeslaKV";
+
+let TimelineComp: any = null;
+try {
+  TimelineComp =
+    require("@/components/tesla/TeslaRequestTimeline").TeslaRequestTimeline;
+} catch {}
 
 type UUID = string;
 type Status =
@@ -30,8 +40,8 @@ type RequestRow = {
   service: string | null;
   fmc: string | null;
   mileage: number | null;
-  po?: string | null;            // primary
-  po_number?: string | null;     // legacy alias
+  po?: string | null;
+  po_number?: string | null;
   notes: string | null;
   scheduled_at: string | null;
   preferred_window_start: string | null;
@@ -41,30 +51,18 @@ type RequestRow = {
   location?: { name: string | null } | null;
   customer?: { name: string | null } | null;
   vehicle?: Vehicle | null;
-  technician?: { id?: string; full_name?: string | null } | null; // show assigned tech
+  technician?: { id?: string; full_name?: string | null } | null;
 };
 
 type Tech = { id: UUID; name: string };
 
-function statusBadge(s?: Status) {
-  if (!s) return null;
-  const base = "inline-flex items-center px-2 py-0.5 rounded text-xs border";
-  const map: Record<Status, string> = {
-    NEW: "bg-yellow-50 border-yellow-300 text-yellow-800",
-    SCHEDULED: "bg-blue-50 border-blue-300 text-blue-800",
-    IN_PROGRESS: "bg-purple-50 border-purple-300 text-purple-800",
-    COMPLETED: "bg-green-50 border-green-300 text-green-800",
-    WAITING_APPROVAL: "bg-orange-50 border-orange-300 text-orange-800",
-    WAITING_PARTS: "bg-amber-50 border-amber-300 text-amber-800",
-    DECLINED: "bg-rose-50 border-rose-300 text-rose-800",
-  };
-  return <span className={`${base} ${map[s]}`}>{s}</span>;
-}
-
 function vehicleLabel(v?: Vehicle | null) {
   if (!v) return "—";
   const base = [v.year, v.make, v.model].filter(Boolean).join(" ");
-  const extras = [v.unit_number ? `#${v.unit_number}` : null, v.plate ? `(${v.plate})` : null]
+  const extras = [
+    v.unit_number ? `#${v.unit_number}` : null,
+    v.plate ? `(${v.plate})` : null,
+  ]
     .filter(Boolean)
     .join(" ");
   return [base || "—", extras].filter(Boolean).join(" ");
@@ -84,12 +82,12 @@ export default function OfficeRequestDetailPage() {
   const [po, setPo] = useState<string>("");
   const [notes, setNotes] = useState("");
   const [priority, setPriority] = useState<string>("NORMAL");
-  const [pws, setPws] = useState<string>(""); // preferred_window_start (datetime-local)
-  const [pwe, setPwe] = useState<string>(""); // preferred_window_end   (datetime-local)
+  const [pws, setPws] = useState<string>("");
+  const [pwe, setPwe] = useState<string>("");
 
   const [saving, setSaving] = useState(false);
 
-  // schedule modal
+  // scheduling modal
   const [schedOpen, setSchedOpen] = useState(false);
   const [schedAt, setSchedAt] = useState<string>("");
   const [techs, setTechs] = useState<Tech[]>([]);
@@ -105,7 +103,9 @@ export default function OfficeRequestDetailPage() {
     setLoading(true);
     setErr(null);
     try {
-      const res = await fetch(`/api/requests/${id}`, { credentials: "include" });
+      const res = await fetch(`/api/requests/${id}`, {
+        credentials: "include",
+      });
       const js = await res.json();
       if (!res.ok) throw new Error(js?.error || "Failed to load");
 
@@ -116,8 +116,14 @@ export default function OfficeRequestDetailPage() {
       setPo(r.po ?? r.po_number ?? "");
       setNotes(r.notes ?? "");
       setPriority(r.priority ?? "NORMAL");
-      setPws(r.preferred_window_start ? r.preferred_window_start.slice(0, 16) : "");
-      setPwe(r.preferred_window_end ? r.preferred_window_end.slice(0, 16) : "");
+      setPws(
+        r.preferred_window_start
+          ? r.preferred_window_start.slice(0, 16)
+          : ""
+      );
+      setPwe(
+        r.preferred_window_end ? r.preferred_window_end.slice(0, 16) : ""
+      );
     } catch (e: any) {
       setErr(e?.message || "Failed to load");
       setRow(null);
@@ -128,7 +134,6 @@ export default function OfficeRequestDetailPage() {
 
   useEffect(() => {
     if (id) load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const onSave = async () => {
@@ -138,7 +143,7 @@ export default function OfficeRequestDetailPage() {
     try {
       const body: any = {
         fmc: fmc || null,
-        po, // send primary; server also accepts po_number
+        po,
         notes: notes || null,
         priority: priority || null,
         mileage: mileage ? Number(mileage) : null,
@@ -153,6 +158,7 @@ export default function OfficeRequestDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
+
       const js = await res.json();
       if (!res.ok) throw new Error(js?.error || "Failed to save");
 
@@ -164,41 +170,33 @@ export default function OfficeRequestDetailPage() {
     }
   };
 
-  const onStart = async () => {
-    if (!row) return;
-    setErr(null);
-    await fetch(`/api/requests/${row.id}/start`, { method: "PATCH", credentials: "include" });
-    await load();
-  };
-
-  const onComplete = async () => {
-    if (!row) return;
-    setErr(null);
-    await fetch(`/api/requests/${row.id}/complete`, { method: "PATCH", credentials: "include" });
-    await load();
-  };
-
   const openSchedule = async () => {
     if (!row) return;
 
-    // prefill date
     const now = new Date();
-    const isoLocal = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+    const isoLocal = new Date(
+      now.getTime() - now.getTimezoneOffset() * 60000
+    )
       .toISOString()
       .slice(0, 16);
+
     setSchedAt(row.scheduled_at ? row.scheduled_at.slice(0, 16) : isoLocal);
 
-    // load technicians (active only)
     try {
-      const res = await fetch(`/api/lookups?scope=technicians&active=1`, { credentials: "include" });
+      const res = await fetch(`/api/lookups?scope=technicians&active=1`, {
+        credentials: "include",
+      });
       const js = await res.json();
       if (!res.ok) throw new Error(js?.error || "Failed to load technicians");
-      const list: Tech[] = (js.data || []).map((t: any) => ({ id: t.id, name: t.name }));
+
+      const list: Tech[] = (js.data || []).map((t: any) => ({
+        id: t.id,
+        name: t.name,
+      }));
       setTechs(list);
-      // preselect current tech if present
+
       setTechId((row.technician?.id as UUID) || "");
-    } catch (e: any) {
-      // keep modal usable even if tech fetch fails
+    } catch {
       setTechs([]);
       setTechId((row.technician?.id as UUID) || "");
     }
@@ -208,8 +206,10 @@ export default function OfficeRequestDetailPage() {
 
   const onSchedule = async () => {
     if (!row) return;
+
     setSchedOpen(false);
     setErr(null);
+
     await fetch(`/api/requests/${row.id}/schedule`, {
       method: "PATCH",
       credentials: "include",
@@ -219,225 +219,239 @@ export default function OfficeRequestDetailPage() {
         technician_id: techId || null,
       }),
     });
+
     await load();
   };
 
-  if (loading) return <div className="p-6">Loading…</div>;
-  if (!row) return <div className="p-6">{err || "Not found."}</div>;
+  if (loading)
+    return (
+      <div className="p-6 text-center text-gray-600">
+        Loading…
+      </div>
+    );
+
+  if (!row)
+    return (
+      <div className="p-6 text-red-600">{err || "Not found."}</div>
+    );
 
   return (
-    <div className="p-6 space-y-6 max-w-5xl mx-auto">
-      <div className="text-sm">
-        <Link href="/office/queue" className="text-blue-600 hover:underline">
-          ← Back to Office queue
+    <div className="max-w-5xl mx-auto p-6 space-y-6">
+
+      {/* Breadcrumb */}
+      <div>
+        <Link
+          href="/office/queue"
+          className="text-sm text-gray-500 hover:text-black"
+        >
+          ← Back to Office Queue
         </Link>
       </div>
 
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Request #{row.id.slice(0, 8)}</h1>
-        <div className="flex items-center gap-2">{statusBadge(row.status)}</div>
-      </div>
+      <TeslaHeroBar
+  title={`Request #${row.id.slice(0, 8)}`}
+  status={row.status}
+  meta={[
+    { label: "Customer", value: row.customer?.name ?? "—" },
+    { label: "Vehicle", value: row.vehicle ? `${row.vehicle.year ?? ""} ${row.vehicle.make ?? ""} ${row.vehicle.model ?? ""}` : "—" },
+    { label: "Created", value: row.created_at ? new Date(row.created_at).toLocaleString() : "—" }
+  ]}
+/>
 
-      {/* Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="rounded-2xl border p-4 bg-white shadow-sm">
-          <h2 className="font-semibold mb-2">Customer</h2>
-          <div className="text-sm">{row.customer?.name ?? "—"}</div>
-        </div>
-        <div className="rounded-2xl border p-4 bg-white shadow-sm">
-          <h2 className="font-semibold mb-2">Location</h2>
-          <div className="text-sm">{row.location?.name ?? "—"}</div>
-        </div>
-        <div className="rounded-2xl border p-4 bg-white shadow-sm">
-          <h2 className="font-semibold mb-2">Vehicle</h2>
-          <div className="text-sm">{vehicleLabel(row.vehicle)}</div>
-        </div>
-        <div className="rounded-2xl border p-4 bg-white shadow-sm">
-          <h2 className="font-semibold mb-2">Technician</h2>
-          <div className="text-sm">{row.technician?.full_name ?? "—"}</div>
-        </div>
-      </div>
 
-      {/* Edit form */}
-      <div className="rounded-2xl border p-4 bg-white shadow-sm space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Service</label>
-            <div className="w-full rounded-lg border px-3 py-2 bg-gray-50">
-              {row.service ?? "—"}
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Priority</label>
-            <select
-              className="w-full rounded-lg border px-3 py-2"
-              value={priority}
-              onChange={(e) => setPriority(e.target.value)}
-            >
-              <option value="NORMAL">NORMAL</option>
-              <option value="URGENT">URGENT</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">FMC</label>
-            <input
-              className="w-full rounded-lg border px-3 py-2"
-              value={fmc}
-              onChange={(e) => setFmc(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Mileage</label>
-            <input
-              type="number"
-              className="w-full rounded-lg border px-3 py-2"
-              value={mileage}
-              onChange={(e) => setMileage(e.target.value)}
-            />
-          </div>
-          <div className="md:col-span-2">
-            <label className="block text-sm font-medium mb-1">PO</label>
-            <input
-              className="w-full rounded-lg border px-3 py-2"
-              value={po}
-              onChange={(e) => setPo(e.target.value)}
-            />
-          </div>
-        </div>
+      {/* SUMMARY */}
+      <TeslaServiceCard title="Request Summary" badge={row.status}>
+        <TeslaSection label="Customer">
+          <TeslaKV k="Name" v={row.customer?.name ?? "—"} />
+        </TeslaSection>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              Preferred Window (Start)
-            </label>
-            <input
-              type="datetime-local"
-              className="w-full rounded-lg border px-3 py-2"
-              value={pws}
-              onChange={(e) => setPws(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              Preferred Window (End)
-            </label>
-            <input
-              type="datetime-local"
-              className="w-full rounded-lg border px-3 py-2"
-              value={pwe}
-              onChange={(e) => setPwe(e.target.value)}
-            />
-          </div>
-          <div className="md:col-span-1">
-            <label className="block text-sm font-medium mb-1">Notes</label>
-            <textarea
-              className="w-full rounded-lg border px-3 py-2"
-              rows={4}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-            />
-          </div>
-        </div>
+        <TeslaSection label="Location">
+          <TeslaKV k="Shop" v={row.location?.name ?? "—"} />
+        </TeslaSection>
 
-        <div className="flex items-center gap-2">
+        <TeslaSection label="Vehicle">
+          <TeslaKV k="Unit" v={vehicleLabel(row.vehicle)} />
+        </TeslaSection>
+
+        <TeslaSection label="Technician">
+          <TeslaKV k="Assigned" v={row.technician?.full_name ?? "—"} />
+        </TeslaSection>
+      </TeslaServiceCard>
+
+      {/* EDIT DETAILS */}
+      <TeslaServiceCard title="Edit Request Details">
+        <TeslaSection label="Service">
+          {row.service ?? "—"}
+        </TeslaSection>
+
+        <TeslaSection label="Priority">
+          <select
+            className="w-full bg-[#F5F5F5] rounded-lg px-3 py-2"
+            value={priority}
+            onChange={(e) => setPriority(e.target.value)}
+          >
+            <option value="NORMAL">NORMAL</option>
+            <option value="URGENT">URGENT</option>
+          </select>
+        </TeslaSection>
+
+        <TeslaSection label="FMC">
+          <input
+            className="w-full bg-[#F5F5F5] rounded-lg px-3 py-2"
+            value={fmc}
+            onChange={(e) => setFmc(e.target.value)}
+          />
+        </TeslaSection>
+
+        <TeslaSection label="Mileage">
+          <input
+            type="number"
+            className="w-full bg-[#F5F5F5] rounded-lg px-3 py-2"
+            value={mileage}
+            onChange={(e) => setMileage(e.target.value)}
+          />
+        </TeslaSection>
+
+        <TeslaSection label="PO Number">
+          <input
+            className="w-full bg-[#F5F5F5] rounded-lg px-3 py-2"
+            value={po}
+            onChange={(e) => setPo(e.target.value)}
+          />
+        </TeslaSection>
+
+        <TeslaSection label="Preferred Window Start">
+          <input
+            type="datetime-local"
+            className="w-full bg-[#F5F5F5] rounded-lg px-3 py-2"
+            value={pws}
+            onChange={(e) => setPws(e.target.value)}
+          />
+        </TeslaSection>
+
+        <TeslaSection label="Preferred Window End">
+          <input
+            type="datetime-local"
+            className="w-full bg-[#F5F5F5] rounded-lg px-3 py-2"
+            value={pwe}
+            onChange={(e) => setPwe(e.target.value)}
+          />
+        </TeslaSection>
+
+        <TeslaSection label="Notes">
+          <textarea
+            rows={4}
+            className="w-full bg-[#F5F5F5] rounded-lg px-3 py-2"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+        </TeslaSection>
+
+        {/* ACTIONS */}
+        <div className="flex gap-2 pt-4">
           <button
-            className="rounded-lg bg-black px-4 py-2 text-white disabled:opacity-50"
-            onClick={onSave}
+            className="px-4 py-2 rounded-lg bg-black text-white"
             disabled={saving}
+            onClick={onSave}
           >
             {saving ? "Saving…" : "Save Changes"}
           </button>
 
-          <button className="rounded-lg border px-4 py-2" onClick={openSchedule}>
+          <button
+            className="px-4 py-2 rounded-lg border"
+            onClick={openSchedule}
+          >
             Schedule…
           </button>
 
           {canStart && (
-            <button className="rounded-lg border px-4 py-2" onClick={onStart}>
+            <button className="px-4 py-2 rounded-lg border">
               Start
             </button>
           )}
           {canComplete && (
-            <button className="rounded-lg border px-4 py-2" onClick={onComplete}>
+            <button className="px-4 py-2 rounded-lg border">
               Complete
             </button>
           )}
         </div>
-      </div>
+      </TeslaServiceCard>
 
-      {/* Timeline */}
-      <div className="rounded-2xl border p-4 bg-white shadow-sm">
-        <h2 className="font-semibold mb-3">Timeline</h2>
-        <ul className="space-y-1 text-sm">
-          <li>
-            <span className="opacity-60">Scheduled:</span>{" "}
-            {row.scheduled_at ? new Date(row.scheduled_at).toLocaleString() : "—"}
-          </li>
-          <li>
-            <span className="opacity-60">Preferred Window:</span>{" "}
-            {pws ? new Date(pws).toLocaleString() : "—"} →{" "}
-            {pwe ? new Date(pwe).toLocaleString() : "—"}
-          </li>
-        </ul>
-      </div>
+      {/* TIMELINE */}
+      <TeslaServiceCard title="Timeline">
+        {TimelineComp ? (
+          <TimelineComp
+            scheduled={row.scheduled_at}
+            preferredStart={pws}
+            preferredEnd={pwe}
+          />
+        ) : (
+          <TeslaSection label="Events">
+            <ul className="space-y-1 text-sm">
+              <li>
+                <span className="text-gray-500">Scheduled:</span>{" "}
+                {row.scheduled_at
+                  ? new Date(row.scheduled_at).toLocaleString()
+                  : "—"}
+              </li>
 
-      {/* Notes */}
-      <div className="rounded-2xl border p-4 bg-white shadow-sm">
+              <li>
+                <span className="text-gray-500">Preferred Window:</span>{" "}
+                {pws ? new Date(pws).toLocaleString() : "—"} →{" "}
+                {pwe ? new Date(pwe).toLocaleString() : "—"}
+              </li>
+            </ul>
+          </TeslaSection>
+        )}
+      </TeslaServiceCard>
+
+      {/* NOTES */}
+      <TeslaServiceCard title="Notes">
         <NotesBox requestId={row.id} canAdd />
-      </div>
+      </TeslaServiceCard>
 
-      {/* Schedule Modal */}
+      {/* SCHEDULE MODAL */}
       {schedOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-lg">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Set Schedule</h3>
-              <button
-                className="text-sm text-gray-600"
-                onClick={() => setSchedOpen(false)}
-              >
-                Close
-              </button>
-            </div>
+        <div className="fixed inset-0 flex items-center justify-center bg-black/40 z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-lg">
+            <h3 className="text-lg font-semibold mb-4">
+              Set Schedule
+            </h3>
 
-            <div className="mt-4 space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Date &amp; time</label>
+            <div className="space-y-4">
+              <TeslaSection label="Date & Time">
                 <input
                   type="datetime-local"
-                  className="w-full rounded-lg border px-3 py-2"
+                  className="w-full bg-[#F5F5F5] rounded-lg px-3 py-2"
                   value={schedAt}
                   onChange={(e) => setSchedAt(e.target.value)}
                 />
-              </div>
+              </TeslaSection>
 
-              <div>
-                <label className="block text-sm font-medium mb-1">Technician</label>
+              <TeslaSection label="Technician">
                 <select
-                  className="w-full rounded-lg border px-3 py-2"
+                  className="w-full bg-[#F5F5F5] rounded-lg px-3 py-2"
                   value={techId}
                   onChange={(e) => setTechId(e.target.value as UUID)}
                 >
                   <option value="">— Unassigned —</option>
                   {techs.map((t) => (
-                    <option key={t.id} value={t.id}>{t.name}</option>
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
                   ))}
                 </select>
-                {techs.length === 0 && (
-                  <p className="mt-1 text-xs text-gray-500">
-                    No technicians found. Add them under <code>/admin/techs</code>.
-                  </p>
-                )}
-              </div>
+              </TeslaSection>
             </div>
 
-            <div className="mt-5 flex items-center justify-end gap-2">
+            <div className="flex justify-end gap-2 mt-6">
               <button
                 className="rounded-lg border px-4 py-2"
                 onClick={() => setSchedOpen(false)}
               >
                 Cancel
               </button>
+
               <button
                 className="rounded-lg bg-black px-4 py-2 text-white"
                 onClick={onSchedule}
@@ -450,7 +464,7 @@ export default function OfficeRequestDetailPage() {
       )}
 
       {err && (
-        <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <div className="rounded-lg border border-red-400 bg-red-50 px-3 py-2 text-red-700">
           {err}
         </div>
       )}
