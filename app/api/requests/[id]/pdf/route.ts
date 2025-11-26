@@ -1,90 +1,28 @@
 // app/api/requests/[id]/pdf/route.ts
 import { NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase/server";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { createServerClient } from "@/lib/supabase/server";
+import { buildServiceReportPDF } from "@/lib/pdf/buildReport";
 
-export const dynamic = "force-dynamic";
+export async function GET(_: Request, { params }: any) {
+  const supabase = createServerClient();
 
-type Params = { id: string };
-type RouteContext = { params: Promise<Params> };
-
-export async function GET(_req: Request, context: RouteContext) {
-  const { id } = await context.params;
-  const supabase = await supabaseServer();
-
-  const { data: request, error } = await supabase
-    .from("requests")
-    .select(
-      `
-      id,
-      status,
-      mileage,
-      customers ( name ),
-      vehicles (
-        unit_number,
-        year,
-        make,
-        model,
-        plate
-      )
-    `
-    )
-    .eq("id", id)
+  const { data, error } = await supabase
+    .from("view_requests") // the combined view
+    .select("*")
+    .eq("id", params.id)
     .single();
 
-  if (error || !request) {
+  if (error || !data) {
     return NextResponse.json({ error: "Request not found" }, { status: 404 });
   }
 
-  const customer = Array.isArray(request.customers)
-    ? request.customers[0]
-    : request.customers;
+  const pdfBytes = await buildServiceReportPDF(data);
 
-  const vehicle = Array.isArray(request.vehicles)
-    ? request.vehicles[0]
-    : request.vehicles;
-
-  const pdf = await PDFDocument.create();
-  const page = pdf.addPage([600, 800]);
-  const font = await pdf.embedFont(StandardFonts.Helvetica);
-
-  let y = 760;
-
-  const draw = (label: string, value: any) => {
-    page.drawText(`${label}: ${value ?? "N/A"}`, {
-      x: 40,
-      y,
-      size: 12,
-      font,
-      color: rgb(0, 0, 0),
-    });
-    y -= 20;
-  };
-
-  draw("Request ID", request.id);
-  draw("Status", request.status);
-  draw("Mileage", request.mileage);
-  draw("Customer", customer?.name);
-
-  draw(
-    "Vehicle",
-    `${vehicle?.year ?? ""} ${vehicle?.make ?? ""} ${vehicle?.model ?? ""}`.trim()
-  );
-
-  draw("Plate", vehicle?.plate);
-  draw("Unit #", vehicle?.unit_number);
-
-  const pdfBytes = await pdf.save();
-
-  // ⭐ GUARANTEED FIX: Convert to a real ArrayBuffer (never SharedArrayBuffer)
-  const safeBuffer = new Uint8Array(pdfBytes).buffer;
-
-  const blob = new Blob([safeBuffer], { type: "application/pdf" });
-
-  return new NextResponse(blob, {
+  return new NextResponse(pdfBytes, {
+    status: 200,
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `inline; filename="request-${id}.pdf"`,
+      "Content-Disposition": `inline; filename="service-report-${params.id}.pdf"`,
     },
   });
 }

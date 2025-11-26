@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useRequestPhotos } from "@/hooks/useRequestPhotos";
+
 
 /* ===================================================================
    TECH COPILOT PANEL
@@ -112,7 +114,8 @@ export default function TechRequestDetailPage() {
   const [newPartName, setNewPartName] = useState("");
   const [newPartNumber, setNewPartNumber] = useState("");
 
-  const [photos, setPhotos] = useState<any[]>([]);
+  const { photos, refresh: refreshPhotos } = useRequestPhotos(id);
+
 
   async function load() {
     setLoading(true);
@@ -251,29 +254,32 @@ export default function TechRequestDetailPage() {
 
   // ---- PHOTOS ----
   async function uploadPhoto(e: any, kind: "before" | "after") {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const file = e.target.files?.[0];
+  if (!file) return;
 
-    const form = new FormData();
-    form.append("file", file);
-    form.append("kind", kind);
+  const form = new FormData();
+  form.append("file", file);
+  form.append("kind", kind);
 
-    await fetch(`/api/requests/${id}/photos`, {
-      method: "POST",
-      credentials: "include",
-      body: form,
-    });
+  await fetch(`/api/requests/${id}/photos`, {
+    method: "POST",
+    credentials: "include",
+    body: form,
+  });
 
-    load();
-  }
+  refreshPhotos();
+}
+
 
   async function deletePhoto(photo: any) {
-    await fetch(`/api/requests/${id}/photos/${photo.id}`, {
-      method: "DELETE",
-      credentials: "include",
-    });
-    load();
-  }
+  await fetch(`/api/requests/${id}/photos/${photo.id}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+
+  refreshPhotos();
+}
+
 
   // ---- LOAD DATA ----
   useEffect(() => {

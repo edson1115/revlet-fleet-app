@@ -1,53 +1,80 @@
-// app/api/requests/[id]/photos/route.ts
 import { NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { createId } from "@paralleldrive/cuid2";
+import OpenAI from "openai";
 
-export async function POST(req: Request, context: any) {
-  const requestId = context?.params?.id as string | undefined;
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-  if (!requestId) {
-    return NextResponse.json(
-      { error: "Missing request id" },
-      { status: 400 }
-    );
+async function detectKind(file: File): Promise<string> {
+  const arrayBuffer = await file.arrayBuffer();
+  const base64 = Buffer.from(arrayBuffer).toString("base64");
+
+  const res = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Classify this photo: BEFORE, AFTER, DAMAGE, OTHER" },
+          {
+            type: "image_url",
+            image_url: `data:image/jpeg;base64,${base64}`,
+          },
+        ],
+      },
+    ],
+  });
+
+  const label = res?.choices?.[0]?.message?.content?.trim()?.toUpperCase();
+
+  if (["BEFORE", "AFTER", "DAMAGE"].includes(label)) return label;
+  return "OTHER";
+}
+
+export async function POST(req: Request, { params }: any) {
+  const id = params.id;
+  const form = await req.formData();
+
+  const file = form.get("file") as File;
+  let kind = (form.get("kind") as string) || null;
+  
+  if (!file) {
+    return NextResponse.json({ error: "Missing file" }, { status: 400 });
   }
 
-  const supabase = await supabaseServer();
-
-  // Expecting JSON body like:
-  // { url_thumb: string, url_work?: string, kind?: "BEFORE" | "AFTER" | "OTHER" }
-  const body = (await req.json().catch(() => ({}))) as {
-    url_thumb?: string;
-    url_work?: string;
-    kind?: string;
-  };
-
-  const { url_thumb, url_work, kind } = body;
-
-  if (!url_thumb && !url_work) {
-    return NextResponse.json(
-      { error: "Missing image URLs" },
-      { status: 400 }
-    );
+  if (!kind) {
+    kind = await detectKind(file);
   }
 
-  const { data, error } = await supabase
-    .from("service_request_images")
+  const photoId = createId();
+  const ext = file.name.split(".").pop();
+  const path = `requests/${id}/${photoId}.${ext}`;
+
+  const { data: upload, error: uploadErr } = await supabaseAdmin.storage
+    .from("request-photos")
+    .upload(path, file, {
+      contentType: file.type,
+      cacheControl: "3600",
+    });
+
+  if (uploadErr) {
+    return NextResponse.json({ error: uploadErr.message }, { status: 500 });
+  }
+
+  const { data: urlData } = supabaseAdmin.storage
+    .from("request-photos")
+    .getPublicUrl(path);
+
+  const { data, error } = await supabaseAdmin
+    .from("request_photos")
     .insert({
-      request_id: requestId,
-      url_thumb: url_thumb ?? url_work ?? null,
-      url_work: url_work ?? null,
-      kind: kind ?? null,
+      id: photoId,
+      request_id: id,
+      url: urlData.publicUrl,
+      kind,
     })
-    .select("*")
-    .maybeSingle();
+    .select()
+    .single();
 
-  if (error) {
-    return NextResponse.json(
-      { error: error.message },
-      { status: 400 }
-    );
-  }
-
-  return NextResponse.json({ ok: true, image: data });
+  return NextResponse.json({ photo: data });
 }

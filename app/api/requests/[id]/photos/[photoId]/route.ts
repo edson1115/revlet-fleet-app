@@ -1,41 +1,40 @@
 // app/api/requests/[id]/photos/[photoId]/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 
-export async function DELETE(req: Request, context: any) {
-  const { id: requestId, photoId } = context.params || {};
-  if (!requestId || !photoId) {
-    return NextResponse.json(
-      { error: "Missing requestId or photoId" },
-      { status: 400 }
-    );
-  }
+export const dynamic = "force-dynamic";
 
+export async function DELETE(
+  req: NextRequest,
+  ctx: { params: Promise<{ id: string; photoId: string }> }
+) {
+  const { id: requestId, photoId } = await ctx.params;
   const supabase = await supabaseServer();
 
-  // 1) Delete DB row (service_request_images table)
-  const { error: dbErr } = await supabase
-    .from("service_request_images")
-    .delete()
+  // 1) Lookup DB row
+  const { data: row } = await supabase
+    .from("request_photos")
+    .select("id, url")
     .eq("id", photoId)
-    .eq("request_id", requestId);
+    .maybeSingle();
 
-  if (dbErr) {
-    return NextResponse.json({ error: dbErr.message }, { status: 400 });
-  }
-
-  // 2) Delete from storage (optional, if you’re storing as requestId/photoId)
-  const { error: storageErr } = await supabase.storage
-    .from("request-images")
-    .remove([`${requestId}/${photoId}`]);
-
-  if (storageErr) {
-    // DB row is already gone, but we surface the storage error
+  if (!row) {
     return NextResponse.json(
-      { error: storageErr.message },
-      { status: 400 }
+      { error: "Photo not found" },
+      { status: 404 }
     );
   }
+
+  // Extract path: everything after the bucket URL
+  const url = row.url;
+  const idx = url.indexOf("/request_photos/");
+  const path = url.substring(idx + "/request_photos/".length);
+
+  // 2) Delete storage file
+  await supabase.storage.from("request_photos").remove([path]);
+
+  // 3) Delete DB row
+  await supabase.from("request_photos").delete().eq("id", photoId);
 
   return NextResponse.json({ ok: true });
 }

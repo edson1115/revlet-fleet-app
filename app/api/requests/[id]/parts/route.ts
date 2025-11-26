@@ -1,51 +1,42 @@
 // app/api/requests/[id]/parts/route.ts
-
 import { supabaseServer } from "@/lib/supabase/server";
+import { resolveUserScope } from "@/lib/auth/scope";
 
-// URL format:
-// /api/requests/<id>/parts
-function extractRequestId(url: string) {
-  const parts = new URL(url).pathname.split("/");
-  // parts: ["", "api", "requests", "<id>", "parts"]
-  return parts[3];
-}
+export const dynamic = "force-dynamic";
 
-export async function POST(req: Request): Promise<Response> {
-  const requestId = extractRequestId(req.url);
-  const supabase = await supabaseServer();
+export async function POST(req: Request, { params }: any) {
+  try {
+    const scope = await resolveUserScope();
+    if (!scope.uid) return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 });
 
-  const body = await req.json().catch(() => ({}));
-  const { part_name, part_number } = body as {
-    part_name?: string;
-    part_number?: string;
-  };
+    const request_id = params.id;
+    const body = await req.json().catch(() => ({}));
+    const { part_name, part_number, qty, price } = body;
 
-  if (!part_name) {
-    return new Response(
-      JSON.stringify({ error: "Missing part_name" }),
-      { status: 400 }
-    );
-  }
+    if (!part_name) {
+      return new Response(JSON.stringify({ error: "missing_part_name" }), { status: 400 });
+    }
 
-  const { error } = await supabase.from("request_parts").insert({
-    request_id: requestId,
-    part_name,
-    part_number: part_number || null,
-  });
+    if (!(scope.isSuper || scope.isAdmin || scope.role === "OFFICE" || scope.role === "DISPATCH")) {
+      return new Response(JSON.stringify({ error: "forbidden" }), { status: 403 });
+    }
 
-  if (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 400,
-    });
-  }
+    const sb = await supabaseServer();
 
-  return new Response(
-    JSON.stringify({
-      success: true,
-      requestId,
+    const { error } = await sb.from("service_request_parts").insert({
+      request_id,
       part_name,
-      part_number,
-    }),
-    { status: 200 }
-  );
+      part_number: part_number ?? null,
+      qty: qty ?? 1,
+      price: price ?? null,
+    });
+
+    if (error) {
+      return new Response(JSON.stringify({ error: error.message }), { status: 400 });
+    }
+
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  } catch (e: any) {
+    return new Response(JSON.stringify({ error: e.message }), { status: 500 });
+  }
 }

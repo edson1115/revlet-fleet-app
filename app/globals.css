@@ -1,9 +1,8 @@
-/* app/globals.css — Tailwind v4 style */
+/* app/globals.css — Tailwind v4 style */ 
 @import "tailwindcss";
 /* Lets @apply resolve utilities even in global CSS on some setups */
 @reference "tailwindcss";
-@import "./design-tokens.css";
-
+/* @import "./design-tokens.css"; */  /* Disabled because file does not exist */
 
 /* ---- Design tokens (CSS vars, used by our small components) ---- */
 :root {
@@ -121,7 +120,6 @@ body {
 .animate-fade-in {
   animation: fadeIn 0.25s ease-out;
 }
-
 
 /* Tables */
 table { border-collapse: separate; border-spacing: 0; background: hsl(var(--surface)); }

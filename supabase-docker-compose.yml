@@ -1,0 +1,90 @@
+services:
+  db:
+    image: public.ecr.aws/supabase/postgres:15.1.0.80
+    container_name: supabase-db
+    ports:
+      - "54322:5432"
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - supabase_data:/var/lib/postgresql/data
+
+  rest:
+    image: public.ecr.aws/supabase/postgrest:v12.0.2
+    container_name: supabase-rest
+    depends_on:
+      - db
+    ports:
+      - "54323:3000"
+    environment:
+      PGRST_DB_URI: postgres://postgres:postgres@db:5432/postgres
+      PGRST_DB_SCHEMAS: public
+      PGRST_OPENAPI_SERVER_PROXY_URI: http://localhost:54323
+      PGRST_JWT_SECRET: "dev_jwt_secret"
+
+  auth:
+    image: public.ecr.aws/supabase/gotrue:v2.132.0
+    container_name: supabase-auth
+    depends_on:
+      - db
+    ports:
+      - "54324:9999"
+    environment:
+      GOTRUE_SITE_URL: http://localhost:3000
+      GOTRUE_API_EXTERNAL_URL: http://localhost:54324
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://postgres:postgres@db:5432/postgres
+      GOTRUE_JWT_SECRET: "dev_jwt_secret"
+      GOTRUE_DISABLE_SIGNUP: "false"
+
+  storage:
+    image: public.ecr.aws/supabase/storage-api:v1.31.1
+    container_name: supabase-storage
+    depends_on:
+      - db
+    ports:
+      - "54325:5000"
+    environment:
+      ANON_KEY: "anon_key_dev"
+      SERVICE_KEY: "service_role_key_dev"
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+      DATABASE_URL: postgres://postgres:postgres@db:5432/postgres
+
+  realtime:
+    image: public.ecr.aws/supabase/realtime:v2.10.0
+    container_name: supabase-realtime
+    depends_on:
+      - db
+    ports:
+      - "54326:4000"
+    environment:
+      DB_HOST: db
+      DB_NAME: postgres
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      JWT_SECRET: "dev_jwt_secret"
+
+  studio:
+    image: public.ecr.aws/supabase/studio:20241202-71e5240
+    container_name: supabase-studio
+    depends_on:
+      - rest
+      - auth
+      - storage
+    ports:
+      - "54327:3000"
+    environment:
+      SUPABASE_URL: http://localhost:54323
+      SUPABASE_ANON_KEY: "anon_key_dev"
+      SUPABASE_SERVICE_ROLE_KEY: "service_role_key_dev"
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: supabase-mailpit
+    ports:
+      - "54328:8025"
+
+volumes:
+  supabase_data:

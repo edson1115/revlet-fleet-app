@@ -1,5 +1,4 @@
 // app/portal/invoices/page.tsx
-export const dynamic = "force-dynamic";
 
 export default async function InvoicesPage() {
   // TODO: Replace with real billing data

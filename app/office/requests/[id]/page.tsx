@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import NotesBox from "@/components/NotesBox";
+import { useRequestPhotos } from "@/hooks/useRequestPhotos";
 
 // TESLA LIGHT COMPONENTS
 import { TeslaServiceCard } from "@/components/tesla/TeslaServiceCard";
@@ -404,6 +405,28 @@ export default function OfficeRequestDetailPage() {
           </TeslaSection>
         )}
       </TeslaServiceCard>
+
+      <TeslaServiceCard title="Photos">
+  {photos.length === 0 && (
+    <div className="text-sm text-gray-500">No photos uploaded.</div>
+  )}
+
+  <div className="grid grid-cols-2 gap-4 mt-4">
+    {photos.map((p) => (
+      <div key={p.id} className="relative">
+        <img
+          src={p.url}
+          className="w-full h-32 object-cover rounded-lg border cursor-pointer"
+          onClick={() => window.open(p.url, "_blank")}
+        />
+        <span className="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] px-2 py-1 rounded">
+          {p.kind.toUpperCase()}
+        </span>
+      </div>
+    ))}
+  </div>
+</TeslaServiceCard>
+
 
       {/* NOTES */}
       <TeslaServiceCard title="Notes">
