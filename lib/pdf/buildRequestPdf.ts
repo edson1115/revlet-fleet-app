@@ -1,136 +1,114 @@
 // lib/pdf/buildRequestPdf.ts
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
-import { safe } from "./helpers";
+import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 
-/**
- * Build a clean request PDF report.
- * @param req Full request object including customer, vehicle, parts, notes, photos
- */
-export async function buildRequestPdf(req: any): Promise<Uint8Array> {
+export async function buildRequestPdf(row: any): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
-
   const page = pdf.addPage([612, 792]); // Letter size
-  const { width } = page.getSize();
 
   const font = await pdf.embedFont(StandardFonts.Helvetica);
-  const titleFont = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+
   let y = 750;
 
-  function text(txt: string, size = 12, bold = false) {
-    page.drawText(txt, {
+  function heading(text: string) {
+    page.drawText(text, { x: 40, y, size: 18, font: bold });
+    y -= 28;
+  }
+
+  function labelValue(label: string, value: string) {
+    page.drawText(label + ": ", {
       x: 40,
       y,
-      size,
-      font: bold ? titleFont : font,
+      size: 12,
+      font: bold,
+      color: rgb(0.2, 0.2, 0.2),
+    });
+    page.drawText(value || "—", {
+      x: 150,
+      y,
+      size: 12,
+      font,
       color: rgb(0, 0, 0),
     });
-    y -= size + 6;
+    y -= 18;
   }
 
-  /* ================================
-      HEADER
-  =================================== */
+  heading(`Service Request #${String(row.id).slice(0, 8)}`);
 
-  text(`Service Request Report`, 18, true);
-  text(`Request ID: ${req.id}`);
+  labelValue("Status", row.status);
+  labelValue(
+    "Created",
+    row.created_at ? new Date(row.created_at).toLocaleString() : "—"
+  );
+  labelValue(
+    "Scheduled",
+    row.scheduled_at ? new Date(row.scheduled_at).toLocaleString() : "—"
+  );
   y -= 10;
 
-  /* ================================
-      CUSTOMER / VEHICLE
-  =================================== */
+  heading("Customer");
+  labelValue("Name", row.customer?.name ?? "—");
+  labelValue("Market", row.customer?.market ?? "—");
 
-  text("Customer Information", 14, true);
-  text(`Name: ${safe(req.customer?.name)}`);
   y -= 10;
 
-  text("Vehicle Information", 14, true);
-  const v = req.vehicle || {};
-  text(`Year/Make/Model: ${safe(v.year)} ${safe(v.make)} ${safe(v.model)}`);
-  text(`Unit: ${safe(v.unit_number)}  Plate: ${safe(v.plate)}`);
+  heading("Vehicle");
+  const v = row.vehicle?.[0] || row.vehicle;
+  labelValue(
+    "Vehicle",
+    v
+      ? `${v.year ?? ""} ${v.make ?? ""} ${v.model ?? ""} (#${v.unit_number ?? ""})`
+      : "—"
+  );
+  labelValue("Plate", v?.plate ?? "—");
+
   y -= 10;
 
-  /* ================================
-      SERVICE DETAILS
-  =================================== */
+  heading("Location");
+  labelValue("Shop", row.location?.[0]?.name ?? row.location?.name ?? "—");
 
-  text("Service Details", 14, true);
-  text(`Status: ${safe(req.status)}`);
-  text(`Service: ${safe(req.service)}`);
-  text(`Mileage: ${safe(req.mileage)}`);
-  text(`PO#: ${safe(req.po || req.po_number)}`);
-  text(`FMC: ${safe(req.fmc)}`);
   y -= 10;
 
-  /* ================================
-      NOTES
-  =================================== */
+  heading("Service Details");
+  labelValue("Service", row.service ?? "—");
+  labelValue("PO", row.po ?? "—");
+  labelValue("FMC", row.fmc_text || row.fmc || "—");
+  labelValue("Mileage", row.mileage != null ? `${row.mileage} mi` : "—");
 
-  if (req.notes?.length) {
-    text("Notes", 14, true);
-    for (const n of req.notes) {
-      text(`• ${n.body}`);
-    }
+  y -= 10;
+
+  heading("Notes");
+  labelValue("Office Notes", row.notes ?? "—");
+  labelValue("Dispatcher Notes", row.dispatch_notes ?? "—");
+
+  // Photos
+  if (row.images && row.images.length) {
     y -= 10;
-  }
+    heading("Photos");
 
-  /* ================================
-      PARTS
-  =================================== */
+    for (const img of row.images.slice(0, 6)) {
+      if (!img.url_full) continue;
 
-  if (req.parts?.length) {
-    text("Parts Used", 14, true);
-    for (const p of req.parts) {
-      text(`• ${safe(p.part_name)} (${safe(p.part_number)})`);
-    }
-    y -= 10;
-  }
-
-  /* ================================
-      PHOTOS (thumbnails)
-  =================================== */
-
-  if (req.photos?.length) {
-    text("Photos", 14, true);
-
-    let x = 40;
-    let rowY = y;
-
-    for (const p of req.photos) {
       try {
-        const bytes = await fetch(p.url).then((r) => r.arrayBuffer());
-        const img = await pdf.embedJpg(bytes);
+        const jpg = await fetch(img.url_full).then((r) => r.arrayBuffer());
+        const embedded = await pdf.embedJpg(jpg);
 
-        page.drawImage(img, {
-          x,
-          y: rowY - 80,
-          width: 100,
-          height: 80,
+        const w = 120;
+        const h = (120 / embedded.width) * embedded.height;
+
+        page.drawImage(embedded, {
+          x: 40,
+          y: y - h,
+          width: w,
+          height: h,
         });
 
-        x += 110;
-        if (x > width - 120) {
-          x = 40;
-          rowY -= 100;
-        }
-      } catch (_) {
-        // ignore if fail
+        y -= h + 10;
+      } catch (err) {
+        console.error("Image embed failed:", err);
       }
     }
-
-    y = rowY - 110;
   }
-
-  /* ================================
-      FOOTER
-  =================================== */
-
-  page.drawText("Generated by Revlet", {
-    x: 40,
-    y: 30,
-    size: 10,
-    font,
-    color: rgb(0.4, 0.4, 0.4),
-  });
 
   return await pdf.save();
 }

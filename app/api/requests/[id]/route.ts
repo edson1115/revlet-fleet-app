@@ -2,65 +2,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { resolveUserScope } from "@/lib/api/scope";
-import { DB_TO_UI_STATUS, UI_TO_DB_STATUS } from "@/lib/status";
 
 export const dynamic = "force-dynamic";
 
-/* --------------------------------------------------------
-   Status helpers
---------------------------------------------------------- */
-function toUiStatus(dbVal?: string | null): string {
-  return DB_TO_UI_STATUS[dbVal ?? ""] ?? dbVal ?? "NEW";
-}
+export async function GET(
+  req: NextRequest,
+  { params }: any
+) {
+  const supabase = supabaseServer();
+  const scope = await resolveUserScope();
+  const id = params.id;
 
-function toDbStatus(uiVal?: string | null): string | null {
-  if (!uiVal) return null;
-  return UI_TO_DB_STATUS[uiVal.toUpperCase()] ?? uiVal;
-}
-
-/* --------------------------------------------------------
-   Allowed transitions by role
---------------------------------------------------------- */
-
-const OFFICE_ALLOWED = new Set([
-  "WAITING_APPROVAL",
-  "WAITING_PARTS",
-  "COMPLETED",
-]);
-
-const DISPATCH_ALLOWED = new Set([
-  "SCHEDULED",
-  "IN_PROGRESS",
-  "RESCHEDULED",
-]);
-
-const TECH_ALLOWED = new Set([
-  "IN_PROGRESS",
-  "COMPLETED",
-  "RESCHEDULED",
-]);
-
-function isTransitionAllowed(role: string, newStatus: string) {
-  switch (role) {
-    case "OFFICE":
-      return OFFICE_ALLOWED.has(newStatus);
-    case "DISPATCH":
-      return DISPATCH_ALLOWED.has(newStatus);
-    case "TECH":
-      return TECH_ALLOWED.has(newStatus);
-    case "ADMIN":
-    case "SUPERADMIN":
-      return true;
-    default:
-      return false;
+  if (!scope.uid) {
+    return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
   }
-}
 
-/* --------------------------------------------------------
-   Load one request with relations
---------------------------------------------------------- */
-async function fetchOne(supabase: any, id: string) {
-  return supabase
+  let query = supabase
     .from("service_requests")
     .select(
       `
@@ -70,180 +27,93 @@ async function fetchOne(supabase: any, id: string) {
       notes,
       dispatch_notes,
       mileage,
-      priority,
       po,
-      fmc_text,
-      company_id,
-      location_id,
-      customer_id,
-      vehicle_id,
-      technician_id,
-      source,
       created_at,
       scheduled_at,
-      completed_at,
-
-      customer:customers(id, name, market),
-      vehicle:vehicles(id, year, make, model, plate, unit_number),
-      location:locations(id, name, market),
-      tech:profiles(id, full_name)
+      scheduled_end_at,
+      customer:customers(name, id),
+      location:locations(name, id),
+      vehicle:vehicles(*),
+      technician:profiles(full_name, id),
+      preferred_window_start,
+      preferred_window_end
     `
     )
     .eq("id", id)
     .maybeSingle();
-}
 
-/* --------------------------------------------------------
-   GET /api/requests/[id]
---------------------------------------------------------- */
-export async function GET(_req: NextRequest, context: { params: Promise<{ id: string }> }) {
-  const { id } = await context.params;
-  const supabase = await supabaseServer();
-  const scope = await resolveUserScope();
+  // SCOPING
+  if (scope.isTech) {
+    query = query.eq("technician_id", scope.uid);
+  }
 
-  if (!scope.uid) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (scope.isCustomer) {
+    query = query.eq("customer_id", scope.customer_id);
+  }
 
-  const { data, error } = await fetchOne(supabase, id);
+  const { data, error } = await query;
 
   if (error || !data) {
-    return NextResponse.json({ error: "Request not found" }, { status: 404 });
+    return NextResponse.json(
+      { ok: false, error: "Request not found" },
+      { status: 404 }
+    );
   }
 
-  /* Enforce market/company/customer access manually */
-  const requestMarket = data.customer?.market || data.location?.market || null;
-
-  if (scope.isSuper) {
-    // always allow
-  } else if (scope.isCustomer) {
-    if (data.customer_id !== scope.customer_id) {
-      return NextResponse.json({ error: "forbidden" }, { status: 403 });
-    }
-  } else if (scope.isTech) {
-    if (data.technician_id !== scope.uid) {
-      return NextResponse.json({ error: "forbidden" }, { status: 403 });
-    }
-  } else if (scope.isInternal) {
-    if (!scope.markets.includes(requestMarket)) {
-      return NextResponse.json({ error: "forbidden" }, { status: 403 });
-    }
-  } else {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
-
-  return NextResponse.json({
-    id: data.id,
-    status: toUiStatus(data.status),
-    service: data.service,
-    notes: data.notes,
-    dispatch_notes: data.dispatch_notes,
-    mileage: data.mileage,
-    priority: data.priority,
-    po: data.po,
-    fmc: data.fmc_text,
-    company_id: data.company_id,
-    created_at: data.created_at,
-    scheduled_at: data.scheduled_at,
-    completed_at: data.completed_at,
-    source: data.source,
-
-    customer: data.customer,
-    vehicle: data.vehicle,
-    location: data.location,
-    technician: data.tech,
-  });
+  return NextResponse.json({ ok: true, request: data });
 }
 
-/* --------------------------------------------------------
-   PATCH /api/requests/[id]
---------------------------------------------------------- */
-export async function PATCH(req: NextRequest, context: { params: Promise<{ id: string }> }) {
-  const { id } = await context.params;
-  const supabase = await supabaseServer();
+export async function PATCH(
+  req: NextRequest,
+  { params }: any
+) {
+  const id = params.id;
+  const supabase = supabaseServer();
   const scope = await resolveUserScope();
 
-  if (!scope.uid) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
-  const body = await req.json().catch(() => ({}));
-  const newStatus = body.status ? toDbStatus(body.status) : null;
-
-  const { data: existing, error: existingErr } = await fetchOne(supabase, id);
-  if (existingErr || !existing) {
-    return NextResponse.json({ error: "Request not found" }, { status: 404 });
+  if (!scope.uid) {
+    return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
   }
 
-  /* ----- Enforce role + market + company access ----- */
-  const reqMarket = existing.customer?.market || existing.location?.market;
+  const body = await req.json();
 
-  if (scope.isSuper) {
-    // always allowed
-  }
-  else if (scope.isCustomer) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
-  else if (scope.isTech) {
-    if (existing.technician_id !== scope.uid) {
-      return NextResponse.json({ error: "forbidden" }, { status: 403 });
-    }
-  }
-  else if (scope.isInternal) {
-    if (!scope.markets.includes(reqMarket)) {
-      return NextResponse.json({ error: "forbidden" }, { status: 403 });
-    }
-  }
-  else {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  let update: any = {};
+
+  // Allowed updates based on role
+
+  if (scope.isTech) {
+    if (body.status === "IN_PROGRESS") update.status = "IN_PROGRESS";
+    if (body.status === "COMPLETED") update.status = "COMPLETED";
+    if (typeof body.mileage === "number") update.mileage = body.mileage;
   }
 
-  /* ----- Validate status transitions ----- */
-  if (newStatus) {
-    const role = scope.role;
-
-    if (!isTransitionAllowed(role, newStatus)) {
-      return NextResponse.json(
-        {
-          error: "status_not_allowed",
-          role,
-          attempted: newStatus,
-        },
-        { status: 403 }
-      );
-    }
+  if (scope.isInternal) {
+    if (body.status) update.status = body.status;
+    if (body.technician_id) update.technician_id = body.technician_id;
+    if (body.scheduled_at) update.scheduled_at = body.scheduled_at;
+    if (body.scheduled_end_at) update.scheduled_end_at = body.scheduled_end_at;
+    if (body.notes) update.notes = body.notes;
+    if (body.dispatch_notes) update.dispatch_notes = body.dispatch_notes;
+    if (body.po) update.po = body.po;
+    if (body.mileage) update.mileage = body.mileage;
   }
 
-  /* ----- Prepare update ----- */
-  const update: any = {};
+  if (scope.isCustomer) {
+    return NextResponse.json(
+      { ok: false, error: "Customers cannot modify requests" },
+      { status: 403 }
+    );
+  }
 
-  if (newStatus) update.status = newStatus;
-  if (body.notes !== undefined) update.notes = body.notes;
-  if (body.dispatch_notes !== undefined) update.dispatch_notes = body.dispatch_notes;
-  if (body.po !== undefined) update.po = body.po;
-  if (body.priority !== undefined) update.priority = body.priority;
-  if (body.mileage !== undefined) update.mileage = Number(body.mileage) || null;
-  if (body.technician_id !== undefined) update.technician_id = body.technician_id;
-  if (body.scheduled_at !== undefined) update.scheduled_at = body.scheduled_at;
-
-  /* ----- Save ----- */
-  const { data: updated, error } = await supabase
+  const { error } = await supabase
     .from("service_requests")
     .update(update)
-    .eq("id", id)
-    .select("*")
-    .single();
+    .eq("id", id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    console.error("PATCH update error:", error);
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({
-    id: updated.id,
-    status: toUiStatus(updated.status),
-    service: updated.service,
-    notes: updated.notes,
-    dispatch_notes: updated.dispatch_notes,
-    mileage: updated.mileage,
-    priority: updated.priority,
-    po: updated.po,
-    scheduled_at: updated.scheduled_at,
-    completed_at: updated.completed_at,
-  });
+  return NextResponse.json({ ok: true });
 }

@@ -8,24 +8,44 @@ export async function scheduleRequest({
 }: {
   requestId: string;
   technicianId: string;
-  start: string; // "14:30"
-  end: string;   // "15:15"
+  start: string; // ISO datetime
+  end: string;   // ISO datetime
 }) {
-  const res = await fetch(`/api/requests/${requestId}/schedule`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+  // 1) Create a schedule_block
+  const blockRes = await fetch(`/api/schedule/set`, {
+    method: "POST",
     credentials: "include",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      request_id: requestId,
       technician_id: technicianId,
-      start_time: start,
-      end_time: end,
+      start_at: start,
+      end_at: end,
     }),
   });
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Failed to schedule: ${err}`);
+  if (!blockRes.ok) {
+    const err = await blockRes.text();
+    throw new Error(`Failed to create schedule block: ${err}`);
   }
 
-  return res.json();
+  // 2) Update the service_request row
+  const patchRes = await fetch(`/api/requests/${requestId}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      status: "SCHEDULED",
+      technician_id: technicianId,
+      scheduled_at: start,
+      scheduled_end_at: end,
+    }),
+  });
+
+  if (!patchRes.ok) {
+    const err = await patchRes.text();
+    throw new Error(`Failed to update request: ${err}`);
+  }
+
+  return patchRes.json();
 }

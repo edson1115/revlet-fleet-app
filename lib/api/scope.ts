@@ -7,7 +7,7 @@ export type UserScope = {
   role: string;
   company_id: string | null;
   customer_id: string | null;
-  markets: string[]; // user_markets.market
+  markets: string[];
   isSuper: boolean;
   isAdmin: boolean;
   isInternal: boolean;
@@ -16,17 +16,25 @@ export type UserScope = {
 };
 
 export async function resolveUserScope(): Promise<UserScope> {
-  const supabase = await supabaseServer();
+  // ❗ DO NOT AWAIT — supabaseServer() is synchronous
+  const supabase = supabaseServer();
 
-  const { data: auth } = await supabase.auth.getUser();
-  const uid = auth?.user?.id || null;
-  const email = auth?.user?.email || null;
+  // Load current auth session
+  const {
+    data: { user },
+  } = await supabase.auth.getUser().catch(() => ({
+    data: { user: null },
+  }));
+
+  const uid = user?.id ?? null;
+  const email = user?.email ?? null;
 
   let role = "UNKNOWN";
   let company_id: string | null = null;
   let customer_id: string | null = null;
   let markets: string[] = [];
 
+  // Load profile only when logged in
   if (uid) {
     const { data: prof } = await supabase
       .from("profiles")
@@ -35,8 +43,8 @@ export async function resolveUserScope(): Promise<UserScope> {
       .maybeSingle();
 
     role = (prof?.role || "UNKNOWN").toUpperCase();
-    company_id = prof?.company_id || null;
-    customer_id = prof?.customer_id || null;
+    company_id = prof?.company_id ?? null;
+    customer_id = prof?.customer_id ?? null;
 
     const { data: m } = await supabase
       .from("user_markets")
@@ -46,6 +54,7 @@ export async function resolveUserScope(): Promise<UserScope> {
     markets = (m || []).map((x) => x.market);
   }
 
+  // Role helpers
   const isSuper = role === "SUPERADMIN";
   const isAdmin = isSuper || role === "ADMIN";
   const isInternal = ["SUPERADMIN", "ADMIN", "OFFICE", "DISPATCH"].includes(role);

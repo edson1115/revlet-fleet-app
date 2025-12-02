@@ -1,61 +1,56 @@
 // app/api/images/list/route.ts
-import { NextResponse, NextRequest } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { NextRequest, NextResponse } from "next/server";
+import { resolveUserScope } from "@/lib/api/scope";
+import { supabaseServer } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
-
-function supabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    "";
-  if (!url || !key) throw new Error("Supabase env vars missing");
-  return createClient(url, key, { auth: { persistSession: false } });
-}
-
-function parseKindFromName(name: string): "before" | "after" | "other" {
-  const m = name.match(/-(before|after|other)\./i);
-  return ((m?.[1] || "other").toLowerCase() as "before" | "after" | "other");
-}
 
 export async function GET(req: NextRequest) {
-  try {
-    const url = new URL(req.url);
-    // Tech page sends a single CSV param encoded once
-    const csv = decodeURIComponent(url.searchParams.get("request_ids") || "");
-    const ids = csv.split(",").map((s) => s.trim()).filter(Boolean);
-    if (!ids.length) return NextResponse.json({ byRequest: {} });
+  const supabase = supabaseServer();
+  const scope = await resolveUserScope();
 
-    const BUCKET = process.env.NEXT_PUBLIC_IMAGES_BUCKET || "work-photos";
-    const sb = supabaseAdmin();
-
-    const byRequest: Record<string, { id: string; kind: string; url_thumb: string; url_work: string; taken_at?: string }[]> = {};
-
-    for (const rid of ids) {
-      const { data: entries, error } = await sb.storage.from(BUCKET).list(rid, { limit: 200 });
-      if (error) {
-        byRequest[rid] = [];
-        continue;
-      }
-      const rows =
-        entries?.filter((e) => e.name && !e.name.endsWith("/")).map((e) => {
-          const path = `${rid}/${e.name}`;
-          const { data: pub } = sb.storage.from(BUCKET).getPublicUrl(path);
-          return {
-            id: path,
-            kind: parseKindFromName(e.name),
-            url_work: pub?.publicUrl || "",
-            url_thumb: pub?.publicUrl || "",
-            taken_at: e.created_at || undefined,
-          };
-        }) || [];
-      byRequest[rid] = rows;
-    }
-
-    return NextResponse.json({ byRequest });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Failed to list images" }, { status: 400 });
+  if (!scope.uid) {
+    return NextResponse.json(
+      { ok: false, error: "Not authenticated" },
+      { status: 401 }
+    );
   }
+
+  const url = new URL(req.url);
+  const idsRaw = url.searchParams.get("request_ids");
+
+  if (!idsRaw) {
+    return NextResponse.json(
+      { ok: false, error: "Missing request_ids" },
+      { status: 400 }
+    );
+  }
+
+  const ids = idsRaw.split(",").map((x) => x.trim());
+
+  const { data, error } = await supabase
+    .from("images")
+    .select("*")
+    .in("request_id", ids)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("/api/images/list error:", error);
+    return NextResponse.json(
+      { ok: false, error: error.message },
+      { status: 500 }
+    );
+  }
+
+  // Group by request ID
+  const grouped: Record<string, any[]> = {};
+  for (const row of data || []) {
+    if (!grouped[row.request_id]) grouped[row.request_id] = [];
+    grouped[row.request_id].push(row);
+  }
+
+  return NextResponse.json({
+    ok: true,
+    byRequest: grouped,
+  });
 }

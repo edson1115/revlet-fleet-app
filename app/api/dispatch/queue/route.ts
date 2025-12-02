@@ -1,53 +1,99 @@
 // app/api/dispatch/queue/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import { resolveUserScope } from "@/lib/api/scope";
 
 export const dynamic = "force-dynamic";
 
-/**
- * GET /api/dispatch/queue?status=ready|scheduled|all&limit=200
- * - ready: items Office sent for dispatch (READY_FOR_DISPATCH or NEW if you want)
- * - scheduled: items already scheduled (SCHEDULED_IN_SESSION)
- */
-export async function GET(req: Request) {
-  const supabase = await supabaseServer();
-  const url = new URL(req.url);
-  const status = (url.searchParams.get("status") || "ready").toLowerCase();
-  const limit = Math.min(parseInt(url.searchParams.get("limit") || "200", 10), 500);
+function toUiStatus(s: string | null): string {
+  if (!s) return "NEW";
+  return s.replace(/_/g, " ").toUpperCase();
+}
 
-  const { data: auth } = await supabase.auth.getUser();
-  const uid = auth?.user?.id || null;
-  if (!uid) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+export async function GET() {
+  try {
+    const supabase = await supabaseServer();
+    const scope = await resolveUserScope();
 
-  // must be DISPATCHER or ADMIN to use this API
-  const { data: prof } = await supabase
-    .from("profiles")
-    .select("company_id, role")
-    .eq("id", uid)
-    .maybeSingle();
+    if (!scope.uid) {
+      return NextResponse.json([], { status: 401 });
+    }
 
-  const role = String(prof?.role || "").toUpperCase();
-  if (!["DISPATCHER", "ADMIN"].includes(role)) {
-    return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
+    // -----------------------------------------
+    // Build base query
+    // -----------------------------------------
+    let q = supabase
+      .from("service_requests")
+      .select(
+        `
+        id,
+        status,
+        service,
+        customer_id,
+        scheduled_at,
+        eta_start,
+        eta_end,
+        vehicle:vehicles(id, year, make, model, plate, unit_number),
+        customer:customers(id, name)
+      `
+      )
+      .in("status", [
+        "NEW",
+        "WAITING_TO_BE_SCHEDULED",
+        "RESCHEDULE",
+      ])
+      .order("created_at", { ascending: false });
+
+    // -----------------------------------------
+    // Role scoping
+    // -----------------------------------------
+    if (scope.isSuper) {
+      // no restrictions
+    } 
+    else if (scope.isCustomer) {
+      q = q.eq("customer_id", scope.customer_id);
+    } 
+    else if (scope.isTech) {
+      q = q.eq("technician_id", scope.uid);
+    }
+    else if (scope.isInternal) {
+      if (scope.markets.length) {
+        q = q.in("market", scope.markets);
+      } else {
+        return NextResponse.json([]);
+      }
+    } 
+    else {
+      return NextResponse.json([]);
+    }
+
+    // -----------------------------------------
+    // Exec
+    // -----------------------------------------
+    const { data, error } = await q;
+
+    if (error) {
+      console.error("Queue API error:", error);
+      return NextResponse.json([], { status: 500 });
+    }
+
+    // -----------------------------------------
+    // Normalize rows for UI
+    // -----------------------------------------
+    const rows = (data || []).map((r: any) => ({
+      id: r.id,
+      status: toUiStatus(r.status),
+      service: r.service,
+      customer: r.customer ? { id: r.customer.id, name: r.customer.name } : null,
+      vehicle: r.vehicle || null,
+      scheduled_at: r.scheduled_at,
+      eta_start: r.eta_start,
+      eta_end: r.eta_end,
+    }));
+
+    return NextResponse.json(rows);
+  } catch (err: any) {
+    console.error("Queue route crash:", err);
+    return NextResponse.json([], { status: 500 });
   }
-
-  const company_id = prof?.company_id || null;
-
-  let q = supabase
-    .from("service_requests")
-    .select("id, company_id, status, technician_id, customer_id, vehicle_id, location_id, scheduled_for, created_at, notes, po_number", { count: "exact" })
-    .order("created_at", { ascending: false })
-    .limit(limit);
-
-  if (company_id) q = q.eq("company_id", company_id);
-
-  if (status === "ready") {
-    q = q.in("status", ["READY_FOR_DISPATCH", "NEW"]); // include NEW if you want dispatch to grab straight away
-  } else if (status === "scheduled") {
-    q = q.eq("status", "SCHEDULED_IN_SESSION");
-  } // else all
-
-  const { data, error } = await q;
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true, data });
 }

@@ -1,76 +1,92 @@
 // app/api/images/upload/route.ts
-import { NextResponse, NextRequest } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { NextRequest, NextResponse } from "next/server";
+import { supabaseAdmin } from "@/lib/supabase/admin"; // you already have this
+import { resolveUserScope } from "@/lib/api/scope";
+import { randomUUID } from "crypto";
 
-export const dynamic = "force-dynamic"; // no caching
-export const runtime = "nodejs";
-
-function supabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    "";
-  if (!url || !key) throw new Error("Supabase env vars missing: SUPABASE_SERVICE_ROLE");
-  return createClient(url, key, { auth: { persistSession: false } });
-}
-
-function extFromType(t?: string | null) {
-  if (!t) return "bin";
-  const s = t.toLowerCase();
-  if (s.includes("jpeg")) return "jpg";
-  if (s.includes("png")) return "png";
-  if (s.includes("webp")) return "webp";
-  if (s.includes("heic")) return "heic";
-  if (s.includes("heif")) return "heif";
-  return "bin";
-}
+export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  try {
-    const form = await req.formData();
+  const scope = await resolveUserScope();
+  if (!scope.uid) {
+    return NextResponse.json(
+      { ok: false, error: "Not authenticated" },
+      { status: 401 }
+    );
+  }
 
-    // accept "file", "image", or "files" (take the first)
-    let file = (form.get("file") as File | null) || (form.get("image") as File | null);
-    if (!file) {
-      const files = form.getAll("files").filter((f) => f instanceof File) as File[];
-      file = files[0] || null;
-    }
+  const form = await req.formData();
+  const file = form.get("file") as File | null;
+  const request_id = form.get("request_id") as string | null;
+  const kind = (form.get("kind") as string | null) ?? "before";
 
-    const request_id = (form.get("request_id") as string | null)?.trim();
-    const kind = ((form.get("kind") as string | null) || "other").trim(); // before|after|other
+  if (!file) {
+    return NextResponse.json(
+      { ok: false, error: "No file uploaded" },
+      { status: 400 }
+    );
+  }
 
-    if (!file) return NextResponse.json({ error: "Missing file" }, { status: 400 });
-    if (!request_id) return NextResponse.json({ error: "Missing request_id" }, { status: 400 });
+  if (!request_id) {
+    return NextResponse.json(
+      { ok: false, error: "Missing request_id" },
+      { status: 400 }
+    );
+  }
 
-    const BUCKET = process.env.NEXT_PUBLIC_IMAGES_BUCKET || "work-photos";
-    const sb = supabaseAdmin();
+  const supabase = supabaseAdmin();
 
-    const contentType = file.type || "application/octet-stream";
-    const ext = extFromType(contentType);
-    const ts = Date.now();
-    const objectName = `${request_id}/${ts}-${kind}.${ext}`;
+  // Convert to ArrayBuffer → Buffer
+  const buf = Buffer.from(await file.arrayBuffer());
 
-    const arrayBuffer = await file.arrayBuffer();
-    const { error: upErr } = await sb.storage.from(BUCKET).upload(objectName, Buffer.from(arrayBuffer), {
-      contentType,
+  const ext = file.type.includes("png") ? "png" : "jpg";
+  const id = randomUUID();
+  const path = `requests/${request_id}/${id}.${ext}`;
+
+  // Upload to bucket
+  const { error: upErr } = await supabase.storage
+    .from("images")
+    .upload(path, buf, {
+      contentType: file.type,
       upsert: false,
     });
-    if (upErr) return NextResponse.json({ error: upErr.message }, { status: 400 });
 
-    const { data: pub } = sb.storage.from(BUCKET).getPublicUrl(objectName);
-    const url_work = pub?.publicUrl || null;
-
-    return NextResponse.json({
-      ok: true,
-      file: { request_id, kind, object: objectName, contentType, url_work, url_thumb: url_work },
-    });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Upload failed" }, { status: 400 });
+  if (upErr) {
+    console.error("Upload failed:", upErr);
+    return NextResponse.json(
+      { ok: false, error: upErr.message },
+      { status: 500 }
+    );
   }
-}
 
-// Optional: quick GET ping for easy route verification in browser
-export async function GET() {
-  return NextResponse.json({ ok: true, expects: "POST multipart/form-data with file|image|files[]" });
+  // Get public URLs
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from("images").getPublicUrl(path);
+
+  // Insert DB metadata
+  const { data: image, error: insertErr } = await supabase
+    .from("images")
+    .insert({
+      id,
+      request_id,
+      uploader_id: scope.uid,
+      kind,
+      url_thumb: publicUrl,
+      url_work: publicUrl,
+      ai_labels: [],
+      ai_damage_detected: false,
+    })
+    .select("*")
+    .maybeSingle();
+
+  if (insertErr) {
+    console.error("Insert image row failed:", insertErr);
+    return NextResponse.json(
+      { ok: false, error: insertErr.message },
+      { status: 500 }
+    );
+  }
+
+  return NextResponse.json({ ok: true, image });
 }

@@ -1,56 +1,38 @@
 // app/page.tsx
 import { redirect } from "next/navigation";
-import { supabaseServer } from "@/lib/supabase/server";
-import SignInForm from "@/components/auth/SignInForm";
-import ToastOnMount from "@/components/ToastOnMount";
+import { resolveUserScope } from "@/lib/api/scope";
 
-// server component – searchParams is now a Promise in Next 15
-export default async function Home({
-  searchParams,
-}: {
-  searchParams: Promise<{ msg?: string }>;
-}) {
-  const supabase = await supabaseServer();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+export default async function Home() {
+  const scope = await resolveUserScope();
 
-  if (user) {
-    // role-aware routing when already logged in
-    let role = "VIEWER";
-    const { data: prof } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .maybeSingle();
+  // Not logged in → login
+  if (!scope.uid) return redirect("/login");
 
-    if (prof?.role) role = String(prof.role).toUpperCase();
-    if (role === "TECH") redirect("/tech");
-    redirect("/fm/requests/new");
+  // SUPERADMIN
+  if (scope.role === "SUPERADMIN") {
+    return redirect("/home");
   }
 
-  // not authed: show hero + magic link form
-  const { msg } = await searchParams;
-  const message = msg ?? null;
+  // OFFICE
+  if (scope.role === "OFFICE") {
+    return redirect("/office");
+  }
 
-  return (
-    <main className="relative flex flex-col items-center justify-center min-h-[calc(100vh-64px)] bg-gradient-to-br from-gray-50 via-white to-gray-100">
-      {/* Client shim to show toast when ?msg=signedout */}
-      <ToastOnMount when={message} success="Signed out successfully!" />
+  // DISPATCH
+  if (scope.role === "DISPATCH") {
+    return redirect("/dispatch");
+  }
 
-      <div className="text-center px-6">
-        <h1 className="text-5xl font-semibold mb-3 text-gray-900">Revlet Fleet</h1>
-        <p className="text-gray-600 mb-8">
-          Manage, schedule, and automate your fleet operations with confidence.
-        </p>
-        <div className="mx-auto w-full max-w-md rounded-2xl border bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold mb-2">Sign in</h2>
-          <p className="text-sm text-gray-600 mb-4">
-            Enter your work email and we’ll email you a secure sign-in link.
-          </p>
-          <SignInForm />
-        </div>
-      </div>
-    </main>
-  );
+  // TECHNICIAN
+  if (scope.role === "TECH") {
+    return redirect("/tech");
+  }
+
+  // CUSTOMER
+  if (scope.role === "CUSTOMER" || scope.role === "CUSTOMER_USER") {
+    return redirect("/portal");
+  }
+
+  // Unknown → login
+  return redirect("/login");
 }

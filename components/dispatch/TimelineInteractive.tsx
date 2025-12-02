@@ -1,163 +1,191 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { motion } from "framer-motion";
-
-const SNAP_MINUTES = 15;
-
-function snapToInterval(minutes: number) {
-  return Math.round(minutes / SNAP_MINUTES) * SNAP_MINUTES;
-}
+import React, { useState, useRef, useEffect } from "react";
 
 export default function TimelineInteractive({
-  startHour = 6,
-  endHour = 20,
+  current = null,
+  busyBlocks = [],
   onChange,
+  onDragComplete,
 }: {
-  startHour?: number;
-  endHour?: number;
+  current?: { start_at: string; end_at: string } | null;
+  busyBlocks?: { start_at: string; end_at: string }[];
   onChange?: (range: { start: string; end: string }) => void;
+  onDragComplete?: (range: { start: string; end: string }) => void;
 }) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [startPos, setStartPos] = useState<number | null>(null);
+  const [endPos, setEndPos] = useState<number | null>(null);
 
   const [dragging, setDragging] = useState(false);
-  const [startX, setStartX] = useState<number | null>(null);
-  const [currentX, setCurrentX] = useState<number | null>(null);
+  const dragOffset = useRef<number>(0);
 
-  const totalMinutes = (endHour - startHour) * 60;
+  const refBar = useRef<HTMLDivElement>(null);
 
-  // Convert a pixel position into a time
-  const pxToTime = (px: number) => {
-    if (!containerRef.current) return startHour * 60;
-    const rect = containerRef.current.getBoundingClientRect();
-    const clamped = Math.max(rect.left, Math.min(px, rect.right));
-    const pct = (clamped - rect.left) / rect.width;
-    const minutes = Math.floor(pct * totalMinutes);
-    return startHour * 60 + snapToInterval(minutes);
-  };
+  /////////////////////////////////////////////////////////
+  // Helpers
+  /////////////////////////////////////////////////////////
+  function pxToIso(px: number) {
+    const bar = refBar.current;
+    if (!bar) return null;
 
-  // Format minutes → HH:MM
-  const fmt = (m: number) => {
-    const h = Math.floor(m / 60);
-    const mm = m % 60;
-    return `${h}:${mm.toString().padStart(2, "0")}`;
-  };
+    const rect = bar.getBoundingClientRect();
+    const ratio = (px - rect.left) / rect.width;
 
-  const handleMouseDown = (e: React.MouseEvent) => {
-    setDragging(true);
-    setStartX(e.clientX);
-    setCurrentX(e.clientX);
-  };
+    const msStart = new Date().setHours(0, 0, 0, 0);
+    const msEnd = msStart + 24 * 60 * 60 * 1000;
 
-  const handleMouseMove = (e: MouseEvent) => {
-    if (!dragging) return;
-    setCurrentX(e.clientX);
-  };
+    const stamp = msStart + ratio * (msEnd - msStart);
+    return new Date(stamp).toISOString();
+  }
 
-  const handleMouseUp = () => {
-    if (!dragging || !startX || !currentX) {
-      setDragging(false);
-      return;
-    }
-    setDragging(false);
+  function blockToPercent(startISO: string, endISO: string) {
+    const dayStart = new Date().setHours(0, 0, 0, 0);
+    const dayEnd = dayStart + 24 * 60 * 60 * 1000;
 
-    const start = pxToTime(Math.min(startX, currentX));
-    const end = pxToTime(Math.max(startX, currentX));
-
-    if (onChange) {
-      onChange({ start: fmt(start), end: fmt(end) });
-    }
-  };
-
-  // Event listeners for dragging
-  useEffect(() => {
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-    };
-  });
-
-  // Computed UI block positions
-  const blockData = (() => {
-    if (!dragging || !startX || !currentX || !containerRef.current) return null;
-
-    const rect = containerRef.current.getBoundingClientRect();
-    const leftPx = Math.min(startX, currentX) - rect.left;
-    const rightPx = Math.max(startX, currentX) - rect.left;
+    const s = new Date(startISO).getTime();
+    const e = new Date(endISO).getTime();
 
     return {
-      left: Math.max(0, leftPx),
-      width: Math.max(2, rightPx - leftPx),
+      left: ((s - dayStart) / (dayEnd - dayStart)) * 100,
+      width: ((e - dayStart) / (dayEnd - dayStart)) * 100 - ((s - dayStart) / (dayEnd - dayStart)) * 100,
     };
-  })();
+  }
 
+  /////////////////////////////////////////////////////////
+  // Mouse Events
+  /////////////////////////////////////////////////////////
+  function handleStart(e: React.MouseEvent) {
+    const bar = refBar.current;
+    if (!bar) return;
+
+    // Check if user clicked ON the green scheduled block
+    if (current) {
+      const block = blockToPercent(current.start_at, current.end_at);
+      const rect = bar.getBoundingClientRect();
+
+      const pxLeft = rect.left + (block.left / 100) * rect.width;
+      const pxRight = pxLeft + (block.width / 100) * rect.width;
+
+      if (e.clientX >= pxLeft && e.clientX <= pxRight) {
+        // START DRAG
+        setDragging(true);
+        dragOffset.current = e.clientX - pxLeft;
+        return;
+      }
+    }
+
+    // NEW SELECTION
+    setStartPos(e.clientX);
+    setEndPos(null);
+  }
+
+  function handleDrag(e: React.MouseEvent) {
+    if (dragging && current) {
+      const bar = refBar.current;
+      if (!bar) return;
+
+      const rect = bar.getBoundingClientRect();
+      const blockWidth =
+        blockToPercent(current.start_at, current.end_at).width;
+
+      // New left position
+      const newLeftPx = e.clientX - dragOffset.current;
+
+      const startIso = pxToIso(newLeftPx);
+      const endIso = pxToIso(
+        newLeftPx + (blockWidth / 100) * rect.width
+      );
+
+      if (startIso && endIso && onChange) {
+        onChange({ start: startIso, end: endIso });
+      }
+      return;
+    }
+
+    if (startPos !== null) {
+      setEndPos(e.clientX);
+    }
+  }
+
+  function handleEnd() {
+    if (dragging && onDragComplete && startPos === null) {
+      // Drag complete
+      if (onChange) {
+        onDragComplete({
+          start: onChange.start,
+          end: onChange.end,
+        } as any);
+      }
+    }
+
+    if (startPos !== null && endPos !== null && onChange) {
+      const start = Math.min(startPos, endPos);
+      const end = Math.max(startPos, endPos);
+      const isoStart = pxToIso(start);
+      const isoEnd = pxToIso(end);
+      if (isoStart && isoEnd) onChange({ start: isoStart, end: isoEnd });
+    }
+
+    setDragging(false);
+    setStartPos(null);
+    setEndPos(null);
+  }
+
+  /////////////////////////////////////////////////////////
+  // Render
+  /////////////////////////////////////////////////////////
   return (
-    <div className="w-full select-none">
-      {/* LABEL */}
-      <div className="text-xs text-gray-500 mb-2 pl-1 tracking-wide">
-        Select a service time
-      </div>
-
-      {/* TIMELINE BODY */}
+    <div className="space-y-2 select-none">
       <div
-        ref={containerRef}
-        onMouseDown={handleMouseDown}
-        className="
-          relative w-full h-16 bg-[#F5F5F5]
-          rounded-xl shadow-inner cursor-pointer
-        "
+        ref={refBar}
+        onMouseDown={handleStart}
+        onMouseMove={handleDrag}
+        onMouseUp={handleEnd}
+        className="relative h-16 bg-gray-100 rounded-lg overflow-hidden border border-gray-300 cursor-crosshair"
       >
-        {/* Hour ticks */}
-        <div className="absolute w-full h-full flex justify-between px-2 items-end pb-1">
-          {Array.from({ length: endHour - startHour + 1 }).map((_, i) => {
-            const hour = startHour + i;
-            return (
-              <div key={hour} className="flex flex-col items-center">
-                <div className="w-[1px] h-4 bg-gray-400 mb-1" />
-                <span className="text-[10px] text-gray-500">{hour}:00</span>
-              </div>
-            );
-          })}
-        </div>
+        {/* BUSY BLOCKS (gray) */}
+        {busyBlocks.map((b, i) => {
+          const { left, width } = blockToPercent(b.start_at, b.end_at);
+          return (
+            <div
+              key={i}
+              className="absolute top-0 h-full bg-gray-400/50 rounded"
+              style={{ left: `${left}%`, width: `${width}%` }}
+            />
+          );
+        })}
 
-        {/* SELECTION BLOCK */}
-        {blockData && (
-          <motion.div
-            className="
-              absolute top-1/2 -translate-y-1/2 h-8
-              bg-[#80FF44]/40
-              rounded-lg border border-[#80FF44]
-            "
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.15 }}
+        {/* CURRENT SCHEDULED BLOCK (green) */}
+        {current && (
+          <div
+            className="absolute top-0 h-full rounded bg-[#80FF44]/40 border border-[#80FF44]"
             style={{
-              left: blockData.left,
-              width: blockData.width,
+              left: `${blockToPercent(current.start_at, current.end_at).left}%`,
+              width: `${blockToPercent(current.start_at, current.end_at).width}%`,
+            }}
+          />
+        )}
+
+        {/* NEW SELECTION */}
+        {startPos !== null && endPos !== null && (
+          <div
+            className="absolute top-0 h-full bg-green-300/40 rounded"
+            style={{
+              left: `${Math.min(startPos, endPos) -
+                refBar.current!.getBoundingClientRect().left}px`,
+              width: `${Math.abs(endPos - startPos)}px`,
             }}
           />
         )}
       </div>
 
-      {/* LIVE READOUT */}
-      {dragging && blockData && (
-        <div className="mt-3 text-sm text-gray-700 flex justify-between">
-          <span>
-            Start:{" "}
-            <b>
-              {fmt(pxToTime(Math.min(startX!, currentX!)))}
-            </b>
-          </span>
-          <span>
-            End:{" "}
-            <b>
-              {fmt(pxToTime(Math.max(startX!, currentX!)))}
-            </b>
-          </span>
-        </div>
-      )}
+      <div className="flex justify-between text-xs text-gray-500 px-1">
+        <span>12 AM</span>
+        <span>6 AM</span>
+        <span>12 PM</span>
+        <span>6 PM</span>
+        <span>12 AM</span>
+      </div>
     </div>
   );
 }

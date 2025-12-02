@@ -2,11 +2,14 @@
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
-export async function supabaseServer() {
-  // Next.js 15: cookies() is async — await it
-  const cookieStore = await cookies();
+/**
+ * Server-side Supabase client
+ * Works correctly with Next.js 15 cookie API (NO AWAIT)
+ */
+export function supabaseServer() {
+  const cookieStore = cookies(); // ❗ Must NOT be awaited
 
-  const supabase = createServerClient(
+  return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -15,21 +18,20 @@ export async function supabaseServer() {
           return cookieStore.get(name)?.value;
         },
         set(name: string, value: string, options: any) {
-          cookieStore.set({ name, value, ...options });
+          try {
+            cookieStore.set(name, value, options);
+          } catch (err) {
+            console.warn("[supabaseServer] cookie.set ignored:", err);
+          }
         },
         remove(name: string, options: any) {
-          // delete is supported on Next 15 cookies store
-          // fall back to set with maxAge=0 if your Next version lacks delete()
           try {
-            // @ts-ignore
-            cookieStore.delete?.({ name, ...options });
-          } catch {
-            cookieStore.set({ name, value: "", ...options, maxAge: 0 });
+            cookieStore.delete(name, options);
+          } catch (err) {
+            console.warn("[supabaseServer] cookie.delete ignored:", err);
           }
         },
       },
     }
   );
-
-  return supabase;
 }

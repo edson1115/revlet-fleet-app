@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import NotesBox from "@/components/NotesBox";
 import { useRequestPhotos } from "@/hooks/useRequestPhotos";
+import PDFButton from "@/components/PDFButton";
+
 
 // TESLA LIGHT COMPONENTS
 import { TeslaServiceCard } from "@/components/tesla/TeslaServiceCard";
@@ -93,6 +95,9 @@ export default function OfficeRequestDetailPage() {
   const [schedAt, setSchedAt] = useState<string>("");
   const [techs, setTechs] = useState<Tech[]>([]);
   const [techId, setTechId] = useState<UUID | "">("");
+
+  // Photos hook
+  const { photos } = useRequestPhotos(id);
 
   const canStart = useMemo(
     () => row && (row.status === "NEW" || row.status === "SCHEDULED"),
@@ -250,21 +255,40 @@ export default function OfficeRequestDetailPage() {
       </div>
 
       <TeslaHeroBar
-  title={`Request #${row.id.slice(0, 8)}`}
-  status={row.status}
-  meta={[
-    { label: "Customer", value: row.customer?.name ?? "—" },
-    { label: "Vehicle", value: row.vehicle ? `${row.vehicle.year ?? ""} ${row.vehicle.make ?? ""} ${row.vehicle.model ?? ""}` : "—" },
-    { label: "Created", value: row.created_at ? new Date(row.created_at).toLocaleString() : "—" }
-  ]}
-/>
-
+        title={`Request #${row.id.slice(0, 8)}`}
+        status={row.status}
+        meta={[
+          { label: "Customer", value: row.customer?.name ?? "—" },
+          {
+            label: "Vehicle",
+            value: row.vehicle
+              ? `${row.vehicle.year ?? ""} ${row.vehicle.make ?? ""} ${
+                  row.vehicle.model ?? ""
+                }`
+              : "—",
+          },
+          {
+            label: "Created",
+            value: row.created_at
+              ? new Date(row.created_at).toLocaleString()
+              : "—",
+          },
+        ]}
+      />
 
       {/* SUMMARY */}
       <TeslaServiceCard title="Request Summary" badge={row.status}>
         <TeslaSection label="Customer">
           <TeslaKV k="Name" v={row.customer?.name ?? "—"} />
         </TeslaSection>
+
+        <TeslaSection label="AutoIntegrate">
+        <AiStatusBadge status={row.ai_status} po={row.ai_po_number} />
+          <div className="mt-2">
+       <AiRefreshButton requestId={row.id} />
+          </div>
+          </TeslaSection>
+
 
         <TeslaSection label="Location">
           <TeslaKV k="Shop" v={row.location?.name ?? "—"} />
@@ -277,6 +301,37 @@ export default function OfficeRequestDetailPage() {
         <TeslaSection label="Technician">
           <TeslaKV k="Assigned" v={row.technician?.full_name ?? "—"} />
         </TeslaSection>
+
+        {/* PDF BUTTON ADDED HERE */}
+        {row.status !== "NEW" && (
+          <div className="pt-2">
+            <button
+              onClick={async () => {
+                try {
+                  const resp = await fetch(
+                    `/api/requests/${row.id}/pdf/generate`,
+                    {
+                      method: "GET",
+                      credentials: "include",
+                    }
+                  );
+                  const js = await resp.json();
+                  if (!js?.url) {
+                    alert("PDF generation failed.");
+                    return;
+                  }
+                  window.open(js.url, "_blank");
+                } catch (err) {
+                  console.error(err);
+                  alert("PDF error");
+                }
+              }}
+              className="w-full mt-3 bg-black text-white py-2.5 rounded-lg text-sm font-medium hover:bg-gray-800 transition"
+            >
+              Download PDF
+            </button>
+          </div>
+        )}
       </TeslaServiceCard>
 
       {/* EDIT DETAILS */}
@@ -350,32 +405,15 @@ export default function OfficeRequestDetailPage() {
 
         {/* ACTIONS */}
         <div className="flex gap-2 pt-4">
-          <button
-            className="px-4 py-2 rounded-lg bg-black text-white"
-            disabled={saving}
-            onClick={onSave}
-          >
-            {saving ? "Saving…" : "Save Changes"}
-          </button>
+  <button>Save Changes</button>
+  <button>Schedule...</button>
+  {canStart && <button>Start</button>}
+  {canComplete && <button>Complete</button>}
 
-          <button
-            className="px-4 py-2 rounded-lg border"
-            onClick={openSchedule}
-          >
-            Schedule…
-          </button>
+  <PDFButton requestId={row.id} />
+</div>
 
-          {canStart && (
-            <button className="px-4 py-2 rounded-lg border">
-              Start
-            </button>
-          )}
-          {canComplete && (
-            <button className="px-4 py-2 rounded-lg border">
-              Complete
-            </button>
-          )}
-        </div>
+
       </TeslaServiceCard>
 
       {/* TIMELINE */}
@@ -406,27 +444,27 @@ export default function OfficeRequestDetailPage() {
         )}
       </TeslaServiceCard>
 
+      {/* PHOTOS */}
       <TeslaServiceCard title="Photos">
-  {photos.length === 0 && (
-    <div className="text-sm text-gray-500">No photos uploaded.</div>
-  )}
+        {photos.length === 0 && (
+          <div className="text-sm text-gray-500">No photos uploaded.</div>
+        )}
 
-  <div className="grid grid-cols-2 gap-4 mt-4">
-    {photos.map((p) => (
-      <div key={p.id} className="relative">
-        <img
-          src={p.url}
-          className="w-full h-32 object-cover rounded-lg border cursor-pointer"
-          onClick={() => window.open(p.url, "_blank")}
-        />
-        <span className="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] px-2 py-1 rounded">
-          {p.kind.toUpperCase()}
-        </span>
-      </div>
-    ))}
-  </div>
-</TeslaServiceCard>
-
+        <div className="grid grid-cols-2 gap-4 mt-4">
+          {photos.map((p) => (
+            <div key={p.id} className="relative">
+              <img
+                src={p.url}
+                className="w-full h-32 object-cover rounded-lg border cursor-pointer"
+                onClick={() => window.open(p.url, "_blank")}
+              />
+              <span className="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] px-2 py-1 rounded">
+                {p.kind.toUpperCase()}
+              </span>
+            </div>
+          ))}
+        </div>
+      </TeslaServiceCard>
 
       {/* NOTES */}
       <TeslaServiceCard title="Notes">

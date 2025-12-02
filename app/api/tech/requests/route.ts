@@ -1,123 +1,82 @@
 // app/api/tech/requests/route.ts
-
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import { resolveUserScope } from "@/lib/api/scope";
 
 export const dynamic = "force-dynamic";
 
-// GET /api/tech/requests
-export async function GET(req: Request) {
-  try {
-    const supabase = await supabaseServer(); // ✅ FIXED
+export async function GET(_req: NextRequest) {
+  const supabase = supabaseServer();
+  const scope = await resolveUserScope();
 
-    // Authenticate user
-    const { data: authData, error: authErr } = await supabase.auth.getUser();
-    if (authErr || !authData?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  // Must be TECH role
+  if (!scope.isTech || !scope.uid) {
+    return NextResponse.json(
+      { error: "Forbidden — tech only" },
+      { status: 403 }
+    );
+  }
 
-    const userId = authData.user.id;
+  // ---------------------------------------------------------
+  // Pull technician’s scheduled jobs
+  // ---------------------------------------------------------
+  const { data, error } = await supabase
+    .from("service_requests")
+    .select(
+      `
+        id,
+        status,
+        service,
+        dispatch_notes,
+        scheduled_at,
+        created_at,
 
-    // Look up company + technician profile for this user
-    const { data: prof, error: profErr } = await supabase
-      .from("profiles")
-      .select("company_id, technician_id")
-      .eq("id", userId)
-      .maybeSingle();
-
-    if (profErr || !prof) {
-      return NextResponse.json({ error: "Profile not found" }, { status: 400 });
-    }
-
-    const { company_id, technician_id } = prof;
-
-    if (!company_id || !technician_id) {
-      return NextResponse.json(
-        { error: "Technician profile incomplete" },
-        { status: 400 }
-      );
-    }
-
-    // Fetch service requests assigned to this tech
-    const { data: rows, error: reqErr } = await supabase
-      .from("service_requests")
-      .select(
-        `
+        vehicle:vehicles (
           id,
-          status,
-          service,
-          mileage,
-          po,
-          notes,
-          dispatch_notes,
-          scheduled_at,
-          started_at,
-          completed_at,
-          customer:customer_id ( id, name ),
-          vehicle:vehicle_id ( id, year, make, model, unit_number, plate ),
-          location:location_id ( id, name )
-        `
-      )
-      .eq("company_id", company_id)
-      .eq("technician_id", technician_id)
-      .order("created_at", { ascending: false });
+          year,
+          make,
+          model,
+          plate,
+          unit_number
+        ),
 
-    if (reqErr) {
-      return NextResponse.json({ error: reqErr.message }, { status: 400 });
-    }
+        customer:customers (
+          id,
+          name
+        ),
 
-    return NextResponse.json({ rows }, { status: 200 });
-  } catch (err: any) {
+        location:locations (
+          id,
+          name
+        )
+      `
+    )
+    .eq("technician_id", scope.uid)
+    .order("scheduled_at", { ascending: true });
+
+  if (error) {
+    console.error("Tech requests error:", error);
     return NextResponse.json(
-      { error: err?.message ?? "Server error" },
+      { error: error.message },
       { status: 500 }
     );
   }
-}
 
-// PATCH /api/tech/requests
-export async function PATCH(req: Request) {
-  try {
-    const supabase = await supabaseServer(); // ✅ FIXED
+  // ---------------------------------------------------------
+  // Normalize results
+  // Tesla UI expects a flat structure
+  // ---------------------------------------------------------
+  const rows = (data || []).map((r) => ({
+    id: r.id,
+    status: r.status,
+    service: r.service,
+    dispatch_notes: r.dispatch_notes,
+    scheduled_at: r.scheduled_at,
+    created_at: r.created_at,
+    vehicle: Array.isArray(r.vehicle) ? r.vehicle[0] : r.vehicle,
+    customer: Array.isArray(r.customer) ? r.customer[0] : r.customer,
+    location: Array.isArray(r.location) ? r.location[0] : r.location,
+  }));
 
-    const body = await req.json();
-    const { id, status, notes, mileage } = body;
-
-    if (!id) {
-      return NextResponse.json({ error: "Missing id" }, { status: 400 });
-    }
-
-    // Validate user
-    const { data: authData, error: authErr } = await supabase.auth.getUser();
-    if (authErr || !authData?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    // Apply update
-    const { data, error: updErr } = await supabase
-      .from("service_requests")
-      .update({
-        status: status ?? undefined,
-        notes: notes ?? undefined,
-        mileage: mileage ?? undefined,
-        started_at:
-          status === "IN_PROGRESS" ? new Date().toISOString() : undefined,
-        completed_at:
-          status === "COMPLETED" ? new Date().toISOString() : undefined,
-      })
-      .eq("id", id)
-      .select()
-      .single();
-
-    if (updErr) {
-      return NextResponse.json({ error: updErr.message }, { status: 400 });
-    }
-
-    return NextResponse.json(data, { status: 200 });
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: err?.message ?? "Server error" },
-      { status: 500 }
-    );
-  }
+  return NextResponse.json(rows);
 }
