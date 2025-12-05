@@ -10,3 +10,6 @@ export default function MainContainer({ children }: { children: ReactNode }) {
     </div>
   );
 }
+
+
+

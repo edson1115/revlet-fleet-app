@@ -1,6 +1,6 @@
 // app/api/images/upload/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin"; // you already have this
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { resolveUserScope } from "@/lib/api/scope";
 import { randomUUID } from "crypto";
 
@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   const scope = await resolveUserScope();
+
   if (!scope.uid) {
     return NextResponse.json(
       { ok: false, error: "Not authenticated" },
@@ -18,7 +19,17 @@ export async function POST(req: NextRequest) {
   const form = await req.formData();
   const file = form.get("file") as File | null;
   const request_id = form.get("request_id") as string | null;
-  const kind = (form.get("kind") as string | null) ?? "before";
+
+  // BEFORE | AFTER | OTHER
+  const kind = (form.get("kind") as string | null)?.toLowerCase() || "before";
+  const allowedKinds = ["before", "after", "other"];
+
+  if (!allowedKinds.includes(kind)) {
+    return NextResponse.json(
+      { ok: false, error: "Invalid kind. Must be before|after|other" },
+      { status: 400 }
+    );
+  }
 
   if (!file) {
     return NextResponse.json(
@@ -36,42 +47,68 @@ export async function POST(req: NextRequest) {
 
   const supabase = supabaseAdmin();
 
-  // Convert to ArrayBuffer → Buffer
-  const buf = Buffer.from(await file.arrayBuffer());
+  // 🚧 Validate tech owns this request (good security)
+  const { data: srCheck, error: srErr } = await supabase
+    .from("service_requests")
+    .select("id, technician_id")
+    .eq("id", request_id)
+    .maybeSingle();
 
-  const ext = file.type.includes("png") ? "png" : "jpg";
+  if (srErr || !srCheck) {
+    return NextResponse.json(
+      { ok: false, error: "Invalid request_id" },
+      { status: 404 }
+    );
+  }
+
+  if (scope.isTech && srCheck.technician_id !== scope.uid) {
+    return NextResponse.json(
+      { ok: false, error: "Not authorized for this request" },
+      { status: 403 }
+    );
+  }
+
+  // Convert to buffer
+  const buffer = Buffer.from(await file.arrayBuffer());
+
+  // Choose extension based on MIME
+  const mime = file.type.toLowerCase();
+  const ext = mime.includes("png") ? "png" : "jpg";
+
   const id = randomUUID();
-  const path = `requests/${request_id}/${id}.${ext}`;
+  const filename = `${id}.${ext}`;
+  const path = `requests/${request_id}/${kind}/${filename}`;
 
-  // Upload to bucket
-  const { error: upErr } = await supabase.storage
+  // Upload to Supabase Storage
+  const { error: uploadErr } = await supabase.storage
     .from("images")
-    .upload(path, buf, {
-      contentType: file.type,
+    .upload(path, buffer, {
+      contentType: mime,
       upsert: false,
     });
 
-  if (upErr) {
-    console.error("Upload failed:", upErr);
+  if (uploadErr) {
+    console.error("Upload failed:", uploadErr);
     return NextResponse.json(
-      { ok: false, error: upErr.message },
+      { ok: false, error: uploadErr.message },
       { status: 500 }
     );
   }
 
-  // Get public URLs
+  // Generate public URL
   const {
     data: { publicUrl },
   } = supabase.storage.from("images").getPublicUrl(path);
 
-  // Insert DB metadata
+  // Insert into request_images (correct table)
   const { data: image, error: insertErr } = await supabase
-    .from("images")
+    .from("request_images")
     .insert({
       id,
       request_id,
       uploader_id: scope.uid,
-      kind,
+      kind, // "before" | "after" | "other"
+      path,
       url_thumb: publicUrl,
       url_work: publicUrl,
       ai_labels: [],
@@ -81,7 +118,7 @@ export async function POST(req: NextRequest) {
     .maybeSingle();
 
   if (insertErr) {
-    console.error("Insert image row failed:", insertErr);
+    console.error("Image row insert failed:", insertErr);
     return NextResponse.json(
       { ok: false, error: insertErr.message },
       { status: 500 }
@@ -90,3 +127,6 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ ok: true, image });
 }
+
+
+

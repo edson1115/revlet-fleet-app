@@ -1,10 +1,31 @@
 import { NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabaseServer";
+import { supabaseServer } from "@/lib/supabase/server";
+import { normalizeRole } from "@/lib/permissions";
 
 export async function POST(req: Request) {
+  const supabase = await supabaseServer();
   const body = await req.json();
 
-  const supabase = await supabaseServer();
+  const {
+    customer_id,
+    name,
+    address,
+    billing_contact,
+    billing_email,
+    billing_phone,
+    secondary_contact,
+    notes,
+  } = body;
+
+  // Validate required fields
+  if (!customer_id) {
+    return NextResponse.json(
+      { error: "customer_id is required" },
+      { status: 400 }
+    );
+  }
+
+  // Auth
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -13,35 +34,54 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Fetch which customer row belongs to this user
-  const { data: row } = await supabase
-    .from("customers")
-    .select("id")
-    .eq("profile_id", user.id)
-    .maybeSingle();
+  const role = normalizeRole(user.user_metadata?.role);
 
-  if (!row) {
-    return NextResponse.json(
-      { error: "Customer profile not found" },
-      { status: 404 }
-    );
+  // -----------------------------------------------------------
+  // ROLE LOGIC:
+  //
+  // • CUSTOMER → can only update their own customer record
+  // • OFFICE / FM / ADMIN / SUPERADMIN → can update *any* customer
+  // -----------------------------------------------------------
+  if (role === "CUSTOMER") {
+    const { data: customerRow } = await supabase
+      .from("customers")
+      .select("id, profile_id")
+      .eq("id", customer_id)
+      .maybeSingle();
+
+    // Customer’s user.id must match customer.profile_id
+    if (!customerRow || customerRow.profile_id !== user.id) {
+      return NextResponse.json(
+        { error: "Forbidden: Cannot edit another customer's profile" },
+        { status: 403 }
+      );
+    }
   }
 
+  // -----------------------------------------------------------
+  // UPDATE CUSTOMER
+  // -----------------------------------------------------------
   const { error } = await supabase
     .from("customers")
     .update({
-      name: body.name,
-      billing_contact: body.billing_contact,
-      billing_email: body.billing_email,
-      billing_phone: body.billing_phone,
-      secondary_contact: body.secondary_contact,
-      notes: body.notes,
+      name,
+      address,
+      billing_contact,
+      billing_email,
+      billing_phone,
+      secondary_contact,
+      notes,
+      updated_at: new Date().toISOString(),
     })
-    .eq("id", row.id);
+    .eq("id", customer_id);
 
   if (error) {
+    console.error("Customer update error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   return NextResponse.json({ success: true });
 }
+
+
+

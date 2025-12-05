@@ -12,28 +12,33 @@ type Me = {
 };
 
 function normalizeRole(role?: string | null) {
-  if (!role) return "VIEWER";
+  if (!role) return "PUBLIC";
   return String(role).trim().toUpperCase();
 }
 
 export default function TopBar() {
   const pathname = usePathname();
-
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // ------------------------------------
+  // LOAD USER
+  // ------------------------------------
   useEffect(() => {
     let live = true;
+
     (async () => {
       try {
-        const res = await fetch("/api/me", {
+        const res = await fetch("/api/auth/me", {
           credentials: "include",
           cache: "no-store",
         });
-        if (!res.ok) throw new Error("me_failed");
         const js = await res.json();
         if (!live) return;
-        setMe({ email: js?.email ?? null, role: js?.role ?? null });
+        setMe({
+          email: js?.profile?.email ?? js?.user?.email ?? null,
+          role: js?.profile?.role ?? null,
+        });
       } catch {
         if (!live) return;
         setMe(null);
@@ -48,31 +53,64 @@ export default function TopBar() {
   }, []);
 
   const role = normalizeRole(me?.role);
-
-  const isInternal = ["SUPERADMIN", "ADMIN", "OFFICE", "DISPATCH"].includes(role);
+  
+  const isSuper = role === "SUPERADMIN";
+  const isDispatch = role === "DISPATCH";
+  const isOffice = role === "OFFICE";
   const isTech = role === "TECH";
   const isCustomer = ["CLIENT", "FM", "CUSTOMER"].includes(role);
 
-  const navLinks = isInternal
-    ? [
-        { href: "/fm/requests/new", label: "New" },
-        { href: "/office", label: "Office" },
-        { href: "/dispatch", label: "Dispatch" },
-        { href: "/tech", label: "Tech" },
-        { href: "/reports", label: "Reports" },
-        { href: "/admin/users", label: "Users" },
-      ]
-    : isCustomer
-    ? [
-        { href: "/portal", label: "Dashboard" },
-        { href: "/portal/requests", label: "Requests" },
-        { href: "/portal/vehicles", label: "Vehicles" },
-        { href: "/portal/profile", label: "Profile" },
-      ]
-    : [];
+  // ------------------------------------
+  // NAVIGATION MAP
+  // ------------------------------------
+  let navLinks: { href: string; label: string }[] = [];
+
+  if (isSuper) {
+    navLinks = [
+      { href: "/admin/dashboard", label: "Dashboard" },
+      { href: "/office", label: "Office" },
+      { href: "/dispatch", label: "Dispatch" },
+      { href: "/tech", label: "Tech" },
+      { href: "/customer", label: "Customers" },
+      { href: "/admin/users", label: "Users" },
+      { href: "/settings", label: "Settings" },
+    ];
+  }
+
+  if (isDispatch) {
+    navLinks = [
+      { href: "/dispatch/dashboard", label: "Dashboard" },
+      { href: "/dispatch", label: "Dispatch" },
+      { href: "/tech", label: "Tech" },
+      { href: "/customer", label: "Customers" },
+    ];
+  }
+
+  if (isOffice) {
+    navLinks = [
+      { href: "/office/dashboard", label: "Dashboard" },
+      { href: "/office", label: "Office" },
+      { href: "/dispatch", label: "Dispatch" },
+      { href: "/customer", label: "Customers" },
+    ];
+  }
+
+  if (isTech) {
+    navLinks = [
+      { href: "/tech", label: "Tech Dashboard" },
+    ];
+  }
+
+  if (isCustomer) {
+    navLinks = [
+      { href: "/portal/dashboard", label: "Dashboard" },
+      { href: "/portal/requests", label: "Requests" },
+      { href: "/portal/vehicles", label: "Vehicles" },
+      { href: "/portal/profile", label: "Profile" },
+    ];
+  }
 
   function isActive(href: string) {
-    if (!pathname) return false;
     return pathname === href || pathname.startsWith(href + "/");
   }
 
@@ -84,16 +122,12 @@ export default function TopBar() {
         "flex items-center justify-between px-6 py-3"
       )}
     >
-      {/* LEFT SECTION – BRAND */}
+      {/* LEFT SIDE */}
       <div className="flex items-center gap-6">
-        <Link
-          href="/"
-          className="text-[17px] font-semibold tracking-tight text-[#0A0A0A]"
-        >
+        <Link href="/" className="text-[17px] font-semibold tracking-tight">
           Revlet Fleet
         </Link>
 
-        {/* NAVIGATION */}
         <nav className="hidden md:flex items-center gap-4 text-sm">
           {navLinks.map((link) => (
             <Link
@@ -112,9 +146,9 @@ export default function TopBar() {
         </nav>
       </div>
 
-      {/* RIGHT SECTION – USER */}
+      {/* RIGHT SIDE */}
       <div className="flex items-center gap-4">
-        {(isInternal || isTech || isCustomer) && (
+        {(isSuper || isDispatch || isOffice || isTech || isCustomer) && (
           <LocationSwitcher />
         )}
 

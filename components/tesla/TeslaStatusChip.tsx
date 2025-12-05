@@ -1,3 +1,4 @@
+// components/tesla/TeslaStatusChip.tsx
 "use client";
 
 import clsx from "clsx";
@@ -5,15 +6,12 @@ import clsx from "clsx";
 export type TeslaStatus =
   | "NEW"
   | "WAITING_TO_BE_SCHEDULED"
-  | "WAITING APPROVAL"
-  | "WAITING_APPROVAL"
-  | "WAITING_PARTS"
-  | "WAITING FOR PARTS"
+  | "WAITING_FOR_APPROVAL"
+  | "WAITING_FOR_PARTS"
   | "SCHEDULED"
   | "IN_PROGRESS"
-  | "IN PROGRESS"
-  | "DISPATCHED"
   | "COMPLETED"
+  | "DISPATCHED"
   | "DECLINED"
   | string;
 
@@ -24,17 +22,16 @@ type Props = {
   className?: string;
 };
 
+// Normalize request.status → uppercase + underscores
 function normalizeStatus(raw: TeslaStatus): string {
   if (!raw) return "UNKNOWN";
   return String(raw).trim().toUpperCase().replace(/\s+/g, "_");
 }
 
+// Display version for UI
 function prettyStatus(raw: TeslaStatus): string {
   if (!raw) return "Unknown";
-  return String(raw)
-    .trim()
-    .replace(/_/g, " ")
-    .toUpperCase();
+  return String(raw).trim().replace(/_/g, " ").toUpperCase();
 }
 
 export function TeslaStatusChip({
@@ -45,58 +42,64 @@ export function TeslaStatusChip({
 }: Props) {
   const norm = normalizeStatus(status);
 
-  const colorMap: Record<
-    string,
-    {
-      soft: string;
-      outline: string;
-    }
-  > = {
+  //
+  // 🔥 TESLA COLOR MAP — Option C (your approved mapping)
+  //
+  const colorMap: Record<string, { soft: string; outline: string }> = {
     NEW: {
-      soft: "bg-[#F2F2F2] text-black border-[#E5E5E5]",
-      outline: "bg-transparent text-black border-gray-400",
+      soft: "bg-gray-100 text-gray-900 border-gray-300",
+      outline: "bg-transparent text-gray-800 border-gray-400",
     },
+
     WAITING_TO_BE_SCHEDULED: {
-      soft: "bg-yellow-50 text-yellow-900 border-yellow-300",
+      soft: "bg-gray-100 text-gray-900 border-gray-300",
+      outline: "bg-transparent text-gray-800 border-gray-400",
+    },
+
+    WAITING_FOR_APPROVAL: {
+      soft: "bg-yellow-100 text-yellow-900 border-yellow-300",
       outline: "bg-transparent text-yellow-800 border-yellow-400",
     },
-    WAITING_APPROVAL: {
-      soft: "bg-amber-50 text-amber-900 border-amber-300",
-      outline: "bg-transparent text-amber-800 border-amber-400",
+
+    WAITING_FOR_PARTS: {
+      soft: "bg-yellow-100 text-yellow-900 border-yellow-300",
+      outline: "bg-transparent text-yellow-800 border-yellow-400",
     },
-    WAITING_PARTS: {
-      soft: "bg-orange-50 text-orange-900 border-orange-300",
-      outline: "bg-transparent text-orange-800 border-orange-400",
-    },
+
     SCHEDULED: {
-      soft: "bg-blue-50 text-blue-800 border-blue-300",
-      outline: "bg-transparent text-blue-700 border-blue-400",
+      soft: "bg-blue-100 text-blue-900 border-blue-300",
+      outline: "bg-transparent text-blue-800 border-blue-400",
     },
+
     IN_PROGRESS: {
-      soft: "bg-purple-50 text-purple-800 border-purple-300",
-      outline: "bg-transparent text-purple-700 border-purple-400",
+      soft: "bg-black text-white border-black",
+      outline: "bg-transparent text-black border-black",
     },
-    DISPATCHED: {
-      soft: "bg-slate-50 text-slate-800 border-slate-300",
-      outline: "bg-transparent text-slate-700 border-slate-400",
-    },
+
     COMPLETED: {
-      soft: "bg-green-50 text-green-800 border-green-300",
-      outline: "bg-transparent text-green-700 border-green-400",
+      soft: "bg-green-100 text-green-900 border-green-300",
+      outline: "bg-transparent text-green-800 border-green-400",
     },
+
+    // Optional legacy statuses kept for compatibility
+    DISPATCHED: {
+      soft: "bg-slate-100 text-slate-900 border-slate-300",
+      outline: "bg-transparent text-slate-800 border-slate-400",
+    },
+
     DECLINED: {
-      soft: "bg-red-50 text-red-800 border-red-300",
-      outline: "bg-transparent text-red-700 border-red-400",
+      soft: "bg-red-100 text-red-900 border-red-300",
+      outline: "bg-transparent text-red-800 border-red-400",
     },
   };
 
   const colors =
     colorMap[norm] ??
-    {
-      soft: "bg-gray-100 text-gray-800 border-gray-300",
-      outline: "bg-transparent text-gray-700 border-gray-400",
-    };
+    colorMap["NEW"]; // fallback default Tesla style
 
+  //
+  // Size rules (unchanged)
+  //
   const sizeCls =
     size === "md"
       ? "px-3 py-1 text-xs"
@@ -104,6 +107,9 @@ export function TeslaStatusChip({
       ? "px-2.5 py-0.5 text-[11px]"
       : "px-2 py-0.5 text-[10px]";
 
+  //
+  // Mode (soft vs outline)
+  //
   const variantCls = variant === "outline" ? colors.outline : colors.soft;
 
   return (

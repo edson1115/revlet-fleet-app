@@ -40,3 +40,6 @@ export async function GET() {
 
   return NextResponse.json({ technician_id: null });
 }
+
+
+

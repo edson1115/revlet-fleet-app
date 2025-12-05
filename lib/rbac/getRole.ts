@@ -5,3 +5,6 @@ export async function getUserRole() {
   const { data: { session } } = await supabase.auth.getSession();
   return session?.user?.user_metadata?.role || "OFFICE";
 }
+
+
+

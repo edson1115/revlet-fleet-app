@@ -56,3 +56,6 @@ export async function buildInspectionPdf(inspection: any) {
   const bytes = await pdf.save();
   return bytes;
 }
+
+
+

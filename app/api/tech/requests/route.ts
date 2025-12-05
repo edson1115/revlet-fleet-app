@@ -6,10 +6,9 @@ import { resolveUserScope } from "@/lib/api/scope";
 export const dynamic = "force-dynamic";
 
 export async function GET(_req: NextRequest) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const scope = await resolveUserScope();
 
-  // Must be TECH role
   if (!scope.isTech || !scope.uid) {
     return NextResponse.json(
       { error: "Forbidden — tech only" },
@@ -17,9 +16,6 @@ export async function GET(_req: NextRequest) {
     );
   }
 
-  // ---------------------------------------------------------
-  // Pull technician’s scheduled jobs
-  // ---------------------------------------------------------
   const { data, error } = await supabase
     .from("service_requests")
     .select(
@@ -27,7 +23,6 @@ export async function GET(_req: NextRequest) {
         id,
         status,
         service,
-        dispatch_notes,
         scheduled_at,
         created_at,
 
@@ -62,15 +57,10 @@ export async function GET(_req: NextRequest) {
     );
   }
 
-  // ---------------------------------------------------------
-  // Normalize results
-  // Tesla UI expects a flat structure
-  // ---------------------------------------------------------
   const rows = (data || []).map((r) => ({
     id: r.id,
     status: r.status,
     service: r.service,
-    dispatch_notes: r.dispatch_notes,
     scheduled_at: r.scheduled_at,
     created_at: r.created_at,
     vehicle: Array.isArray(r.vehicle) ? r.vehicle[0] : r.vehicle,
@@ -80,3 +70,6 @@ export async function GET(_req: NextRequest) {
 
   return NextResponse.json(rows);
 }
+
+
+

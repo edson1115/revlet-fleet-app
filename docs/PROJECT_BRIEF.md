@@ -136,7 +136,7 @@ odometer_miles?, is_emergency?
 - **201** `{ ok: true, id }` or **400** `{ error }`
 
 ### `PATCH /api/requests/[id]/schedule`
-- Body: `{ scheduled_at?: ISO, assigned_tech_id?: uuid, note?: string }`
+- Body: `{ scheduled_at?: ISO, assigned_tech?: uuid, note?: string }`
 - Sets `status: "SCHEDULED"` and timestamps if provided.
 - **200** `{ ok: true, id }` or **400/500** `{ error }`
 

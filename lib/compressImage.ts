@@ -24,3 +24,6 @@ export async function compressImage(file: File): Promise<File> {
     type: "image/jpeg",
   });
 }
+
+
+

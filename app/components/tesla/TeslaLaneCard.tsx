@@ -52,7 +52,7 @@ export default function TeslaLaneCard({ r, thumbs, tone, onClick }: any) {
     >
       <div className="flex items-center justify-between">
         <div className="flex flex-col gap-1">
-          <div className="text-xs">{fmtWindow(r.scheduled_at, r.scheduled_end_at)}</div>
+          <div className="text-xs">{fmtWindow(r.scheduled_start_at, r.scheduled_end_at)}</div>
           {r.technician && (
             <div className="text-[11px] text-gray-500">
               Tech: {r.technician.full_name}
@@ -75,3 +75,6 @@ export default function TeslaLaneCard({ r, thumbs, tone, onClick }: any) {
     </li>
   );
 }
+
+
+

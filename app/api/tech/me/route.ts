@@ -43,3 +43,6 @@ export async function GET() {
     return NextResponse.json({ technician_id: null, role: null, error: e.message }, { status: 500 });
   }
 }
+
+
+

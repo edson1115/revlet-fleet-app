@@ -2,7 +2,7 @@
 import { supabaseServer } from "./client";
 
 export async function getRequestParts(requestId: string) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
 
   return supabase
     .from("service_parts_view")
@@ -17,16 +17,19 @@ export async function insertRequestPart(payload: {
   part_number: string;
   quantity: number;
 }) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
 
   return supabase.from("service_request_parts").insert(payload).select();
 }
 
 export async function updateRequestPart(id: string, quantity: number) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
 
   return supabase
     .from("service_request_parts")
     .update({ quantity })
     .eq("id", id);
 }
+
+
+

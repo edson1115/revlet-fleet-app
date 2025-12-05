@@ -24,3 +24,6 @@ export function vehicleLabel(v?: Vehicle | null) {
   const right = v.unit_number || v.plate || (v.vin ? `VIN ${v.vin.slice(-6)}` : '');
   return [left, right && `• ${right}`].filter(Boolean).join(' ');
 }
+
+
+

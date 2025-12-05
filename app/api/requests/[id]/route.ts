@@ -1,119 +1,247 @@
 // app/api/requests/[id]/route.ts
-import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
-import { resolveUserScope } from "@/lib/api/scope";
 
-export const dynamic = "force-dynamic";
+// Extract request ID safely
+function getId(url: string) {
+  const parts = new URL(url).pathname.split("/");
+  return parts[parts.length - 1];
+}
 
-export async function GET(
-  req: NextRequest,
-  { params }: any
-) {
-  const supabase = supabaseServer();
-  const scope = await resolveUserScope();
-  const id = params.id;
+export async function GET(req: Request) {
+  const id = getId(req.url);
+  const supabase = await supabaseServer();
 
-  if (!scope.uid) {
-    return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
-  }
-
-  let query = supabase
+  // ----------------------------------------------
+  // LOAD REQUEST CORE
+  // ----------------------------------------------
+  const { data: request, error: errReq } = await supabase
     .from("service_requests")
     .select(
       `
-      id,
-      status,
-      service,
-      notes,
-      dispatch_notes,
-      mileage,
-      po,
-      created_at,
-      scheduled_at,
-      scheduled_end_at,
-      customer:customers(name, id),
-      location:locations(name, id),
-      vehicle:vehicles(*),
-      technician:profiles(full_name, id),
-      preferred_window_start,
-      preferred_window_end
-    `
+        id,
+        vehicle_id,
+        customer_id,
+        technician_id,
+        service,
+        notes,
+        internal_notes,
+        dispatch_notes,
+        status,
+        date_requested,
+        created_at,
+        scheduled_start_at,
+        scheduled_end_at,
+        started_at,
+        completed_at,
+
+        vehicle:vehicle_id (
+          id,
+          year, make, model, plate, vin, unit_number,
+          notes_internal
+        ),
+
+        assigned_tech:technician_id (
+          id,
+          full_name,
+          role
+        ),
+
+        customer:customer_id (
+          id,
+          name,
+          approval_type,
+          address
+        )
+      `
     )
     .eq("id", id)
     .maybeSingle();
 
-  // SCOPING
-  if (scope.isTech) {
-    query = query.eq("technician_id", scope.uid);
+  if (errReq || !request) {
+    return new Response(JSON.stringify({ error: "Request not found" }), {
+      status: 404,
+    });
   }
 
-  if (scope.isCustomer) {
-    query = query.eq("customer_id", scope.customer_id);
-  }
+  // ----------------------------------------------
+  // LOAD IMAGES
+  // ----------------------------------------------
+  const { data: images } = await supabase
+    .from("request_images")
+    .select("id, url_full, url_thumb, type, created_at")
+    .eq("request_id", id)
+    .order("created_at", { ascending: true });
 
-  const { data, error } = await query;
+  // ----------------------------------------------
+  // LOAD PARTS
+  // ----------------------------------------------
+  const { data: parts } = await supabase
+    .from("request_parts")
+    .select("id, name, qty")
+    .eq("request_id", id)
+    .order("created_at", { ascending: true });
 
-  if (error || !data) {
-    return NextResponse.json(
-      { ok: false, error: "Request not found" },
-      { status: 404 }
-    );
-  }
-
-  return NextResponse.json({ ok: true, request: data });
+  return new Response(
+    JSON.stringify({
+      request: { ...request, images: images || [] },
+      parts: parts || [],
+    }),
+    { status: 200 }
+  );
 }
 
-export async function PATCH(
-  req: NextRequest,
-  { params }: any
-) {
-  const id = params.id;
-  const supabase = supabaseServer();
-  const scope = await resolveUserScope();
-
-  if (!scope.uid) {
-    return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
-  }
-
+// --------------------------------------------------------------
+// PATCH — ACTION CONTROLLER
+// --------------------------------------------------------------
+export async function PATCH(req: Request) {
+  const id = getId(req.url);
   const body = await req.json();
+  const { action, ...payload } = body;
 
-  let update: any = {};
+  const supabase = await supabaseServer();
 
-  // Allowed updates based on role
-
-  if (scope.isTech) {
-    if (body.status === "IN_PROGRESS") update.status = "IN_PROGRESS";
-    if (body.status === "COMPLETED") update.status = "COMPLETED";
-    if (typeof body.mileage === "number") update.mileage = body.mileage;
+  // Helper to update request safely
+  async function update(values: Record<string, any>) {
+    return await supabase
+      .from("service_requests")
+      .update(values)
+      .eq("id", id)
+      .select()
+      .maybeSingle();
   }
 
-  if (scope.isInternal) {
-    if (body.status) update.status = body.status;
-    if (body.technician_id) update.technician_id = body.technician_id;
-    if (body.scheduled_at) update.scheduled_at = body.scheduled_at;
-    if (body.scheduled_end_at) update.scheduled_end_at = body.scheduled_end_at;
-    if (body.notes) update.notes = body.notes;
-    if (body.dispatch_notes) update.dispatch_notes = body.dispatch_notes;
-    if (body.po) update.po = body.po;
-    if (body.mileage) update.mileage = body.mileage;
+  // ------------------------------------------------------------
+  // 0. UPDATE REQUEST FIELDS (Office page)
+  // ------------------------------------------------------------
+  if (action === "update_request_fields") {
+    const {
+      fmc,
+      po,
+      notes,
+      priority,
+      mileage,
+      preferred_window_start,
+      preferred_window_end,
+    } = payload;
+
+    const updateValues: any = {
+      fmc: fmc ?? null,
+      po_number: po ?? null,
+      notes: notes ?? null,
+      priority: priority ?? null,
+      mileage: mileage ?? null,
+      preferred_window_start: preferred_window_start ?? null,
+      preferred_window_end: preferred_window_end ?? null,
+    };
+
+    const { data, error } = await update(updateValues);
+
+    if (error) return respError(error.message);
+    return respOk(data);
   }
 
-  if (scope.isCustomer) {
-    return NextResponse.json(
-      { ok: false, error: "Customers cannot modify requests" },
-      { status: 403 }
-    );
+  // ------------------------------------------------------------
+  // 1. START JOB
+  // ------------------------------------------------------------
+  if (action === "start_job") {
+    const { data, error } = await update({
+      status: "IN_PROGRESS",
+      started_at: new Date().toISOString(),
+    });
+
+    if (error) return respError(error.message);
+    return respOk(data);
   }
 
-  const { error } = await supabase
-    .from("service_requests")
-    .update(update)
-    .eq("id", id);
+  // ------------------------------------------------------------
+  // 2. COMPLETE JOB
+  // ------------------------------------------------------------
+  if (action === "complete_job") {
+    const { data, error } = await update({
+      status: "COMPLETED",
+      completed_at: new Date().toISOString(),
+    });
 
-  if (error) {
-    console.error("PATCH update error:", error);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    if (error) return respError(error.message);
+    return respOk(data);
   }
 
-  return NextResponse.json({ ok: true });
+  // ------------------------------------------------------------
+  // 3. UPDATE NOTES (internal or dispatch)
+  // ------------------------------------------------------------
+  if (action === "update_notes") {
+    const { internal_notes, dispatch_notes } = payload;
+
+    const { data, error } = await update({
+      ...(internal_notes !== undefined && { internal_notes }),
+      ...(dispatch_notes !== undefined && { dispatch_notes }),
+    });
+
+    if (error) return respError(error.message);
+    return respOk(data);
+  }
+
+  // ------------------------------------------------------------
+  // 4. RESCHEDULE JOB
+  // ------------------------------------------------------------
+  if (action === "reschedule") {
+    const { start, end, technician_id } = payload;
+
+    const { data, error } = await update({
+      scheduled_start_at: start,
+      scheduled_end_at: end,
+      ...(technician_id && { technician_id }),
+      status: "SCHEDULED",
+    });
+
+    if (error) return respError(error.message);
+    return respOk(data);
+  }
+
+  // ------------------------------------------------------------
+  // 5. ASSIGN TECH
+  // ------------------------------------------------------------
+  if (action === "assign_tech") {
+    const { technician_id } = payload;
+
+    const { data, error } = await update({
+      technician_id,
+    });
+
+    if (error) return respError(error.message);
+    return respOk(data);
+  }
+
+  // ------------------------------------------------------------
+  // 6. SEND BACK TO DISPATCH
+  // ------------------------------------------------------------
+  if (action === "send_back") {
+    const { dispatch_notes } = payload;
+
+    const { data, error } = await update({
+      status: "WAITING_TO_BE_SCHEDULED",
+      dispatch_notes: dispatch_notes || "Returned by technician",
+    });
+
+    if (error) return respError(error.message);
+    return respOk(data);
+  }
+
+  // ------------------------------------------------------------
+  // UNKNOWN ACTION
+  // ------------------------------------------------------------
+  return respError("Invalid action", 400);
+}
+
+// --------------------------------------------------------------
+// HELPERS
+// --------------------------------------------------------------
+function respOk(data: any) {
+  return new Response(JSON.stringify({ ok: true, data }), { status: 200 });
+}
+
+function respError(message: string, status = 500) {
+  return new Response(JSON.stringify({ ok: false, error: message }), {
+    status,
+  });
 }

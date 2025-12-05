@@ -35,3 +35,6 @@ export async function requireSuper(supabase: any) {
 
   return { ok: true, email: email || undefined };
 }
+
+
+

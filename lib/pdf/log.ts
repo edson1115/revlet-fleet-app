@@ -26,3 +26,6 @@ export async function logPDF({
     console.error("Failed to log PDF action:", err);
   }
 }
+
+
+

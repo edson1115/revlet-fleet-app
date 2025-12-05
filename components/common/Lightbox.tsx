@@ -100,3 +100,6 @@ export default function Lightbox({ open, images, index, onClose, onIndex }: Prop
     </div>
   );
 }
+
+
+

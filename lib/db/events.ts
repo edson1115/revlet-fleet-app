@@ -2,7 +2,7 @@
 import { supabaseServer } from "./client";
 
 export async function getEvents(requestId: string) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
 
   return supabase
     .from("service_events_view")
@@ -18,7 +18,10 @@ export async function insertEvent(payload: {
   from_status?: string | null;
   to_status?: string | null;
 }) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
 
   return supabase.from("service_events").insert(payload);
 }
+
+
+

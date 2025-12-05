@@ -9,3 +9,6 @@ export const vehicleLabel = (v?: VehicleLite | null) => {
   const unit = v.unit_number ? ` (${v.unit_number})` : '';
   return `${v.year ?? ''} ${v.make ?? ''} ${v.model ?? ''}${unit}`.trim();
 };
+
+
+

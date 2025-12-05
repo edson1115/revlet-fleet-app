@@ -4,7 +4,7 @@ import { resolveUserScope } from "@/lib/api/scope";
 import { supabaseServer } from "@/lib/supabase/server";
 
 export async function GET(req: NextRequest, { params }: any) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const scope = await resolveUserScope();
   const id = params.id;
 

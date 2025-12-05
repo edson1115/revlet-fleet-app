@@ -24,3 +24,6 @@ export async function setSystemSetting(key: string, value: string) {
     .from("system_settings")
     .upsert({ key, value, updated_at: new Date().toISOString() });
 }
+
+
+

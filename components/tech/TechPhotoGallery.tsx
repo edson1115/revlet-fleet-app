@@ -113,3 +113,6 @@ export default function TechPhotoGallery({ photos, onReorder, onDelete }: Props)
     </div>
   );
 }
+
+
+

@@ -2,7 +2,7 @@
 import { supabaseServer } from "./client";
 
 export async function getNotes(requestId: string) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
 
   return supabase
     .from("service_notes_view")
@@ -15,6 +15,9 @@ export async function insertNote(payload: {
   request_id: string;
   text: string;
 }) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   return supabase.from("request_notes").insert(payload).select().single();
 }
+
+
+

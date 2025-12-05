@@ -130,7 +130,7 @@ CREATE TABLE service_requests (
   preferred_date_3 DATE,
   
   -- Scheduling
-  assigned_tech_id UUID REFERENCES app_users(id),
+  assigned_tech UUID REFERENCES app_users(id),
   scheduled_at TIMESTAMPTZ,
   
   -- Execution
@@ -197,7 +197,7 @@ CREATE INDEX idx_vehicles_location ON vehicles(location_id);
 
 CREATE INDEX idx_requests_company ON service_requests(company_id);
 CREATE INDEX idx_requests_status ON service_requests(status);
-CREATE INDEX idx_requests_tech ON service_requests(assigned_tech_id);
+CREATE INDEX idx_requests_tech ON service_requests(assigned_tech);
 CREATE INDEX idx_requests_scheduled ON service_requests(scheduled_at);
 
 CREATE INDEX idx_events_request ON service_events(request_id);
@@ -407,7 +407,7 @@ CREATE POLICY tech_vehicles_read ON vehicles
     get_current_user_role() = 'TECH' AND
     id IN (
       SELECT vehicle_id FROM service_requests 
-      WHERE assigned_tech_id = (SELECT id FROM app_users WHERE auth_uid = auth.uid())
+      WHERE assigned_tech = (SELECT id FROM app_users WHERE auth_uid = auth.uid())
     )
   );
 
@@ -455,7 +455,7 @@ CREATE POLICY tech_requests_read ON service_requests
   TO authenticated
   USING (
     get_current_user_role() = 'TECH' AND
-    assigned_tech_id = (SELECT id FROM app_users WHERE auth_uid = auth.uid())
+    assigned_tech = (SELECT id FROM app_users WHERE auth_uid = auth.uid())
   );
 
 -- TECH: can update assigned jobs (check-in, complete, incomplete)
@@ -464,7 +464,7 @@ CREATE POLICY tech_requests_update ON service_requests
   TO authenticated
   USING (
     get_current_user_role() = 'TECH' AND
-    assigned_tech_id = (SELECT id FROM app_users WHERE auth_uid = auth.uid())
+    assigned_tech = (SELECT id FROM app_users WHERE auth_uid = auth.uid())
   );
 
 -- =====================================================
@@ -519,7 +519,7 @@ CREATE POLICY notes_insert_by_tech ON service_notes
   TO authenticated
   WITH CHECK (
     tech_id = (SELECT id FROM app_users WHERE auth_uid = auth.uid()) AND
-    request_id IN (SELECT id FROM service_requests WHERE assigned_tech_id = tech_id)
+    request_id IN (SELECT id FROM service_requests WHERE assigned_tech = tech_id)
   );
 
 -- =====================================================
@@ -540,7 +540,7 @@ FROM service_requests sr
 JOIN companies c ON sr.company_id = c.id
 JOIN vehicles v ON sr.vehicle_id = v.id
 LEFT JOIN company_locations cl ON sr.location_id = cl.id
-LEFT JOIN app_users u ON sr.assigned_tech_id = u.id
+LEFT JOIN app_users u ON sr.assigned_tech = u.id
 WHERE sr.status NOT IN ('CLOSED');
 
 -- =====================================================

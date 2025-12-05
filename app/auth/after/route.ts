@@ -32,3 +32,6 @@ export async function GET(req: Request) {
   const target = ROLE_LANDING[role] ?? "/";
   return NextResponse.redirect(new URL(target, url.origin));
 }
+
+
+

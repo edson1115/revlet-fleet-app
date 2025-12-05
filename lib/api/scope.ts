@@ -1,77 +1,82 @@
 // lib/api/scope.ts
 import { supabaseServer } from "@/lib/supabase/server";
 
-export type UserScope = {
-  uid: string | null;
-  email: string | null;
-  role: string;
-  company_id: string | null;
-  customer_id: string | null;
-  markets: string[];
-  isSuper: boolean;
-  isAdmin: boolean;
-  isInternal: boolean;
-  isCustomer: boolean;
-  isTech: boolean;
-};
+export async function resolveUserScope() {
+  const supabase = await supabaseServer();
 
-export async function resolveUserScope(): Promise<UserScope> {
-  // ❗ DO NOT AWAIT — supabaseServer() is synchronous
-  const supabase = supabaseServer();
-
-  // Load current auth session
-  const {
-    data: { user },
-  } = await supabase.auth.getUser().catch(() => ({
-    data: { user: null },
-  }));
-
-  const uid = user?.id ?? null;
-  const email = user?.email ?? null;
-
-  let role = "UNKNOWN";
-  let company_id: string | null = null;
-  let customer_id: string | null = null;
-  let markets: string[] = [];
-
-  // Load profile only when logged in
-  if (uid) {
-    const { data: prof } = await supabase
-      .from("profiles")
-      .select("role, company_id, customer_id")
-      .eq("id", uid)
-      .maybeSingle();
-
-    role = (prof?.role || "UNKNOWN").toUpperCase();
-    company_id = prof?.company_id ?? null;
-    customer_id = prof?.customer_id ?? null;
-
-    const { data: m } = await supabase
-      .from("user_markets")
-      .select("market")
-      .eq("user_id", uid);
-
-    markets = (m || []).map((x) => x.market);
+  let user = null;
+  try {
+    const result = await supabase.auth.getUser();
+    user = result?.data?.user ?? null;
+  } catch {
+    user = null;
   }
 
-  // Role helpers
-  const isSuper = role === "SUPERADMIN";
-  const isAdmin = isSuper || role === "ADMIN";
-  const isInternal = ["SUPERADMIN", "ADMIN", "OFFICE", "DISPATCH"].includes(role);
-  const isCustomer = ["CUSTOMER", "CUSTOMER_USER"].includes(role);
+  // ---------------------------------------
+  // NOT LOGGED IN = PUBLIC USER
+  // ---------------------------------------
+  if (!user) {
+    return {
+      uid: null,
+      email: null,
+      role: "PUBLIC",
+      isTech: false,
+      isOffice: false,
+      isDispatch: false,
+      isCustomer: false,
+      isSuperAdmin: false,
+      isInternal: false,
+      readOnlyDispatch: false,
+      readOnlyOffice: false,
+      markets: [],
+    };
+  }
+
+  // ---------------------------------------
+  // LOAD PROFILE
+  // ---------------------------------------
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("email, role, active_market")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  const role = profile?.role ?? "PUBLIC";
+  const market = profile?.active_market ?? null;
+
+  // ---------------------------------------
+  // ROLE FLAGS
+  // ---------------------------------------
+  const isSuperAdmin = role === "SUPERADMIN";
+  const isDispatch = role === "DISPATCH";
+  const isOffice = role === "OFFICE";
   const isTech = role === "TECH";
+  const isCustomer = role === "CUSTOMER";
+
+  // Shared internal system roles
+  const isInternal = isSuperAdmin || isDispatch || isOffice || isTech;
+
+  // READ-ONLY RIGHTS
+  const readOnlyDispatch =
+    isOffice || isCustomer; // Office can view Dispatch; Customers never see it
+  const readOnlyOffice =
+    isDispatch || isCustomer; // Dispatch can view Office read-only
 
   return {
-    uid,
-    email,
+    uid: user.id,
+    email: profile?.email ?? user.email,
     role,
-    company_id,
-    customer_id,
-    markets,
-    isSuper,
-    isAdmin,
-    isInternal,
-    isCustomer,
+
+    isSuperAdmin,
+    isDispatch,
+    isOffice,
     isTech,
+    isCustomer,
+
+    isInternal,
+    readOnlyDispatch,
+    readOnlyOffice,
+
+    markets: market ? [market] : [],
   };
 }

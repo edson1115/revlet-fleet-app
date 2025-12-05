@@ -12,3 +12,6 @@ export function supabaseAdmin() {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 }
+
+
+

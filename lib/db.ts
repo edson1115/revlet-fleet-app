@@ -16,3 +16,6 @@ export function getDb(): SupabaseClient {
 
 // Convenient named export
 export const db = getDb();
+
+
+

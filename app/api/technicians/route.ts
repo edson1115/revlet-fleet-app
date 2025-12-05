@@ -10,7 +10,7 @@ export async function GET() {
     const scope = await resolveUserScope();
     if (!scope.uid) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-    const supabase = supabaseServer();
+    const supabase = await supabaseServer();
 
     const { data, error } = await supabase
       .from("profiles")
@@ -36,3 +36,6 @@ export async function GET() {
     );
   }
 }
+
+
+

@@ -112,3 +112,6 @@ export async function buildRequestPdf(row: any): Promise<Uint8Array> {
 
   return await pdf.save();
 }
+
+
+

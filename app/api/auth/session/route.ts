@@ -5,7 +5,7 @@ import { supabaseServer } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
 
   const {
     data: { session },
@@ -26,3 +26,6 @@ export async function GET() {
     profile,
   });
 }
+
+
+

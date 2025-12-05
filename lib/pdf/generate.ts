@@ -10,3 +10,6 @@ export async function generateServiceRequestPdf(data: any) {
   const buffer = await pdf(doc).toBuffer();
   return buffer;
 }
+
+
+

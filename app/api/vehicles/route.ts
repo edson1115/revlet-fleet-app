@@ -1,46 +1,103 @@
 // app/api/vehicles/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase/server";
-import { resolveUserScope } from "@/lib/api/scope";
+import { createClient } from "@supabase/supabase-js";
+import { cookies } from "next/headers";
+import { normalizeRole } from "@/lib/permissions";
 
-export const dynamic = "force-dynamic";
-
-export async function GET(req: NextRequest) {
-  const supabase = supabaseServer();
-  const scope = await resolveUserScope();
-
-  if (!scope.uid) {
-    return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
-  }
-
-  const url = new URL(req.url);
-  const limit = Number(url.searchParams.get("limit") || 500);
-
-  let query = supabase
-    .from("vehicles")
-    .select("*")
-    .limit(limit);
-
-  // Role scoping
-  if (scope.isCustomer) {
-    query = query.eq("customer_id", scope.customer_id);
-  } else if (scope.isInternal) {
-    if (scope.markets.length > 0) {
-      query = query.in("market", scope.markets);
+/* ------------------------------------------------------------------
+   Supabase: Server Authenticated Client
+------------------------------------------------------------------ */
+function supabaseServer() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      auth: {
+        persistSession: false,
+      },
+      global: {
+        headers: {
+          Authorization: `Bearer ${
+            cookies().get("sb-access-token")?.value || ""
+          }`,
+        },
+      },
     }
-  } else if (scope.isTech) {
+  );
+}
+
+/* ------------------------------------------------------------------
+   GET /api/vehicles
+------------------------------------------------------------------ */
+export async function GET(req: NextRequest) {
+  try {
+    const supabase = await supabaseServer();
+
+    // 1) Auth user
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
+    // Get role from jwt
+    const roleRaw = user.user_metadata?.role || null;
+    const role = normalizeRole(roleRaw);
+
+    const scope = req.nextUrl.searchParams.get("scope") || "internal";
+
+    let query = supabase
+      .from("vehicles")
+      .select(
+        `
+          id,
+          customer_id,
+          unit_number,
+          plate,
+          vin,
+          year,
+          make,
+          model,
+          market,
+          created_at
+        `
+      )
+      .order("created_at", { ascending: false });
+
+    /* ------------------------------------------------------------
+         customer scope → only vehicles tied to this customer’s id
+       ------------------------------------------------------------ */
+    if (scope === "customer" && role === "CUSTOMER") {
+      query = query.eq("customer_id", user.id);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error("Vehicle fetch error:", error);
+      return NextResponse.json(
+        { error: "Failed to load vehicles" },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ rows: data });
+  } catch (err: any) {
+    console.error("Vehicles API Error:", err);
     return NextResponse.json(
-      { ok: false, error: "Technicians cannot fetch vehicles" },
-      { status: 403 }
+      { error: "Server error", detail: err?.message },
+      { status: 500 }
     );
   }
-
-  const { data, error } = await query;
-
-  if (error) {
-    console.error("/api/vehicles GET error:", error);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-  }
-
-  return NextResponse.json({ ok: true, data });
 }
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+
+

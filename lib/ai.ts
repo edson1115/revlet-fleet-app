@@ -13,3 +13,6 @@ export async function runAI(prompt: string) {
 
   return completion.choices[0].message.content || "";
 }
+
+
+

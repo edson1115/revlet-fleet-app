@@ -39,3 +39,6 @@ export async function requireRole(roles: Role[]) {
 export function hasRole(current: Role | null, roles: Role[]) {
   return !!current && roles.includes(current);
 }
+
+
+

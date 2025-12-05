@@ -1,79 +1,119 @@
-// app/api/requests/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
-import { resolveUserScope } from "@/lib/api/scope";
+import { normalizeRole } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
-  const supabase = supabaseServer();
-  const scope = await resolveUserScope();
+  try {
+    const supabase = await supabaseServer();
 
-  if (!scope.uid) {
-    return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
-  }
+    // AUTH
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-  const url = new URL(req.url);
-
-  // optional filters
-  const statusFilter = url.searchParams.get("status")?.split(",").filter(Boolean) || null;
-  const sortBy = url.searchParams.get("sortBy") ?? "created_at";
-  const sortDir = url.searchParams.get("sortDir") ?? "desc";
-
-  // ---------- BASE QUERY ----------
-  let query = supabase
-    .from("service_requests")
-    .select(
-      `
-      id,
-      status,
-      service,
-      created_at,
-      scheduled_at,
-      customer:customers(name, id),
-      location:locations(name, id),
-      vehicle:vehicles(year, make, model, plate, unit_number, id),
-      technician:profiles(full_name, id)
-    `
-    );
-
-  // ---------- ROLE SCOPING ----------
-  if (scope.isInternal) {
-    // Office/Dispatch/Admin/Super can see everything in their allowed markets
-    if (scope.markets.length > 0) {
-      query = query.in("market", scope.markets);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-  }
 
-  else if (scope.isTech) {
-    query = query.eq("technician_id", scope.uid);
-  }
+    const role = normalizeRole(user.user_metadata?.role);
 
-  else if (scope.isCustomer) {
-    query = query.eq("customer_id", scope.customer_id);
-  }
+    const scope = req.nextUrl.searchParams.get("scope");
+    const vehicleId = req.nextUrl.searchParams.get("vehicle");
+    const customerFilter = req.nextUrl.searchParams.get("customer");
 
-  else {
+    // -----------------------------------------------------
+    // BASE QUERY
+    // -----------------------------------------------------
+    let query = supabase
+      .from("requests")
+      .select(
+        `
+        id,
+        customer_id,
+        vehicle_id,
+        service,
+        notes,
+        status,
+        date_requested,
+        created_at,
+        scheduled_start_at,
+        scheduled_end_at,
+        started_at,
+        completed_at,
+
+        assigned_tech:assigned_tech(
+          id,
+          full_name
+        ),
+
+        vehicle:vehicle_id (
+          id,
+          year,
+          make,
+          model,
+          plate,
+          vin
+        )
+      `
+      )
+      .order("created_at", { ascending: false });
+
+    // -----------------------------------------------------
+    // FILTER: BY VEHICLE
+    // -----------------------------------------------------
+    if (vehicleId) {
+      query = query.eq("vehicle_id", vehicleId);
+    }
+
+    // -----------------------------------------------------
+    // FILTER: CUSTOMER-SPECIFIC VIEW (FM/Office)
+    // /api/requests?customer=<id>
+    // -----------------------------------------------------
+    if (customerFilter) {
+      query = query.eq("customer_id", customerFilter);
+    }
+
+    // -----------------------------------------------------
+    // FILTER: CUSTOMER SELF-SCOPE
+    // /api/requests?scope=customer
+    // -----------------------------------------------------
+    if (scope === "customer" && role === "CUSTOMER") {
+      // Lookup the customer row for logged-in user
+      const { data: customerRow } = await supabase
+        .from("customers")
+        .select("id")
+        .eq("profile_id", user.id)
+        .maybeSingle();
+
+      if (!customerRow) {
+        return NextResponse.json({ rows: [] });
+      }
+
+      query = query.eq("customer_id", customerRow.id);
+    }
+
+    // -----------------------------------------------------
+    // RUN QUERY
+    // -----------------------------------------------------
+    const { data, error } = await query;
+
+    if (error) {
+      console.error("REQUEST FETCH ERROR:", error);
+      return NextResponse.json({ error: "Failed loading requests" }, { status: 500 });
+    }
+
+    return NextResponse.json({ rows: data ?? [] });
+  } catch (err: any) {
+    console.error("REQUESTS API ERROR:", err);
     return NextResponse.json(
-      { ok: false, error: "Invalid role" },
-      { status: 403 }
+      { error: "Server error", detail: err.message },
+      { status: 500 }
     );
   }
-
-  // ---------- STATUS FILTER ----------
-  if (statusFilter && statusFilter.length > 0) {
-    query = query.in("status", statusFilter);
-  }
-
-  // ---------- SORT ----------
-  query = query.order(sortBy, { ascending: sortDir === "asc" });
-
-  const { data, error } = await query;
-
-  if (error) {
-    console.error("GET /api/requests error:", error);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-  }
-
-  return NextResponse.json({ ok: true, rows: data });
 }
+
+
+

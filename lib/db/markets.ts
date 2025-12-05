@@ -2,7 +2,7 @@
 import { supabaseServer } from "./client";
 
 export async function getUserMarkets() {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) return [];
@@ -21,3 +21,6 @@ export async function getActiveMarket() {
   const markets = await getUserMarkets();
   return markets[0] ?? null; // first assigned market
 }
+
+
+

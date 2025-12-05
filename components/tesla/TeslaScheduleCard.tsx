@@ -15,9 +15,10 @@ export default function TeslaScheduleCard({
 }) {
   const [assignOpen, setAssignOpen] = useState(false);
 
-  const t = request?.technician || null;
-  const start = request?.scheduled_at || null;
-  const end = request?.scheduled_end || null; // we will add this soon
+  // NEW FIELD NAMES
+  const tech = request?.assigned_tech || null;
+  const start = request?.scheduled_start_at || null;
+  const end = request?.scheduled_end_at || null;
 
   function fmt(dt?: string | null) {
     if (!dt) return "—";
@@ -30,14 +31,13 @@ export default function TeslaScheduleCard({
 
   return (
     <div className="bg-white rounded-2xl p-5 shadow-sm space-y-5 border border-gray-200">
-
       <h3 className="text-lg font-semibold">Schedule</h3>
 
       {/* Technician Row */}
       <div className="flex justify-between text-sm">
         <span className="text-gray-500">Technician</span>
         <span className="font-medium">
-          {t?.full_name || t?.name || "Not Assigned"}
+          {tech?.full_name || tech?.name || "Not Assigned"}
         </span>
       </div>
 
@@ -45,8 +45,7 @@ export default function TeslaScheduleCard({
       <div className="flex justify-between text-sm">
         <span className="text-gray-500">Time Window</span>
         <span className="font-medium">
-          {start ? fmt(start) : "—"}{" "}
-          {end ? ` → ${fmt(end)}` : ""}
+          {start ? fmt(start) : "—"} {end ? ` → ${fmt(end)}` : ""}
         </span>
       </div>
 
@@ -73,7 +72,7 @@ export default function TeslaScheduleCard({
           <div className="bg-white w-full max-w-lg rounded-2xl shadow-xl overflow-hidden">
             <AssignClient
               requestId={request.id}
-              technicianId={request.technician_id}
+              technicianId={request.assigned_tech?.id}
               onClose={() => {
                 setAssignOpen(false);
                 onRefresh?.();
@@ -85,3 +84,6 @@ export default function TeslaScheduleCard({
     </div>
   );
 }
+
+
+

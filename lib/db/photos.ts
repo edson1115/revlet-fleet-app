@@ -2,7 +2,7 @@
 import { supabaseServer } from "./client";
 
 export async function getPhotos(requestId: string) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
 
   return supabase
     .from("request_photos")
@@ -16,7 +16,10 @@ export async function insertPhoto(payload: {
   url: string;
   kind: string; // before | after | damage
 }) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
 
   return supabase.from("request_photos").insert(payload).select().single();
 }
+
+
+

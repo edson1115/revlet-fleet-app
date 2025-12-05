@@ -32,3 +32,6 @@ export function roleCanSetStatus(role: string, targetStatus: string): boolean {
   if (!allowed) return false;
   return Array.isArray(allowed) && allowed.includes(targetStatus);
 }
+
+
+

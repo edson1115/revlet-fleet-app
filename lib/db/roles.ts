@@ -31,3 +31,6 @@ export function isTech(role?: string) {
 export function isCustomer(role?: string) {
   return role === "CUSTOMER_USER";
 }
+
+
+

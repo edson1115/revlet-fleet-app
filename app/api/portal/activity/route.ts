@@ -4,7 +4,7 @@ import { supabaseServer } from "@/lib/supabase/server";
 import { resolveUserScope } from "@/lib/api/scope";
 
 export async function GET(req: NextRequest) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const scope = await resolveUserScope();
 
   if (!scope.isCustomer) {
@@ -24,3 +24,6 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({ ok: true, data });
 }
+
+
+

@@ -17,3 +17,6 @@ export function isTech(profile: any) {
 export function isCustomer(profile: any) {
   return profile?.role === "CUSTOMER_USER";
 }
+
+
+

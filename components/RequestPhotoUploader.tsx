@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { useRequestPhotos } from "@/hooks/useRequestPhotos";
+import { useRequestPhotos } from "@/lib/hooks/useRequestPhotos";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
 const BUCKET = "request-photos";
@@ -100,3 +100,6 @@ export default function RequestPhotoUploader({ requestId }: { requestId: string 
     </div>
   );
 }
+
+
+

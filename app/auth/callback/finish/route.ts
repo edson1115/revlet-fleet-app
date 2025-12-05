@@ -14,7 +14,7 @@ export async function GET(req: Request) {
     );
   }
 
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const { error } = await supabase.auth.exchangeCodeForSession(code);
 
   if (error) {
@@ -26,3 +26,6 @@ export async function GET(req: Request) {
 
   return NextResponse.redirect(new URL(next, SITE_URL));
 }
+
+
+

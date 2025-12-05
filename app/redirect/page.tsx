@@ -29,3 +29,6 @@ export default async function RedirectPage() {
       return redirect("/login");
   }
 }
+
+
+

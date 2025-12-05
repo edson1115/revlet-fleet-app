@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { useRequestPhotos } from "@/hooks/useRequestPhotos";
 
+import { useRequestPhotos } from "@/lib/hooks/useRequestPhotos";
+import { useRequestRealtime } from "@/lib/hooks/useRequestRealtime";
 
 /* ===================================================================
    TECH COPILOT PANEL
@@ -93,119 +94,25 @@ function TechCopilotPanel({ requestId }: { requestId: string }) {
 }
 
 /* ===================================================================
-   MAIN TECH REQUEST PAGE
+   PARTS PANEL (uses existing API)
    =================================================================== */
 
-export default function TechRequestDetailPage() {
-  const params = useParams();
-  const router = useRouter();
-  const id = params?.id as string;
-
-  const [row, setRow] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  const [techNotes, setTechNotes] = useState("");
-  const [mileage, setMileage] = useState("");
-  const [recommend, setRecommend] = useState("");
-  const [sendBackReason, setSendBackReason] = useState("");
-
+function PartsPanel({ id }: { id: string }) {
   const [parts, setParts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [newPartName, setNewPartName] = useState("");
   const [newPartNumber, setNewPartNumber] = useState("");
 
-  const { photos, refresh: refreshPhotos } = useRequestPhotos(id);
-
-
-  async function load() {
+  async function loadParts() {
     setLoading(true);
-    try {
-      const res = await fetch(`/api/requests/${id}`, {
-        credentials: "include",
-        cache: "no-store",
-      });
-      const js = await res.json();
-      setRow(js);
-      setMileage(js.mileage || "");
-      setParts(js.parts || []);
-      setPhotos(js.photos || []);
-    } catch {
-      setRow(null);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // ---- CLOCK CONTROL ----
-  async function startClock() {
-    await fetch(`/api/requests/${id}`, {
-      method: "PATCH",
+    const res = await fetch(`/api/requests/${id}/parts`, {
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ op: "start" }),
     });
-    load();
+    const js = await res.json();
+    if (js.ok) setParts(js.parts);
+    setLoading(false);
   }
 
-  async function stopClock() {
-    await fetch(`/api/requests/${id}`, {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ op: "complete", note: null }),
-    });
-    load();
-  }
-
-  // ---- STATUS HELPERS ----
-  async function updateStatus(status: string, extra: any = {}) {
-    setSaving(true);
-    try {
-      const res = await fetch(`/api/requests/${id}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status, ...extra }),
-      });
-      const js = await res.json();
-      setRow(js);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function saveTechNotes() {
-    if (!techNotes.trim()) return;
-    await updateStatus(row.status, { add_note: `tech: ${techNotes}` });
-    setTechNotes("");
-  }
-
-  async function saveRecommendation() {
-    if (!recommend.trim()) return;
-    await updateStatus(row.status, { add_note: `recommendation: ${recommend}` });
-    setRecommend("");
-  }
-
-  async function saveMileage() {
-    await updateStatus(row.status, { mileage: Number(mileage) || null });
-  }
-
-  async function sendBack() {
-    if (!sendBackReason.trim()) return;
-    await fetch(`/api/requests/${id}`, {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        op: "reschedule",
-        reason: sendBackReason,
-      }),
-    });
-    setSendBackReason("");
-    load();
-  }
-
-  // ---- PARTS ----
   async function addPart() {
     if (!newPartName.trim()) return;
 
@@ -221,7 +128,7 @@ export default function TechRequestDetailPage() {
 
     setNewPartName("");
     setNewPartNumber("");
-    load();
+    loadParts();
   }
 
   async function removePart(partId: string) {
@@ -229,71 +136,305 @@ export default function TechRequestDetailPage() {
       method: "DELETE",
       credentials: "include",
     });
+
+    loadParts();
+  }
+
+  useEffect(() => {
+    loadParts();
+  }, [id]);
+
+  return (
+    <div className="border rounded-2xl p-4 bg-white space-y-4">
+      <h2 className="text-lg font-semibold">Parts Used</h2>
+
+      <div className="flex flex-col gap-2">
+        <input
+          value={newPartName}
+          onChange={(e) => setNewPartName(e.target.value)}
+          placeholder="Part name"
+          className="border rounded p-2 w-full"
+        />
+        <input
+          value={newPartNumber}
+          onChange={(e) => setNewPartNumber(e.target.value)}
+          placeholder="Part number (optional)"
+          className="border rounded p-2 w-full"
+        />
+
+        <button
+          onClick={addPart}
+          className="px-4 py-2 bg-black text-white rounded"
+        >
+          Add Part
+        </button>
+      </div>
+
+      <div className="space-y-2">
+        {loading && <div className="text-sm text-gray-500">Loading parts…</div>}
+
+        {!loading && parts.length === 0 && (
+          <div className="text-sm text-gray-500">No parts added.</div>
+        )}
+
+        {parts.map((p) => (
+          <div
+            key={p.id}
+            className="border rounded-xl p-3 flex items-center justify-between bg-gray-50"
+          >
+            <div>
+              <div className="text-sm font-medium">{p.part_name}</div>
+              <div className="text-xs text-gray-500">
+                {p.part_number || "—"}
+              </div>
+            </div>
+
+            <button
+              onClick={() => removePart(p.id)}
+              className="text-xs px-2 py-1 border rounded text-red-600"
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ===================================================================
+   PHOTO SECTION
+   =================================================================== */
+
+function PhotoSection({
+  title,
+  kind,
+  photos,
+  onUpload,
+}: {
+  title: string;
+  kind: "before" | "after" | "other";
+  photos: any[];
+  onUpload: (k: "before" | "after" | "other") => void;
+}) {
+  const filtered = photos.filter((p) => p.kind === kind);
+
+  return (
+    <div className="border rounded-2xl p-4 bg-white space-y-4">
+      <div className="flex justify-between items-center">
+        <h2 className="text-lg font-semibold">{title}</h2>
+
+        <button
+          onClick={() => onUpload(kind)}
+          className="px-4 py-2 border rounded-xl text-sm hover:bg-gray-50"
+        >
+          + Add {title.split(" ")[0]} Photo
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        {filtered.map((p) => (
+          <div key={p.id} className="relative">
+            <img
+              src={p.url_thumb || p.url || ""}
+              className="w-full h-40 object-cover rounded-xl border cursor-pointer"
+              onClick={() => window.open(p.url_thumb, "_blank")}
+            />
+
+            <span className="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] px-2 py-1 rounded">
+              {p.kind.toUpperCase()}
+            </span>
+          </div>
+        ))}
+
+        {filtered.length === 0 && (
+          <div className="text-gray-400 text-sm">No photos yet.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ===================================================================
+   MAIN TECH REQUEST PAGE
+   =================================================================== */
+
+export default function TechRequestDetailPage() {
+  const params = useParams();
+  const router = useRouter();
+  const id = params?.id as string;
+
+  const [request, setRequest] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [techNotes, setTechNotes] = useState("");
+  const [recommend, setRecommend] = useState("");
+  const [sendBackReason, setSendBackReason] = useState("");
+  const [mileage, setMileage] = useState("");
+
+  const { photos, refresh: refreshPhotos } = useRequestPhotos(id);
+
+  /* ---------------------------------------------------------
+     Realtime: listen to service_requests + images
+     --------------------------------------------------------- */
+  useRequestRealtime(id, () => load());
+  useRequestRealtime(id, () => refreshPhotos()); // images update too
+
+  /* ---------------------------------------------------------
+     Load the request
+     --------------------------------------------------------- */
+  async function load() {
+    setLoading(true);
+
+    try {
+      const res = await fetch(`/api/requests/${id}`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      const js = await res.json();
+      if (js.ok) {
+        setRequest(js.request);
+        setMileage(js.request.mileage || "");
+      }
+    } catch {
+      setRequest(null);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /* ---------------------------------------------------------
+     Status updates
+     --------------------------------------------------------- */
+
+  async function startJob() {
+    await fetch(`/api/requests/${id}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "start_job" }),
+    });
+
     load();
   }
 
-  async function verifyPart(p: any) {
-    const res = await fetch("/api/tech/copilot", {
-      method: "POST",
+  async function completeJob() {
+    await fetch(`/api/requests/${id}`, {
+      method: "PATCH",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        id,
-        kind: "verify_part",
-        message: JSON.stringify({
-          part_name: p.part_name,
-          part_number: p.part_number,
-          vehicle: row.vehicle,
-        }),
+        status: "COMPLETED",
+        completed_at: new Date().toISOString(),
       }),
     });
 
-    const js = await res.json();
-    alert(js.answer || "No response");
+    load();
   }
 
-  // ---- PHOTOS ----
-  async function uploadPhoto(e: any, kind: "before" | "after") {
-  const file = e.target.files?.[0];
-  if (!file) return;
+  async function sendBack() {
+    if (!sendBackReason.trim()) return;
 
-  const form = new FormData();
-  form.append("file", file);
-  form.append("kind", kind);
+    await fetch(`/api/requests/${id}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        status: "WAITING_TO_BE_SCHEDULED",
+        dispatch_notes: sendBackReason,
+      }),
+    });
 
-  await fetch(`/api/requests/${id}/photos`, {
-    method: "POST",
-    credentials: "include",
-    body: form,
-  });
+    setSendBackReason("");
+    load();
+  }
 
-  refreshPhotos();
-}
+  async function saveTechNotes() {
+    if (!techNotes.trim()) return;
 
+    await fetch(`/api/requests/${id}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notes: `TECH: ${techNotes}` }),
+    });
 
-  async function deletePhoto(photo: any) {
-  await fetch(`/api/requests/${id}/photos/${photo.id}`, {
-    method: "DELETE",
-    credentials: "include",
-  });
+    setTechNotes("");
+    load();
+  }
 
-  refreshPhotos();
-}
+  async function saveRecommendation() {
+    if (!recommend.trim()) return;
 
+    await fetch(`/api/requests/${id}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        dispatch_notes: `RECOMMENDATION: ${recommend}`,
+      }),
+    });
 
-  // ---- LOAD DATA ----
+    setRecommend("");
+    load();
+  }
+
+  async function saveMileage() {
+    await fetch(`/api/requests/${id}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mileage: Number(mileage) || null }),
+    });
+
+    load();
+  }
+
+  /* ---------------------------------------------------------
+     Photo Upload
+     --------------------------------------------------------- */
+  async function uploadPhoto(kind: "before" | "after" | "other", file: File) {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("request_id", id);
+    form.append("kind", kind);
+
+    await fetch(`/api/images/upload`, {
+      method: "POST",
+      credentials: "include",
+      body: form,
+    });
+
+    refreshPhotos();
+  }
+
+  function pickFile(kind: "before" | "after" | "other") {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (file) uploadPhoto(kind, file);
+    };
+
+    input.click();
+  }
+
+  /* ---------------------------------------------------------
+     Lifecycle
+     --------------------------------------------------------- */
   useEffect(() => {
     load();
   }, [id]);
 
-  if (loading) return <div className="p-6">Loading...</div>;
-  if (!row) return <div className="p-6">Request not found.</div>;
+  if (loading) return <div className="p-6">Loading…</div>;
+  if (!request) return <div className="p-6">Request not found.</div>;
 
-  const v = row.vehicle;
+  const v = request.vehicle;
 
   return (
     <div className="mx-auto max-w-3xl p-6 space-y-8">
-
       {/* HEADER */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Service Request</h1>
@@ -305,64 +446,50 @@ export default function TechRequestDetailPage() {
         </button>
       </div>
 
-      {/* STATUS + CLOCK */}
+      {/* STATUS */}
       <div className="border rounded-2xl p-4 bg-white space-y-4">
-
         <div>
           <div className="text-sm text-gray-500">Status</div>
-          <div className="text-xl font-semibold">{row.status}</div>
+          <div className="text-xl font-semibold">{request.status}</div>
         </div>
 
-        {/* ---- DOWNLOAD PDF BUTTON ---- */}
+        {/* Start Job */}
+        {request.status === "SCHEDULED" && (
+          <button
+            onClick={startJob}
+            className="px-4 py-2 bg-black text-white rounded w-full"
+          >
+            Start Job
+          </button>
+        )}
+
+        {/* Complete Job */}
+        {request.status === "IN_PROGRESS" && (
+          <button
+            onClick={completeJob}
+            className="px-4 py-2 bg-[#80FF44] text-black rounded w-full"
+          >
+            Complete Job
+          </button>
+        )}
+
+        {/* Send Back */}
+        <textarea
+          placeholder="Reason to send back"
+          value={sendBackReason}
+          onChange={(e) => setSendBackReason(e.target.value)}
+          className="border rounded-lg p-2 w-full"
+        />
         <button
-          onClick={() => window.open(`/api/requests/${id}/pdf`, "_blank")}
-          className="px-4 py-2 bg-black text-white rounded w-full"
+          onClick={sendBack}
+          className="px-4 py-2 bg-red-600 text-white rounded w-full"
         >
-          Download Service Report (PDF)
+          Send Back to Dispatch
         </button>
 
-        <button
-  onClick={async () => {
-    await fetch(`/api/requests/${id}/email`, { method: "POST" });
-    alert("Service report emailed!");
-  }}
-  className="px-4 py-2 bg-green-600 text-white rounded w-full"
->
-  Email Service Report
-</button>
-
-
-        {/* Start Clock */}
-        {(!row.started_at ||
-          row.status === "NEW" ||
-          row.status === "WAITING_TO_BE_SCHEDULED") && (
-          <button
-            onClick={startClock}
-            className="px-4 py-2 bg-blue-600 text-white rounded"
-          >
-            Start Clock
-          </button>
-        )}
-
-        {/* Stop Clock */}
-        {row.status === "IN_PROGRESS" && (
-          <button
-            onClick={stopClock}
-            className="px-4 py-2 bg-red-600 text-white rounded"
-          >
-            Stop Clock
-          </button>
-        )}
-
-        {row.started_at && (
+        {request.started_at && (
           <div className="text-sm text-gray-600">
-            Started: {new Date(row.started_at).toLocaleString()}
-          </div>
-        )}
-
-        {row.completed_at && (
-          <div className="text-sm text-gray-600">
-            Completed: {new Date(row.completed_at).toLocaleString()}
+            Started: {new Date(request.started_at).toLocaleString()}
           </div>
         )}
       </div>
@@ -378,73 +505,8 @@ export default function TechRequestDetailPage() {
         </div>
       </div>
 
-      {/* CUSTOMER */}
-      <div className="border rounded-2xl p-4 bg-white">
-        <div className="text-sm text-gray-500">Customer</div>
-        <div className="text-lg">{row.customer?.name || "—"}</div>
-      </div>
-
-      {/* PARTS PANEL */}
-      <div className="border rounded-2xl p-4 bg-white space-y-4">
-        <h2 className="text-lg font-semibold">Parts Used</h2>
-
-        <div className="flex flex-col gap-2">
-          <input
-            value={newPartName}
-            onChange={(e) => setNewPartName(e.target.value)}
-            placeholder="Part name"
-            className="border rounded p-2 w-full"
-          />
-          <input
-            value={newPartNumber}
-            onChange={(e) => setNewPartNumber(e.target.value)}
-            placeholder="Part number (optional)"
-            className="border rounded p-2 w-full"
-          />
-          <button
-            onClick={addPart}
-            className="px-4 py-2 bg-black text-white rounded"
-          >
-            Add Part
-          </button>
-        </div>
-
-        <div className="space-y-2">
-          {parts.length === 0 && (
-            <div className="text-sm text-gray-500">No parts added.</div>
-          )}
-
-          {parts.map((p) => (
-            <div
-              key={p.id}
-              className="border rounded-xl p-3 flex items-center justify-between bg-gray-50"
-            >
-              <div>
-                <div className="text-sm font-medium">{p.part_name}</div>
-                <div className="text-xs text-gray-500">
-                  {p.part_number || "—"}
-                </div>
-              </div>
-
-              <div className="flex gap-2">
-                <button
-                  onClick={() => verifyPart(p)}
-                  className="text-xs px-2 py-1 border rounded text-blue-600"
-                >
-                  Verify
-                </button>
-
-                <button
-                  onClick={() => removePart(p.id)}
-                  className="text-xs px-2 py-1 border rounded text-red-600"
-                >
-                  Remove
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* PARTS */}
+      <PartsPanel id={id} />
 
       {/* MILEAGE */}
       <div className="border rounded-2xl p-4 bg-white space-y-3">
@@ -457,8 +519,7 @@ export default function TechRequestDetailPage() {
         />
         <button
           onClick={saveMileage}
-          disabled={saving}
-          className="px-4 py-2 bg-black text-white rounded disabled:opacity-40"
+          className="px-4 py-2 bg-black text-white rounded w-full"
         >
           Save Mileage
         </button>
@@ -475,8 +536,7 @@ export default function TechRequestDetailPage() {
         />
         <button
           onClick={saveTechNotes}
-          disabled={saving}
-          className="px-4 py-2 bg-black text-white rounded disabled:opacity-40"
+          className="px-4 py-2 bg-black text-white rounded w-full"
         >
           Add Note
         </button>
@@ -493,77 +553,33 @@ export default function TechRequestDetailPage() {
         />
         <button
           onClick={saveRecommendation}
-          disabled={saving}
-          className="px-4 py-2 bg-black text-white rounded disabled:opacity-40"
+          className="px-4 py-2 bg-black text-white rounded w-full"
         >
           Submit Recommendation
         </button>
       </div>
 
-      {/* SEND BACK */}
-      <div className="border rounded-2xl p-4 bg-white space-y-3">
-        <div className="text-sm font-medium">Reschedule / Send Back</div>
-        <textarea
-          className="border rounded-lg w-full p-3"
-          rows={3}
-          placeholder="Why is this being sent back?"
-          value={sendBackReason}
-          onChange={(e) => setSendBackReason(e.target.value)}
-        />
-        <button
-          onClick={sendBack}
-          disabled={saving}
-          className="px-4 py-2 bg-red-600 text-white rounded disabled:opacity-40"
-        >
-          Send Back to Dispatch
-        </button>
-      </div>
+      {/* PHOTOS */}
+      <PhotoSection
+        title="Before Photos"
+        kind="before"
+        photos={photos}
+        onUpload={pickFile}
+      />
 
-      {/* BEFORE / AFTER PHOTOS */}
-      <div className="border rounded-2xl p-4 bg-white space-y-4">
-        <h2 className="text-lg font-semibold">Photos</h2>
+      <PhotoSection
+        title="After Photos"
+        kind="after"
+        photos={photos}
+        onUpload={pickFile}
+      />
 
-        <div className="flex flex-col gap-3">
-          <label className="text-sm font-medium">Upload Before Photo</label>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) => uploadPhoto(e, "before")}
-            className="border p-2 rounded"
-          />
-
-          <label className="text-sm font-medium">Upload After Photo</label>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) => uploadPhoto(e, "after")}
-            className="border p-2 rounded"
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          {photos.map((p) => (
-            <div key={p.id} className="relative">
-              <img
-                src={p.url}
-                className="w-full h-40 object-cover rounded-xl border cursor-pointer"
-                onClick={() => window.open(p.url, "_blank")}
-              />
-
-              <button
-                className="absolute top-2 right-2 text-xs bg-red-600 text-white px-2 py-1 rounded"
-                onClick={() => deletePhoto(p)}
-              >
-                Delete
-              </button>
-
-              <span className="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] px-2 py-1 rounded">
-                {p.kind.toUpperCase()}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
+      <PhotoSection
+        title="Other Photos"
+        kind="other"
+        photos={photos}
+        onUpload={pickFile}
+      />
 
       {/* COPILOT */}
       <TechCopilotPanel requestId={id} />

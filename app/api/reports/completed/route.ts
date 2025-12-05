@@ -99,3 +99,6 @@ export async function GET(req: Request) {
     return NextResponse.json({ rows: [], error: String(e?.message ?? e) }, { status: 500 });
   }
 }
+
+
+

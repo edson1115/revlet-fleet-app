@@ -168,3 +168,6 @@ export default function CopilotPanel({ requestId }: CopilotProps) {
     </div>
   );
 }
+
+
+

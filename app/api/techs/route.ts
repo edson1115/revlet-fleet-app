@@ -6,38 +6,41 @@ import { resolveUserScope } from "@/lib/api/scope";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const scope = await resolveUserScope();
 
   if (!scope.uid) {
-    return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
+    return NextResponse.json(
+      { ok: false, error: "Not authenticated" },
+      { status: 401 }
+    );
   }
 
-  if (!scope.isInternal) {
+  // SUPERADMIN, OFFICE, DISPATCH can read TECH profiles
+  const allowed = ["SUPERADMIN", "OFFICE", "DISPATCH"];
+  if (!allowed.includes(scope.role)) {
     return NextResponse.json(
-      { ok: false, error: "Access denied" },
+      { ok: false, error: "Forbidden: insufficient permissions" },
       { status: 403 }
     );
   }
 
-  // Filter active techs only
-  let query = supabase
+  const { data, error } = await supabase
     .from("profiles")
-    .select("id, full_name, role, active, market")
+    .select("id, full_name, role, active")
     .eq("role", "TECH")
     .eq("active", true);
 
-  // Market scoping
-  if (scope.markets.length > 0) {
-    query = query.in("market", scope.markets);
-  }
-
-  const { data, error } = await query;
-
   if (error) {
-    console.error("/api/techs GET error:", error);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    console.error("GET /api/techs error:", error);
+    return NextResponse.json(
+      { ok: false, error: error.message },
+      { status: 500 }
+    );
   }
 
-  return NextResponse.json({ ok: true, techs: data });
+  return NextResponse.json({ ok: true, rows: data });
 }
+
+
+

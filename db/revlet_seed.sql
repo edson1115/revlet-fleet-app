@@ -90,7 +90,7 @@ INSERT INTO service_requests (
 -- SCHEDULED request (assigned to Mike, scheduled for tomorrow)
 INSERT INTO service_requests (
   id, company_id, vehicle_id, location_id, fmc, service_type, priority, status,
-  customer_notes, assigned_tech_id, scheduled_at
+  customer_notes, assigned_tech, scheduled_at
 ) VALUES (
   '50000000-0000-0000-0000-000000000002',
   '00000000-0000-0000-0000-000000000002',
@@ -108,7 +108,7 @@ INSERT INTO service_requests (
 -- COMPLETED request (finished today, needs PO to close)
 INSERT INTO service_requests (
   id, company_id, vehicle_id, location_id, fmc, service_type, priority, status,
-  customer_notes, assigned_tech_id, scheduled_at, checked_in_at, completed_at
+  customer_notes, assigned_tech, scheduled_at, checked_in_at, completed_at
 ) VALUES (
   '50000000-0000-0000-0000-000000000003',
   '00000000-0000-0000-0000-000000000002',
@@ -220,5 +220,5 @@ SELECT
 FROM service_requests sr
 JOIN companies c ON sr.company_id = c.id
 JOIN vehicles v ON sr.vehicle_id = v.id
-LEFT JOIN app_users u ON sr.assigned_tech_id = u.id;
+LEFT JOIN app_users u ON sr.assigned_tech = u.id;
 */

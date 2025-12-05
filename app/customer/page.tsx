@@ -1,103 +1,137 @@
+// app/customer/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { normalizeRole } from "@/lib/permissions";
+import Link from "next/link";
+import { TeslaSection } from "@/components/tesla/TeslaSection";
+import { TeslaServiceCard } from "@/components/tesla/TeslaServiceCard";
+import { TeslaDivider } from "@/components/tesla/TeslaDivider";
 
-export default function CustomerPage() {
-  const router = useRouter();
-
+export default function CustomerDashboard() {
   const [loading, setLoading] = useState(true);
-  const [authorized, setAuthorized] = useState(false);
-  const [role, setRole] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
-  // Allowed roles (only declare ONCE)
-  const customerRoles = new Set(["CUSTOMER"]);
-  const internalRoles = new Set([
-    "OFFICE",
-    "DISPATCH",
-    "ADMIN",
-    "SUPERADMIN",
-    "FLEET_MANAGER",
-    "TECH",
-  ]);
+  const [stats, setStats] = useState({
+    total_requests: 0,
+    open_requests: 0,
+    completed_requests: 0,
+    vehicles: 0,
+  });
+
+  async function load() {
+    try {
+      const res = await fetch("/api/customer/dashboard", {
+        cache: "no-store",
+      });
+
+      const js = await res.json();
+      if (!res.ok) throw new Error(js.error || "Failed to load dashboard");
+
+      setStats(js.stats);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    let active = true;
-
-    (async () => {
-      try {
-        const res = await fetch("/api/me", {
-          credentials: "include",
-          cache: "no-store",
-        });
-
-        if (!res.ok) {
-          if (active) {
-            setAuthorized(false);
-            setLoading(false);
-          }
-          return;
-        }
-
-        const js = await res.json();
-        const raw = js?.role ?? null;
-        const norm = normalizeRole(raw);
-
-        if (active) {
-          setRole(norm);
-
-          // Fix: norm may be null — ensure it's a string before checking sets
-          const r = norm ?? "";
-
-          if (!customerRoles.has(r) && !internalRoles.has(r)) {
-            setAuthorized(false);
-          } else {
-            setAuthorized(true);
-          }
-
-          setLoading(false);
-        }
-      } catch {
-        if (active) {
-          setAuthorized(false);
-          setLoading(false);
-        }
-      }
-    })();
-
-    return () => {
-      active = false;
-    };
+    load();
   }, []);
 
   if (loading) {
-    return (
-      <div className="p-6 text-gray-600 text-sm">Checking access…</div>
-    );
+    return <div className="p-8 text-gray-500 text-sm">Loading…</div>;
   }
 
-  if (!authorized) {
+  if (err) {
     return (
-      <div className="p-6 text-red-700 text-sm">
-        You do not have permission to view this page.
+      <div className="p-8 text-red-600 text-sm">
+        Error loading dashboard: {err}
       </div>
     );
   }
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-semibold mb-2">Customer Portal</h1>
-      <p className="text-gray-600">Welcome to your customer dashboard.</p>
+    <div className="max-w-5xl mx-auto p-8 space-y-10">
 
-      <div className="mt-6">
-        <a
-          href="/customer/vehicles"
-          className="inline-block px-4 py-2 border rounded hover:bg-gray-50"
-        >
-          View Vehicles
-        </a>
+      {/* HEADER */}
+      <div>
+        <h1 className="text-[28px] font-semibold tracking-tight">
+          Customer Dashboard
+        </h1>
+        <p className="text-gray-600 text-sm">
+          Overview of your vehicles & service activity
+        </p>
       </div>
+
+      {/* STATS */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <TeslaServiceCard title="Total Requests">
+          <div className="text-3xl font-semibold">
+            {stats.total_requests}
+          </div>
+        </TeslaServiceCard>
+
+        <TeslaServiceCard title="Open Requests">
+          <div className="text-3xl font-semibold">
+            {stats.open_requests}
+          </div>
+        </TeslaServiceCard>
+
+        <TeslaServiceCard title="Completed">
+          <div className="text-3xl font-semibold">
+            {stats.completed_requests}
+          </div>
+        </TeslaServiceCard>
+
+        <TeslaServiceCard title="Vehicles">
+          <div className="text-3xl font-semibold">
+            {stats.vehicles}
+          </div>
+        </TeslaServiceCard>
+      </div>
+
+      <TeslaDivider />
+
+      {/* QUICK LINKS */}
+      <TeslaSection title="Quick Access">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+
+          <Link
+            href="/customer/requests"
+            className="block p-4 rounded-xl border bg-[#FAFAFA] hover:bg-gray-100 transition"
+          >
+            <div className="text-lg font-semibold">View Requests</div>
+            <div className="text-sm text-gray-600 mt-1">
+              Track progress and statuses
+            </div>
+          </Link>
+
+          <Link
+            href="/customer/vehicles"
+            className="block p-4 rounded-xl border bg-[#FAFAFA] hover:bg-gray-100 transition"
+          >
+            <div className="text-lg font-semibold">Your Vehicles</div>
+            <div className="text-sm text-gray-600 mt-1">
+              Browse and manage your fleet
+            </div>
+          </Link>
+
+        </div>
+      </TeslaSection>
+
+      <TeslaDivider />
+
+      {/* PROFILE */}
+      <TeslaSection title="Account">
+        <Link
+          href="/customer/profile"
+          className="text-blue-600 underline text-sm"
+        >
+          Manage Profile →
+        </Link>
+      </TeslaSection>
+
     </div>
   );
 }

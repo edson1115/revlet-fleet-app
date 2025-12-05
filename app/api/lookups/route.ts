@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
     const scope = await resolveUserScope();
     if (!scope.uid) return NextResponse.json({ data: [] });
 
-    const supabase = supabaseServer();
+    const supabase = await supabaseServer();
     const url = new URL(req.url);
 
     const type = url.searchParams.get("type");
@@ -79,3 +79,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
+
+
+

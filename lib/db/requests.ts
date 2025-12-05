@@ -2,7 +2,7 @@
 import { supabaseServer } from "./client";
 
 export async function getRequestsByMarket() {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
 
   return supabase
     .from("view_requests")
@@ -11,7 +11,7 @@ export async function getRequestsByMarket() {
 }
 
 export async function getActiveRequests() {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
 
   return supabase
     .from("active_requests_view")
@@ -20,7 +20,7 @@ export async function getActiveRequests() {
 }
 
 export async function getRequest(id: string) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
 
   return supabase
     .from("view_requests")
@@ -30,10 +30,13 @@ export async function getRequest(id: string) {
 }
 
 export async function updateRequestStatus(id: string, status: string) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
 
   return supabase
     .from("requests")
     .update({ status })
     .eq("id", id);
 }
+
+
+

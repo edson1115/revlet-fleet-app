@@ -55,3 +55,6 @@ export async function loadRelations(requests: any[]): Promise<RelationMaps> {
 
   return { customers, vehicles, locations, technicians };
 }
+
+
+

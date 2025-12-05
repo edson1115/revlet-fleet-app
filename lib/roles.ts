@@ -23,3 +23,6 @@ export async function getSessionContext() {
 
   return { supabase, uid, role, company_id };
 }
+
+
+
