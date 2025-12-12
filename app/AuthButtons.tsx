@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import Link from 'next/link';
+import { useEffect, useState } from "react";
+import Link from "next/link";
 
 export default function AuthButtons() {
   const [authed, setAuthed] = useState<boolean | null>(null);
@@ -10,9 +10,9 @@ export default function AuthButtons() {
   useEffect(() => {
     (async () => {
       try {
-        const r = await fetch('/api/me', { cache: 'no-store' });
+        const r = await fetch("/api/auth/me", { cache: "no-store" });
         const j = await r.json();
-        setAuthed(!!j?.authenticated);
+        setAuthed(!!j?.ok);
       } catch {
         setAuthed(false);
       }
@@ -37,16 +37,17 @@ export default function AuthButtons() {
       onClick={async () => {
         try {
           setBusy(true);
-          await fetch('/api/auth/signout', { method: 'POST' });
+
+          // Call your real logout route (supports POST/GET)
+          await fetch("/logout", { method: "POST" });
+
         } finally {
-          window.location.href = '/login';
+          // Force redirect after logout
+          window.location.href = "/login";
         }
       }}
     >
-      {busy ? 'Signing out…' : 'Logout'}
+      {busy ? "Signing out…" : "Logout"}
     </button>
   );
 }
-
-
-

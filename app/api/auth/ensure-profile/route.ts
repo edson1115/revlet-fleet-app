@@ -31,7 +31,7 @@ export async function POST() {
     return NextResponse.json({ ok: false }, { status: 200 });
   }
 
-  // ensure profile exists
+  // check profile
   const { data: existing } = await supabase
     .from("profiles")
     .select("id")
@@ -39,14 +39,15 @@ export async function POST() {
     .maybeSingle();
 
   if (!existing) {
+    // ⭐ DO NOT assign fake or static customer IDs
     await supabase.from("profiles").insert([
       {
         id: user.id,
         email: user.email,
         full_name: user.user_metadata?.full_name ?? "Customer User",
         role: "CUSTOMER",
-        customer_id: "22222222-2222-2222-2222-222222222222",
-        active: true
+        customer_id: null,     // ⭐ FIX
+        active: true,
       },
     ]);
   }

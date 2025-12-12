@@ -1,3 +1,4 @@
+-- db/revlet_schema.sql
 -- =====================================================
 -- REVLET Fleet Service Management - Database Schema
 -- Supabase PostgreSQL Schema (V1 MVP)

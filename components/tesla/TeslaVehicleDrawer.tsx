@@ -1,157 +1,135 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import clsx from "clsx";
-import { TeslaServiceCard } from "./TeslaServiceCard";
-import { TeslaSection } from "./TeslaSection";
-import { TeslaKV } from "./TeslaKV";
+import Link from "next/link";
+import { motion } from "framer-motion";
 
-type Vehicle = {
-  id: string;
-  year: number | null;
-  make: string | null;
-  model: string | null;
-  unit_number: string | null;
-  plate: string | null;
-  vin: string | null;
-  notes_internal?: string | null;
-  customer?: {
-    id: string;
-    name: string | null;
-  } | null;
-};
-
-type Props = {
-  id: string;
+export default function TeslaVehicleDrawer({
+  open,
+  vehicle,
+  onClose,
+}: {
+  open: boolean;
+  vehicle: any;
   onClose: () => void;
-};
+}) {
+  const [requests, setRequests] = useState<any[]>([]);
+  const [loadingReq, setLoadingReq] = useState(false);
 
-export function TeslaVehicleDrawer({ id, onClose }: Props) {
-  const [vehicle, setVehicle] = useState<Vehicle | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  // LOAD VEHICLE DETAILS
   useEffect(() => {
-    (async () => {
+    if (!open || !vehicle?.id) return;
+
+    async function loadReq() {
+      setLoadingReq(true);
       try {
-        const res = await fetch(`/api/vehicles/${id}`, {
+        const res = await fetch(`/api/customer/requests?vehicle_id=${vehicle.id}`, {
           cache: "no-store",
         });
-
         const js = await res.json();
         if (res.ok) {
-          setVehicle(js?.vehicle || null);
-        } else {
-          console.error(js.error);
+          setRequests(js.requests?.slice(0, 5) || []);
         }
-      } catch (err) {
-        console.error(err);
+      } finally {
+        setLoadingReq(false);
       }
-      setLoading(false);
-    })();
-  }, [id]);
+    }
 
-  // ------------------------------------------------------------------
-  // UI - SLIDE-IN DRAWER (RIGHT SIDE)
-  // ------------------------------------------------------------------
+    loadReq();
+  }, [open, vehicle?.id]);
+
+  if (!open || !vehicle) return null;
+
   return (
-    <div className="fixed inset-0 z-50 flex">
-      {/* BACKDROP */}
-      <div
-        onClick={onClose}
-        className="flex-1 bg-black/40 backdrop-blur-sm cursor-pointer"
-      />
+    <motion.div
+      initial={{ x: "100%" }}
+      animate={{ x: 0 }}
+      exit={{ x: "100%" }}
+      transition={{ type: "tween", duration: 0.25 }}
+      className="fixed inset-0 bg-black/30 backdrop-blur-sm flex justify-end z-[500]"
+    >
+      <div className="w-full max-w-md h-full bg-white p-6 overflow-y-auto shadow-2xl">
 
-      {/* DRAWER PANEL */}
-      <div
-        className={clsx(
-          "w-[380px] max-w-full bg-white h-full shadow-xl border-l border-gray-200",
-          "transform translate-x-0 transition-transform duration-300 ease-out"
-        )}
-      >
-        <div className="p-6 pb-4 border-b border-gray-200 flex items-center justify-between">
-          <h2 className="text-xl font-semibold tracking-tight">
-            Vehicle Details
-          </h2>
+        <div className="flex justify-between items-start mb-6">
+          <div>
+            <h2 className="text-xl font-semibold">
+              {vehicle.year} {vehicle.make} {vehicle.model}
+            </h2>
+
+            <div className="text-sm mt-1 text-gray-600 space-y-1">
+              <div><strong>Unit:</strong> {vehicle.unit_number || "—"}</div>
+              <div><strong>Plate:</strong> {vehicle.plate || "—"}</div>
+              <div><strong>VIN:</strong> {vehicle.vin || "—"}</div>
+              <div>
+                <strong>Mileage:</strong>{" "}
+                {vehicle.mileage_override ??
+                  vehicle.last_reported_mileage ??
+                  "—"}
+              </div>
+            </div>
+          </div>
+
           <button
             onClick={onClose}
-            className="text-gray-500 hover:text-black transition"
+            className="text-gray-500 hover:text-black"
           >
             ✕
           </button>
         </div>
 
-        <div className="overflow-y-auto p-6 space-y-6">
+        <div className="flex flex-col gap-3 mb-10">
+          <Link
+            href={`/customer/update-mileage?vehicle_id=${vehicle.id}`}
+            className="w-full bg-black text-white py-3 rounded-lg text-center font-medium hover:bg-gray-900"
+          >
+            Update Mileage
+          </Link>
 
-          {/* LOADING */}
-          {loading && (
-            <div className="text-gray-500 text-sm">Loading…</div>
+          <Link
+            href={`/customer/requests/new?vehicle_id=${vehicle.id}`}
+            className="w-full block text-center bg-blue-600 text-white py-3 rounded-xl font-medium hover:bg-blue-700 transition"
+          >
+            Create Service Request
+          </Link>
+
+          <button
+            onClick={() => alert("AI Scan modal coming next step")}
+            className="w-full bg-gray-200 text-gray-800 py-3 rounded-lg text-center font-medium hover:bg-gray-300"
+          >
+            AI Vehicle Scan
+          </button>
+        </div>
+
+        <div className="mb-4">
+          <h3 className="text-lg font-semibold mb-3">Recent Services</h3>
+
+          {loadingReq && <div className="text-sm text-gray-500">Loading…</div>}
+
+          {!loadingReq && requests.length === 0 && (
+            <div className="text-sm text-gray-400">No service history.</div>
           )}
 
-          {/* NO DATA */}
-          {!loading && !vehicle && (
-            <div className="text-red-600 text-sm">Vehicle not found.</div>
-          )}
-
-          {/* CONTENT */}
-          {vehicle && (
-            <>
-              {/* Vehicle Summary */}
-              <TeslaServiceCard title="Summary">
-                <TeslaSection label="Year / Make / Model">
-                  {vehicle.year} {vehicle.make} {vehicle.model}
-                </TeslaSection>
-
-                <TeslaSection label="Unit #">
-                  <TeslaKV k="Unit Number" v={vehicle.unit_number || "—"} />
-                </TeslaSection>
-
-                <TeslaSection label="Identification">
-                  <TeslaKV k="Plate" v={vehicle.plate || "—"} />
-                  <TeslaKV k="VIN" v={vehicle.vin || "—"} />
-                </TeslaSection>
-
-                <TeslaSection label="Customer">
-                  {vehicle.customer?.name || "—"}
-                </TeslaSection>
-              </TeslaServiceCard>
-
-              {/* Notes */}
-              <TeslaServiceCard title="Internal Notes">
-                <div className="text-sm text-gray-600 whitespace-pre-wrap">
-                  {vehicle.notes_internal || "No notes."}
+          <div className="space-y-3">
+            {requests.map((r: any) => (
+              <Link
+                key={r.id}
+                href={`/customer/requests/${r.id}`}
+                className="block border rounded-lg p-3 hover:bg-gray-50 transition"
+              >
+                <div className="font-medium text-gray-800">
+                  {r.service_type || "General Service"}
                 </div>
-              </TeslaServiceCard>
 
-              {/* Actions */}
-              <TeslaServiceCard title="Actions">
-                <button
-                  onClick={() =>
-                    window.location.assign(`/office/vehicles/${vehicle.id}`)
-                  }
-                  className="w-full bg-black text-white py-2 rounded-lg text-sm font-medium hover:bg-gray-900"
-                >
-                  Open Vehicle Page
-                </button>
-
-                <button
-                  onClick={() =>
-                    window.location.assign(
-                      `/office/requests/create?vehicle=${vehicle.id}`
-                    )
-                  }
-                  className="w-full mt-2 bg-gray-100 py-2 rounded-lg text-sm font-medium hover:bg-gray-200"
-                >
-                  Create Service Request
-                </button>
-              </TeslaServiceCard>
-            </>
-          )}
+                <div className="text-sm text-gray-500 flex justify-between mt-1">
+                  <span>{new Date(r.created_at).toLocaleDateString()}</span>
+                  <span className="px-2 py-0.5 rounded-full text-xs bg-gray-200">
+                    {r.status}
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
-
-
-

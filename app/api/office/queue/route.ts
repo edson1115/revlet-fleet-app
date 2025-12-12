@@ -1,48 +1,32 @@
-// app/api/office/queue/route.ts
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
-
-export const dynamic = "force-dynamic";
+import { getUserAndRole, INTERNAL } from "@/lib/supabase/server-helpers";
 
 /**
- * GET /api/office/queue?status=open|all&limit=100
- * Office sees requests (focus on unscheduled + in-flight).
+ * Returns queue of requests for Office:
+ * NEW, WAITING, WAITING_FOR_APPROVAL, WAITING_FOR_PARTS
  */
-export async function GET(req: Request) {
-  const supabase = await supabaseServer();
-  const url = new URL(req.url);
-  const status = (url.searchParams.get("status") || "open").toLowerCase(); // "open" | "all"
-  const limit = Math.min(parseInt(url.searchParams.get("limit") || "200", 10), 500);
+export async function GET() {
+  try {
+    const { user, role } = await getUserAndRole();
+    if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    if (!role || !INTERNAL.has(role)) {
+      return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+    }
 
-  const { data: auth } = await supabase.auth.getUser();
-  const uid = auth?.user?.id || null;
-  if (!uid) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+    const supabase = await supabaseServer();
 
-  const { data: prof } = await supabase
-    .from("profiles")
-    .select("company_id, role")
-    .eq("id", uid)
-    .maybeSingle();
+    // Pull common "incoming" statuses; adjust to your enum set
+    const { data, error } = await supabase
+      .from("service_requests")
+      .select("*")
+      .in("status", ["NEW", "WAITING", "WAITING_FOR_APPROVAL", "WAITING_FOR_PARTS"])
+      .order("created_at", { ascending: false });
 
-  const company_id = prof?.company_id || null;
+    if (error) throw new Error(error.message);
 
-  let q = supabase
-    .from("service_requests")
-    .select("id, company_id, status, technician_id, customer_id, vehicle_id, location_id, scheduled_for, created_at, notes, po_number", { count: "exact" })
-    .order("created_at", { ascending: false })
-    .limit(limit);
-
-  if (company_id) q = q.eq("company_id", company_id);
-
-  if (status === "open") {
-    // Office focuses on anything not completed or canceled
-    q = q.not("status", "in", "(COMPLETED,CANCELED)");
+    return NextResponse.json({ ok: true, rows: data || [] });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
   }
-
-  const { data, error } = await q;
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true, data });
 }
-
-
-

@@ -8,10 +8,12 @@ import { TeslaSection } from "@/components/tesla/TeslaSection";
 import { TeslaDivider } from "@/components/tesla/TeslaDivider";
 import TeslaTimelineCombined from "@/components/tesla/TeslaTimelineCombined";
 import { TeslaStatusChip } from "@/components/tesla/TeslaStatusChip";
-import Lightbox from "@/components/common/Lightbox";
 
 import TeslaScheduleCard from "@/components/tesla/TeslaScheduleCard";
 import { TeslaPartsCard } from "@/components/tesla/TeslaPartsCard";
+
+// ✅ New Tesla Photo Module
+import TeslaPhotoGrid from "@/components/tesla/TeslaPhotoGrid";
 
 export default function OfficeRequestPage({ params }: any) {
   const requestId = params.id;
@@ -21,10 +23,6 @@ export default function OfficeRequestPage({ params }: any) {
   const [request, setRequest] = useState<any>(null);
   const [role, setRole] = useState<string | null>(null);
   const [techs, setTechs] = useState<any[]>([]);
-
-  // Lightbox
-  const [lightboxOpen, setLightboxOpen] = useState(false);
-  const [lightboxIndex, setLightboxIndex] = useState(0);
 
   async function loadAll() {
     // Auth
@@ -64,6 +62,9 @@ export default function OfficeRequestPage({ params }: any) {
     { label: "Started", ts: request.started_at },
     { label: "Completed", ts: request.completed_at },
   ];
+
+  // ✅ Extract Tesla photo URLs
+  const photos = (request.images || []).map((img: any) => img.url_full);
 
   return (
     <div className="p-8 space-y-10 max-w-5xl mx-auto">
@@ -107,6 +108,7 @@ export default function OfficeRequestPage({ params }: any) {
         <div className="text-sm whitespace-pre-line">
           {request.service || "—"}
         </div>
+
         {request.notes && (
           <div className="text-sm text-gray-600 mt-2">
             <strong>Customer Notes:</strong> {request.notes}
@@ -130,42 +132,16 @@ export default function OfficeRequestPage({ params }: any) {
         }}
       />
 
-      {/* PHOTOS */}
+      {/* ================================
+          TESLA PHOTO MODULE (NEW)
+      ================================== */}
       <TeslaSection label="Photos">
-        {!request.images?.length && (
+        {!photos.length && (
           <div className="text-sm text-gray-500">No photos.</div>
         )}
 
-        {request.images?.length > 0 && (
-          <div className="grid grid-cols-3 gap-2">
-            {request.images.map((img: any, i: number) => (
-              <button
-                key={img.id}
-                onClick={() => {
-                  setLightboxIndex(i);
-                  setLightboxOpen(true);
-                }}
-                className="rounded-lg overflow-hidden border border-gray-200"
-              >
-                <img
-                  src={img.url_thumb || img.url_full}
-                  className="w-full h-24 object-cover"
-                />
-              </button>
-            ))}
-          </div>
-        )}
+        {photos.length > 0 && <TeslaPhotoGrid photos={photos} />}
       </TeslaSection>
-
-      <Lightbox
-        open={lightboxOpen}
-        images={(request.images || []).map((img: any) => ({
-          url_work: img.url_full,
-        }))}
-        index={lightboxIndex}
-        onIndex={setLightboxIndex}
-        onClose={() => setLightboxOpen(false)}
-      />
 
       <div className="h-20" />
     </div>

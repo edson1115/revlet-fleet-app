@@ -1,154 +1,74 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { TeslaSection } from "@/components/tesla/TeslaSection";
-import { TeslaDivider } from "@/components/tesla/TeslaDivider";
+import { TeslaHeroBar } from "@/components/tesla/TeslaHeroBar";
 
-export default function AddVehiclePage() {
-  const router = useRouter();
-
+export default function NewVehiclePage() {
   const [form, setForm] = useState({
-    vin: "",
-    plate: "",
+    year: "",
     make: "",
     model: "",
-    year: "",
-    unit_number: "",
+    plate: "",
+    vin: "",
   });
 
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
-
-  function update(k: string, v: string) {
-    setForm((f) => ({ ...f, [k]: v }));
-  }
-
   async function submit() {
-    setErr(null);
-    setSuccess(false);
-    setLoading(true);
+    const res = await fetch("/api/customer/vehicles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(form),
+    });
 
-    try {
-      const res = await fetch("/api/customer/vehicles", {
-        method: "POST",
-        credentials: "include",
-        body: JSON.stringify(form),
-      });
-
-      const js = await res.json();
-      if (!res.ok) throw new Error(js.error || "Failed to add vehicle");
-
-      setSuccess(true);
-      setTimeout(() => {
-        router.push("/customer/vehicles");
-      }, 600);
-    } catch (e: any) {
-      setErr(e.message);
-    } finally {
-      setLoading(false);
-    }
+    const js = await res.json();
+    if (!js.ok) return alert(js.error);
+    window.location.href = "/customer/vehicles";
   }
 
   return (
-    <div className="max-w-xl mx-auto p-8 space-y-8">
-      <div>
-        <h1 className="text-[26px] font-semibold tracking-tight">
-          Add Vehicle
-        </h1>
-        <p className="text-gray-600 text-sm">Add a new vehicle to your account.</p>
-      </div>
+    <div className="min-h-screen bg-[#fafafa]">
+      <TeslaHeroBar title="Add Vehicle" subtitle="Enter vehicle details" />
 
-      <TeslaDivider />
+      <div className="max-w-lg mx-auto p-6 space-y-6">
+        <input
+          className="w-full border rounded-xl p-3"
+          placeholder="Year"
+          value={form.year}
+          onChange={(e) => setForm({ ...form, year: e.target.value })}
+        />
 
-      <TeslaSection title="Vehicle Information">
-        <div className="space-y-4 mt-4">
-          {/* VIN */}
-          <div>
-            <label className="text-sm font-medium">VIN</label>
-            <input
-              value={form.vin}
-              onChange={(e) => update("vin", e.target.value)}
-              className="w-full mt-1 px-3 py-2 border rounded-lg"
-              placeholder="1HGBH41JXMN109186"
-            />
-          </div>
+        <input
+          className="w-full border rounded-xl p-3"
+          placeholder="Make"
+          value={form.make}
+          onChange={(e) => setForm({ ...form, make: e.target.value })}
+        />
 
-          {/* Plate */}
-          <div>
-            <label className="text-sm font-medium">Plate</label>
-            <input
-              value={form.plate}
-              onChange={(e) => update("plate", e.target.value)}
-              className="w-full mt-1 px-3 py-2 border rounded-lg"
-              placeholder="7ABC123"
-            />
-          </div>
+        <input
+          className="w-full border rounded-xl p-3"
+          placeholder="Model"
+          value={form.model}
+          onChange={(e) => setForm({ ...form, model: e.target.value })}
+        />
 
-          {/* Make / Model */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium">Make</label>
-              <input
-                value={form.make}
-                onChange={(e) => update("make", e.target.value)}
-                className="w-full mt-1 px-3 py-2 border rounded-lg"
-                placeholder="Ford"
-              />
-            </div>
+        <input
+          className="w-full border rounded-xl p-3"
+          placeholder="Plate"
+          value={form.plate}
+          onChange={(e) => setForm({ ...form, plate: e.target.value })}
+        />
 
-            <div>
-              <label className="text-sm font-medium">Model</label>
-              <input
-                value={form.model}
-                onChange={(e) => update("model", e.target.value)}
-                className="w-full mt-1 px-3 py-2 border rounded-lg"
-                placeholder="Transit"
-              />
-            </div>
-          </div>
-
-          {/* Year / Unit # */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium">Year</label>
-              <input
-                value={form.year}
-                onChange={(e) => update("year", e.target.value)}
-                className="w-full mt-1 px-3 py-2 border rounded-lg"
-                placeholder="2020"
-              />
-            </div>
-
-            <div>
-              <label className="text-sm font-medium">Unit #</label>
-              <input
-                value={form.unit_number}
-                onChange={(e) => update("unit_number", e.target.value)}
-                className="w-full mt-1 px-3 py-2 border rounded-lg"
-                placeholder="128"
-              />
-            </div>
-          </div>
-        </div>
-      </TeslaSection>
-
-      {/* ACTIONS */}
-      <div className="pt-4">
-        {err && <div className="text-red-600 text-sm mb-3">{err}</div>}
-        {success && (
-          <div className="text-green-600 text-sm mb-3">
-            Vehicle added — redirecting…
-          </div>
-        )}
+        <input
+          className="w-full border rounded-xl p-3"
+          placeholder="VIN"
+          value={form.vin}
+          onChange={(e) => setForm({ ...form, vin: e.target.value })}
+        />
 
         <button
+          className="w-full py-3 bg-gray-900 text-white rounded-xl"
           onClick={submit}
-          disabled={loading}
-          className="w-full bg-black text-white py-3 rounded-xl font-medium disabled:opacity-40"
         >
-          {loading ? "Saving…" : "Save Vehicle"}
+          Save Vehicle
         </button>
       </div>
     </div>

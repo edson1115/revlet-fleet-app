@@ -1,65 +1,80 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { TeslaListRow } from "@/components/tesla/TeslaListRow";
-import { useRequestDrawer } from "@/lib/hooks/useRequestDrawer";
+import TeslaLayoutShell from "@/components/tesla/layout/TeslaLayoutShell";
+import { TeslaHeroBar } from "@/components/tesla/TeslaHeroBar";
+import { TeslaSection } from "@/components/tesla/TeslaSection";
+import { TeslaOfficeRequestRow } from "@/components/tesla/office/TeslaOfficeRequestRow";
+import { TeslaSegmented } from "@/components/tesla/TeslaSegmented";
 
-export default function OfficeRequestsList() {
+export default function OfficeRequestsPage() {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const { open } = useRequestDrawer(); // ⭐ drawer hook
+  const [filter, setFilter] = useState<"ALL" | "TIRE" | "SERVICE">("ALL");
 
   async function load() {
-    try {
-      const r = await fetch("/api/requests?scope=internal", {
-        cache: "no-store",
-      }).then((x) => x.json());
+    setLoading(true);
+    const res = await fetch("/api/requests?office=1", {
+      cache: "no-store",
+    });
+    const js = await res.json();
 
-      setRows(r.rows || []);
-    } catch (e) {
-      console.error("Failed to load requests", e);
-    } finally {
-      setLoading(false);
-    }
+    if (js.ok) setRows(js.rows || []);
+    setLoading(false);
   }
 
   useEffect(() => {
     load();
   }, []);
 
-  if (loading) return <div className="p-6">Loading…</div>;
+  const filtered = rows.filter((r) => {
+    if (filter === "ALL") return true;
+    if (filter === "TIRE") return r.type === "TIRE_PURCHASE" || r.type === "TIRE_ORDER";
+    if (filter === "SERVICE") return r.type !== "TIRE_PURCHASE" && r.type !== "TIRE_ORDER";
+    return true;
+  });
 
   return (
-    <div className="p-8 max-w-3xl mx-auto">
-      <h1 className="text-2xl font-semibold mb-6">All Requests</h1>
+    <TeslaLayoutShell>
+      <TeslaHeroBar
+        title="Office Requests"
+        subtitle="Review, approve, and schedule service & tire orders"
+      />
 
-      <div className="rounded-xl border border-gray-200 overflow-hidden">
-        {rows.map((r) => {
-          const vehicle = r.vehicle || {};
-          const title = `${vehicle.year ?? ""} ${vehicle.make ?? ""} ${vehicle.model ?? ""}`.trim();
+      <div className="max-w-6xl mx-auto p-6 space-y-10">
+        {/* FILTER BAR */}
+        <TeslaSection label="Filters">
+          <TeslaSegmented
+            value={filter}
+            onChange={setFilter}
+            options={[
+              { label: "All", value: "ALL" },
+              { label: "Tire Requests", value: "TIRE" },
+              { label: "Service Requests", value: "SERVICE" },
+            ]}
+          />
+        </TeslaSection>
 
-          const meta =
-            vehicle.plate ||
-            vehicle.vin ||
-            (vehicle.unit_number ? `Unit ${vehicle.unit_number}` : "");
+        {/* REQUEST LIST */}
+        <TeslaSection label="Requests">
+          <div className="bg-white rounded-xl divide-y">
+            {loading && (
+              <div className="text-center text-gray-500 py-6">Loading…</div>
+            )}
 
-          return (
-            <TeslaListRow
-              key={r.id}
-              title={title || "Vehicle"}
-              subtitle={r.service ?? "—"}
-              metaLeft={meta}
-              status={r.status}
-              onClick={() => open(r.id)} // ⭐ open Tesla drawer
-            />
-          );
-        })}
+            {!loading && filtered.length === 0 && (
+              <div className="text-center text-gray-400 py-6">
+                No requests found.
+              </div>
+            )}
 
-        {rows.length === 0 && (
-          <div className="p-6 text-gray-500 text-sm">No requests.</div>
-        )}
+            {filtered.map((r) => (
+              <TeslaOfficeRequestRow key={r.id} req={r} />
+            ))}
+          </div>
+        </TeslaSection>
       </div>
-    </div>
+    </TeslaLayoutShell>
   );
 }

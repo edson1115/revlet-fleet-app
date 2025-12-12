@@ -1,23 +1,40 @@
-// lib/supabase/server.ts
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { cookies as nextCookies } from "next/headers";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 
-export async function supabaseServer() {
-  const cookieStore = await cookies();
+// 🚨 IMPORTANT — DO NOT call cookies() at module level
+// Next.js 15 requires cookies() to be awaited inside route handlers.
 
+export function supabaseServer() {
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
         async get(name: string) {
-          return cookieStore.get(name)?.value;
+          try {
+            const cookieStore = await nextCookies(); // ✅ Next.js 15 requirement
+            return cookieStore.get(name)?.value;
+          } catch {
+            return undefined;
+          }
         },
-        async set(name: string, value: string, options: any) {
-          cookieStore.set(name, value, options);
+
+        async set(name: string, value: string, options: CookieOptions) {
+          try {
+            const cookieStore = await nextCookies(); // ✅ must be awaited
+            cookieStore.set(name, value, options);
+          } catch {
+            // Ignore writes outside route handlers
+          }
         },
-        async remove(name: string, options: any) {
-          cookieStore.delete(name, options);
+
+        async remove(name: string, options: CookieOptions) {
+          try {
+            const cookieStore = await nextCookies();
+            cookieStore.set(name, "", { ...options, maxAge: 0 });
+          } catch {
+            // ignore
+          }
         },
       },
     }

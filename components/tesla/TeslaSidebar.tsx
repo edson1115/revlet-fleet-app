@@ -1,9 +1,13 @@
+// components/tesla/TeslaSidebar.tsx
 "use client";
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 
 export function TeslaSidebar() {
+  const pathname = usePathname();
+
   const [role, setRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -44,6 +48,21 @@ export function TeslaSidebar() {
   if (!role) return null;
 
   // --------------------------
+  // ACTIVE ROUTE CHECK
+  // --------------------------
+
+  function isActiveRoute(path: string, href: string) {
+    // Exact match
+    if (path === href) return true;
+
+    // Prevent root-level items from matching nested paths
+    if (href === "/customer" || href === "/") return false;
+
+    // Nested match
+    return path.startsWith(href + "/");
+  }
+
+  // --------------------------
   // MENU DEFINITIONS
   // --------------------------
 
@@ -61,23 +80,17 @@ export function TeslaSidebar() {
     { label: "Queue", href: "/dispatch/queue" },
   ];
 
-  const techMenu = [
-    { label: "Tech Jobs", href: "/tech/jobs" },
-  ];
+  const techMenu = [{ label: "Tech Jobs", href: "/tech/jobs" }];
 
-  const admin = [
-    { label: "Admin Dashboard", href: "/admin" },
-  ];
+  const admin = [{ label: "Admin Dashboard", href: "/admin" }];
 
-  // --------------------------
-  // CUSTOMER MENU — NEW
-  // --------------------------
   const customer = [
-  { label: "Portal Home", href: "/portal" },
-  { label: "Vehicles", href: "/customer/vehicles" },
-  { label: "Requests", href: "/customer/requests" },
-  { label: "New Request", href: "/customer/requests/new" },
-  { label: "Profile", href: "/customer/profile" }
+    { label: "Portal Home", href: "/customer" },
+    { label: "Vehicles", href: "/customer/vehicles" },
+    { label: "Requests", href: "/customer/requests" },
+    { label: "New Request", href: "/customer/requests/new" },
+    { label: "Tire Purchase", href: "/customer/tires/new" },   // ⭐ NEW
+    { label: "Profile", href: "/customer/profile" },
 ];
 
 
@@ -121,15 +134,26 @@ export function TeslaSidebar() {
       <h2 className="text-xl font-semibold tracking-tight">Revlet</h2>
 
       <nav className="space-y-2">
-        {menu.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className="block py-2 px-3 rounded-lg hover:bg-gray-100 transition"
-          >
-            {item.label}
-          </Link>
-        ))}
+        {menu.map((item) => {
+          const active = isActiveRoute(pathname, item.href);
+
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`
+                block py-2 px-3 rounded-lg transition
+                ${
+                  active
+                    ? "bg-black text-white font-semibold"
+                    : "hover:bg-gray-100 text-gray-700"
+                }
+              `}
+            >
+              {item.label}
+            </Link>
+          );
+        })}
       </nav>
 
       <button

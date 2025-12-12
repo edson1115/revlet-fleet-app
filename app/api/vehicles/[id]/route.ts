@@ -1,7 +1,13 @@
+// app/api/customer/vehicles/[id]/route.ts
 import { supabaseServer } from "@/lib/supabase/server";
 
-export async function GET(req: Request, { params }: any) {
-  const { id } = params;
+export async function GET(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  // ⭐ FIX — unwrap params Promise
+  const { id } = await params;
+
   const supabase = await supabaseServer();
 
   const { data, error } = await supabase
@@ -25,11 +31,12 @@ export async function GET(req: Request, { params }: any) {
     .eq("id", id)
     .maybeSingle();
 
-  if (error || !data)
+  if (error || !data) {
     return new Response(
       JSON.stringify({ error: "Vehicle not found" }),
       { status: 404 }
     );
+  }
 
   return new Response(JSON.stringify({ vehicle: data }), {
     status: 200,

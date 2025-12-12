@@ -1,15 +1,19 @@
+// app/auth/callback/route.ts
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const code = searchParams.get("code");
+const HOME: Record<string, string> = {
+  SUPERADMIN: "/admin/dashboard",
+  ADMIN: "/admin/dashboard",
+  DISPATCH: "/dispatch/scheduled",
+  OFFICE: "/office/queue",
+  TECH: "/tech/queue",
+  CUSTOMER: "/customer",
+};
 
-  if (!code) {
-    return NextResponse.redirect(new URL("/login", request.url));
-  }
-
+export async function GET(req: Request) {
+  const url = new URL(req.url);
   const cookieStore = await cookies();
 
   const supabase = createServerClient(
@@ -30,15 +34,44 @@ export async function GET(request: Request) {
     }
   );
 
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  const code = url.searchParams.get("code");
 
-  if (error) {
-    console.error("Magic link session error:", error);
-    return NextResponse.redirect(new URL("/login?error=auth", request.url));
+  // Exchange code → create session cookie
+  if (code) {
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    if (error) {
+      return NextResponse.redirect(
+        new URL(`/login?error=${encodeURIComponent(error.message)}`, url.origin)
+      );
+    }
   }
 
-  return NextResponse.redirect(new URL("/", request.url));
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.redirect(new URL("/login", url.origin));
+  }
+
+  // Load or create profile
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (!profile) {
+    await supabase.from("profiles").insert({
+      id: user.id,
+      email: user.email,
+      role: "CUSTOMER",
+      active: true,
+    });
+  }
+
+  const role = (profile?.role || "CUSTOMER").toUpperCase();
+  const home = HOME[role] || "/";
+
+  return NextResponse.redirect(new URL(home, url.origin));
 }
-
-
-

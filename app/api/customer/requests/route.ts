@@ -1,3 +1,4 @@
+// app/api/customer/requests/route.ts
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
@@ -26,10 +27,9 @@ export async function GET() {
   // USER
   const {
     data: { user },
-    error: userErr,
   } = await supabase.auth.getUser();
 
-  if (userErr || !user) {
+  if (!user) {
     return NextResponse.json(
       { ok: false, error: "Unauthorized" },
       { status: 401 }
@@ -37,30 +37,38 @@ export async function GET() {
   }
 
   // PROFILE
-  const { data: profile, error: profErr } = await supabase
+  const { data: profile } = await supabase
     .from("profiles")
     .select("customer_id")
     .eq("id", user.id)
     .maybeSingle();
 
-  if (profErr || !profile?.customer_id) {
+  if (!profile?.customer_id) {
     return NextResponse.json(
       { ok: false, error: "Not a customer" },
       { status: 403 }
     );
   }
 
-  // REQUESTS
+  // REQUESTS (⭐ Updated with type + tire fields)
   const { data: requests, error: reqErr } = await supabase
     .from("service_requests")
     .select(`
       id,
+      type,
       status,
       service,
       created_at,
-      scheduled_start_at,
+      tire_size,
+      tire_quantity,
+      dropoff_address,
+      po,
       vehicle:vehicles (
-        make, model, year, plate, unit_number
+        make,
+        model,
+        year,
+        plate,
+        unit_number
       )
     `)
     .eq("customer_id", profile.customer_id)

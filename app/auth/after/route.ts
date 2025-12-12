@@ -3,11 +3,12 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 
 const ROLE_LANDING: Record<string, string> = {
+  SUPERADMIN: "/admin",
   ADMIN: "/admin",
   OFFICE: "/office/queue",
   DISPATCH: "/dispatch/scheduled",
   TECH: "/tech/queue",
-  CUSTOMER: "/fm/requests/new",
+  CUSTOMER: "/customer",
 };
 
 export async function GET(req: Request) {
@@ -15,23 +16,27 @@ export async function GET(req: Request) {
   const next = url.searchParams.get("next");
 
   const supabase = await supabaseServer();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.redirect(new URL("/login", url.origin));
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  // read role from your profiles table
-  const { data: prof } = await supabase
+  if (!user) {
+    return NextResponse.redirect(new URL("/login", url.origin));
+  }
+
+  const { data: profile } = await supabase
     .from("profiles")
     .select("role")
     .eq("id", user.id)
     .maybeSingle();
 
-  // honor ?next= if provided
-  if (next) return NextResponse.redirect(new URL(next, url.origin));
+  // If ?next= exists → always honor it
+  if (next) {
+    return NextResponse.redirect(new URL(next, url.origin));
+  }
 
-  const role = (prof?.role ?? "") as keyof typeof ROLE_LANDING;
+  const role = (profile?.role || "CUSTOMER").toUpperCase();
   const target = ROLE_LANDING[role] ?? "/";
+
   return NextResponse.redirect(new URL(target, url.origin));
 }
-
-
-

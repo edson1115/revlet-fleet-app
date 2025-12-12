@@ -1,21 +1,10 @@
-export function TeslaSection({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+"use client";
+
+export function TeslaSection({ label, children }) {
   return (
-    <div className="space-y-1">
-      <p className="uppercase text-[11px] font-medium tracking-wide text-gray-500">
-        {label}
-      </p>
-      <div className="bg-[#F8F8F8] rounded-lg p-3 text-sm text-gray-900">
-        {children}
-      </div>
-    </div>
+    <section className="space-y-4">
+      <h2 className="text-xl font-semibold text-gray-800">{label}</h2>
+      {children}
+    </section>
   );
 }
-
-
-

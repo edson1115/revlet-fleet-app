@@ -1,3 +1,4 @@
+-- db/revlet_seed.sql
 -- =====================================================
 -- REVLET Fleet Service Management - Seed Data
 -- Sample data for testing (1 shop, 1 customer, users, vehicles)
