@@ -2,7 +2,8 @@
 
 import React from "react";
 import { TeslaServiceCard } from "./TeslaServiceCard";
-import { TeslaSection } from "./TeslaSection";
+import TeslaSection from "./TeslaSection";
+
 
 export type PartLine = {
   id?: string;

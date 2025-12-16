@@ -1,3 +1,4 @@
+// app/api/office/dashboard/route.ts
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { normalizeRole } from "@/lib/permissions";
@@ -5,16 +6,13 @@ import { normalizeRole } from "@/lib/permissions";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// ------------------------------------------------------------
-// GET /api/office/dashboard
-// ------------------------------------------------------------
 export async function GET() {
   try {
     const supabase = await supabaseServer();
 
-    // -------------------------------
-    // AUTH
-    // -------------------------------
+    /* -------------------------------------------
+       AUTH
+    ------------------------------------------- */
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -24,110 +22,121 @@ export async function GET() {
     }
 
     const role = normalizeRole(user.user_metadata?.role);
-
-    const OFFICE_ROLES = new Set([
+    const ALLOWED = new Set([
       "OFFICE",
       "DISPATCH",
       "ADMIN",
       "SUPERADMIN",
-      "FLEET_MANAGER",
     ]);
 
-    if (!role || !OFFICE_ROLES.has(role)) {
+    if (!role || !ALLOWED.has(role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // ------------------------------------------------------------
-    // MARKET SCOPING — Uses user's active_market from profiles
-    // ------------------------------------------------------------
+    /* -------------------------------------------
+       PROFILE → MARKET
+    ------------------------------------------- */
     const { data: profile } = await supabase
       .from("profiles")
       .select("active_market")
       .eq("id", user.id)
       .maybeSingle();
 
-    const active_market = profile?.active_market ?? "San Antonio";
+    const market = profile?.active_market;
+    if (!market) {
+      return NextResponse.json(
+        { error: "No active market assigned" },
+        { status: 400 }
+      );
+    }
 
-    // ------------------------------------------------------------
-    // TODAY METRICS
-    // ------------------------------------------------------------
-    const { data: today } = await supabase.rpc("sr_today_metrics", {
-      market_input: active_market,
-    });
+    /* -------------------------------------------
+       COUNTS BY STATUS
+    ------------------------------------------- */
+    async function count(status: string) {
+      const { count } = await supabase
+        .from("service_requests")
+        .select("*", { count: "exact", head: true })
+        .eq("market", market)
+        .eq("status", status);
 
-    // ------------------------------------------------------------
-    // TECH STATUS (today’s active workload)
-    // ------------------------------------------------------------
-    const { data: techs } = await supabase.rpc("sr_tech_status", {
-      market_input: active_market,
-    });
+      return count ?? 0;
+    }
 
-    // ------------------------------------------------------------
-    // TOTAL CUSTOMERS (market-scoped)
-    // ------------------------------------------------------------
-    const { count: customers } = await supabase
-      .from("customers")
+    const [
+      waiting,
+      toBeScheduled,
+      scheduled,
+      inProgress,
+      completed,
+    ] = await Promise.all([
+      count("WAITING"),
+      count("TO_BE_SCHEDULED"),
+      count("SCHEDULED"),
+      count("IN_PROGRESS"),
+      count("COMPLETED"),
+    ]);
+
+    const openRequests =
+      waiting + toBeScheduled + scheduled + inProgress;
+
+    /* -------------------------------------------
+       URGENT
+    ------------------------------------------- */
+    const { count: urgent } = await supabase
+      .from("service_requests")
       .select("*", { count: "exact", head: true })
-      .eq("market", active_market);
+      .eq("market", market)
+      .eq("urgent", true)
+      .neq("status", "COMPLETED");
 
-    // ------------------------------------------------------------
-    // TOTAL VEHICLES (market-scoped)
-    // ------------------------------------------------------------
-    const { count: vehicles } = await supabase
-      .from("vehicles")
-      .select("*", { count: "exact", head: true })
-      .eq("market", active_market);
+    /* -------------------------------------------
+       TODAY’S SCHEDULE
+    ------------------------------------------- */
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
 
-    // ------------------------------------------------------------
-    // KPI: Aging Buckets
-    // ------------------------------------------------------------
-    const { data: aging } = await supabase.rpc("sr_aging_buckets", {
-      market_input: active_market,
-    });
+    const end = new Date();
+    end.setHours(23, 59, 59, 999);
 
-    // ------------------------------------------------------------
-    // KPI: Technician Productivity
-    // ------------------------------------------------------------
-    const { data: tech_kpi } = await supabase.rpc(
-      "sr_technician_productivity",
-      {
-        market_input: active_market,
-      }
-    );
+    const { data: today } = await supabase
+      .from("service_requests")
+      .select(
+        `
+        id,
+        service,
+        scheduled_start_at,
+        vehicle:vehicles (
+          year,
+          make,
+          model
+        )
+      `
+      )
+      .eq("market", market)
+      .eq("status", "SCHEDULED")
+      .gte("scheduled_start_at", start.toISOString())
+      .lte("scheduled_start_at", end.toISOString())
+      .order("scheduled_start_at", { ascending: true });
 
-    // ------------------------------------------------------------
-    // KPI: Average Completion Time (minutes)
-    // ------------------------------------------------------------
-    const { data: avg_time_row } = await supabase.rpc(
-      "sr_average_completion_time",
-      {
-        market_input: active_market,
-      }
-    );
-
-    const avg_time = avg_time_row?.avg_minutes ?? null;
-
-    // ------------------------------------------------------------
-    // FINAL RESPONSE
-    // ------------------------------------------------------------
+    /* -------------------------------------------
+       RESPONSE
+    ------------------------------------------- */
     return NextResponse.json({
-      today: today ?? {},
-      techs: techs ?? [],
-      customers: customers ?? 0,
-      vehicles: vehicles ?? 0,
-      aging: aging ?? [],
-      tech_kpi: tech_kpi ?? [],
-      avg_time,
-      market: active_market,
+      open_requests: openRequests,
+      waiting,
+      to_be_scheduled: toBeScheduled,
+      scheduled,
+      in_progress: inProgress,
+      completed,
+      urgent: urgent ?? 0,
+      today: today ?? [],
     });
   } catch (err: any) {
-    console.error("DASHBOARD ERROR:", err);
+    console.error("Office dashboard error:", err);
     return NextResponse.json(
       { error: "Server error", detail: err.message },
       { status: 500 }
     );
   }
 }
-
-
-

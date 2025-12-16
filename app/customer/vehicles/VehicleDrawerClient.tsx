@@ -6,10 +6,10 @@ import clsx from "clsx";
 import { TeslaDivider } from "@/components/tesla/TeslaDivider";
 import { TeslaSection } from "@/components/tesla/TeslaSection";
 
-import { useDamageAnalysis } from "@/app/hooks/useDamageAnalysis";
-import { useAISummary } from "@/app/hooks/useAISummary";
-import { useAIParts } from "@/app/hooks/useAIParts";
-import { useAINextService } from "@/app/hooks/useAINextService";
+import { useDamageAnalysis } from "@/hooks/useDamageAnalysis";
+import { useAISummary } from "@/hooks/useAISummary";
+import { useAIParts } from "@/hooks/useAIParts";
+import { useAINextService } from "@/hooks/useAINextService";
 
 export default function VehicleDrawerClient({ vehicle, onClose }: any) {
   if (!vehicle) return null;

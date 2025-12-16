@@ -4,6 +4,9 @@ import { supabaseServer } from "@/lib/supabase/server";
 export async function resolveUserScope() {
   const supabase = await supabaseServer();
 
+  // ------------------------------
+  // Load authenticated user
+  // ------------------------------
   let user = null;
   try {
     const result = await supabase.auth.getUser();
@@ -12,71 +15,57 @@ export async function resolveUserScope() {
     user = null;
   }
 
-  // ---------------------------------------
-  // NOT LOGGED IN = PUBLIC USER
-  // ---------------------------------------
   if (!user) {
     return {
       uid: null,
       email: null,
       role: "PUBLIC",
-      isTech: false,
+      isCustomer: false,
       isOffice: false,
       isDispatch: false,
-      isCustomer: false,
+      isTech: false,
       isSuperAdmin: false,
       isInternal: false,
-      readOnlyDispatch: false,
-      readOnlyOffice: false,
+      customer_id: null,
+      active_market: null,
       markets: [],
     };
   }
 
-  // ---------------------------------------
-  // LOAD PROFILE
-  // ---------------------------------------
+  // ------------------------------
+  // Load profile
+  // ------------------------------
   const { data: profile } = await supabase
     .from("profiles")
-    .select("email, role, active_market")
+    .select("email, role, customer_id, active_market")
     .eq("id", user.id)
     .maybeSingle();
 
   const role = profile?.role ?? "PUBLIC";
-  const market = profile?.active_market ?? null;
+  const customer_id = profile?.customer_id ?? null;
+  const active_market = profile?.active_market ?? null;
 
-  // ---------------------------------------
-  // ROLE FLAGS
-  // ---------------------------------------
-  const isSuperAdmin = role === "SUPERADMIN";
-  const isDispatch = role === "DISPATCH";
-  const isOffice = role === "OFFICE";
-  const isTech = role === "TECH";
   const isCustomer = role === "CUSTOMER";
-
-  // Shared internal system roles
-  const isInternal = isSuperAdmin || isDispatch || isOffice || isTech;
-
-  // READ-ONLY RIGHTS
-  const readOnlyDispatch =
-    isOffice || isCustomer; // Office can view Dispatch; Customers never see it
-  const readOnlyOffice =
-    isDispatch || isCustomer; // Dispatch can view Office read-only
+  const isTech = role === "TECH";
+  const isOffice = role === "OFFICE";
+  const isDispatch = role === "DISPATCH";
+  const isSuperAdmin = role === "SUPERADMIN";
+  const isInternal = isOffice || isDispatch || isTech || isSuperAdmin;
 
   return {
     uid: user.id,
     email: profile?.email ?? user.email,
     role,
+    customer_id,
+    active_market,
 
-    isSuperAdmin,
-    isDispatch,
-    isOffice,
-    isTech,
     isCustomer,
-
+    isOffice,
+    isDispatch,
+    isTech,
+    isSuperAdmin,
     isInternal,
-    readOnlyDispatch,
-    readOnlyOffice,
 
-    markets: market ? [market] : [],
+    markets: active_market ? [active_market] : [],
   };
 }

@@ -1,10 +1,14 @@
 "use client";
 
-export function TeslaSection({ label, children }) {
+export default function TeslaSection({ label, children, className = "" }) {
   return (
-    <section className="space-y-4">
-      <h2 className="text-xl font-semibold text-gray-800">{label}</h2>
-      {children}
-    </section>
+    <div className={`w-full ${className}`}>
+      {label && (
+        <div className="text-sm text-gray-600 font-semibold mb-2">{label}</div>
+      )}
+      <div className="rounded-xl border border-gray-200 p-4 bg-white">
+        {children}
+      </div>
+    </div>
   );
 }

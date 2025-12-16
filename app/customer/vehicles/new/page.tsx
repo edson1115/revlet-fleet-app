@@ -1,76 +1,96 @@
 "use client";
 
-import { useState } from "react";
-import { TeslaHeroBar } from "@/components/tesla/TeslaHeroBar";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
-export default function NewVehiclePage() {
-  const [form, setForm] = useState({
-    year: "",
-    make: "",
-    model: "",
-    plate: "",
-    vin: "",
-  });
+export default function CustomerAddVehiclePage() {
+  const router = useRouter();
 
-  async function submit() {
+  const [providers, setProviders] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // FORM FIELDS
+  const [year, setYear] = useState("");
+  const [make, setMake] = useState("");
+  const [model, setModel] = useState("");
+  const [plate, setPlate] = useState("");
+  const [vin, setVin] = useState("");
+  const [unit, setUnit] = useState("");
+  const [provider, setProvider] = useState("");
+
+  // Load FMC list
+  useEffect(() => {
+    async function load() {
+      const r = await fetch("/api/providers", { cache: "no-store" });
+      const js = await r.json();
+      if (js.ok) setProviders(js.providers || []);
+      setLoading(false);
+    }
+    load();
+  }, []);
+
+  async function save() {
+    if (!year || !make || !model)
+      return alert("Year, make, and model required");
+
     const res = await fetch("/api/customer/vehicles", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
+      credentials: "include",
+      body: JSON.stringify({
+        year,
+        make,
+        model,
+        plate,
+        vin,
+        unit_number: unit,
+        provider_company_id: provider || null,
+      }),
     });
 
     const js = await res.json();
     if (!js.ok) return alert(js.error);
-    window.location.href = "/customer/vehicles";
+
+    router.push("/customer/vehicles");
   }
 
+  if (loading) return <div className="p-6">Loading…</div>;
+
   return (
-    <div className="min-h-screen bg-[#fafafa]">
-      <TeslaHeroBar title="Add Vehicle" subtitle="Enter vehicle details" />
+    <div className="max-w-3xl mx-auto p-8 space-y-8">
+      <h1 className="text-3xl font-semibold tracking-tight">
+        Add Vehicle
+      </h1>
 
-      <div className="max-w-lg mx-auto p-6 space-y-6">
-        <input
-          className="w-full border rounded-xl p-3"
-          placeholder="Year"
-          value={form.year}
-          onChange={(e) => setForm({ ...form, year: e.target.value })}
-        />
-
-        <input
-          className="w-full border rounded-xl p-3"
-          placeholder="Make"
-          value={form.make}
-          onChange={(e) => setForm({ ...form, make: e.target.value })}
-        />
-
-        <input
-          className="w-full border rounded-xl p-3"
-          placeholder="Model"
-          value={form.model}
-          onChange={(e) => setForm({ ...form, model: e.target.value })}
-        />
-
-        <input
-          className="w-full border rounded-xl p-3"
-          placeholder="Plate"
-          value={form.plate}
-          onChange={(e) => setForm({ ...form, plate: e.target.value })}
-        />
-
-        <input
-          className="w-full border rounded-xl p-3"
-          placeholder="VIN"
-          value={form.vin}
-          onChange={(e) => setForm({ ...form, vin: e.target.value })}
-        />
-
-        <button
-          className="w-full py-3 bg-gray-900 text-white rounded-xl"
-          onClick={submit}
-        >
-          Save Vehicle
-        </button>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <input className="border p-3 rounded-lg" placeholder="Year" value={year} onChange={(e) => setYear(e.target.value)} />
+        <input className="border p-3 rounded-lg" placeholder="Make" value={make} onChange={(e) => setMake(e.target.value)} />
+        <input className="border p-3 rounded-lg" placeholder="Model" value={model} onChange={(e) => setModel(e.target.value)} />
+        <input className="border p-3 rounded-lg" placeholder="Plate" value={plate} onChange={(e) => setPlate(e.target.value)} />
+        <input className="border p-3 rounded-lg" placeholder="VIN" value={vin} onChange={(e) => setVin(e.target.value)} />
+        <input className="border p-3 rounded-lg" placeholder="Unit #" value={unit} onChange={(e) => setUnit(e.target.value)} />
       </div>
+
+      {/* FMC DROPDOWN */}
+      <div>
+        <label className="font-medium text-sm">Fleet Management Company (Optional)</label>
+        <select
+          className="w-full border p-3 rounded-lg mt-1"
+          value={provider}
+          onChange={(e) => setProvider(e.target.value)}
+        >
+          <option value="">None</option>
+          {providers.map((p) => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+      </div>
+
+      <button
+        onClick={save}
+        className="w-full py-3 bg-black text-white rounded-xl font-semibold hover:bg-gray-800 transition"
+      >
+        Save Vehicle
+      </button>
     </div>
   );
 }

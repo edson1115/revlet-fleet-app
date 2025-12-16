@@ -6,33 +6,47 @@ export async function GET() {
   try {
     const supabase = await supabaseServer();
 
+    // -------------------------------
+    // AUTH → Get user via Supabase
+    // -------------------------------
     const {
       data: { user },
+      error: userErr,
     } = await supabase.auth.getUser();
 
-    if (!user) {
-      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    if (userErr || !user) {
+      return NextResponse.json(
+        { ok: false, error: "Unauthorized" },
+        { status: 401 }
+      );
     }
 
-    const { data: profile } = await supabase
+    // -------------------------------
+    // LOAD USER PROFILE
+    // -------------------------------
+    const { data: profile, error: profileErr } = await supabase
       .from("profiles")
       .select("*")
       .eq("id", user.id)
-      .maybeSingle();
+      .single();
+
+    if (profileErr || !profile) {
+      return NextResponse.json(
+        { ok: false, error: "Profile not found" },
+        { status: 404 }
+      );
+    }
 
     return NextResponse.json({
       ok: true,
-      user: {
-        id: user.id,
-        email: user.email,
-        role: profile?.role || "CUSTOMER",
-        customer_id: profile?.customer_id ?? null,
-        market: profile?.market ?? null,
-      },
+      user,
+      role: profile.role,
+      profile,
     });
-  } catch (err: any) {
+  } catch (e: any) {
+    console.error("ME API ERROR:", e);
     return NextResponse.json(
-      { ok: false, error: err.message },
+      { ok: false, error: "Server error" },
       { status: 500 }
     );
   }

@@ -217,3 +217,41 @@ h1, h2, h3 {
     opacity: 0;
   }
 }
+
+/* -------------------------------------------------------
+   Tesla Gravity Drawer Motion
+------------------------------------------------------- */
+
+@keyframes teslaDrawerIn {
+  0% {
+    transform: translateX(40%);
+    opacity: 0.8;
+  }
+  60% {
+    transform: translateX(-4%);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+@keyframes teslaDrawerOut {
+  0% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+.animate-tesla-in {
+  animation: teslaDrawerIn 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.animate-tesla-out {
+  animation: teslaDrawerOut 0.35s cubic-bezier(0.65, 0, 0.35, 1);
+}
+

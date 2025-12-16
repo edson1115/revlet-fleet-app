@@ -117,6 +117,40 @@ export default function CustomerDashboard() {
             </div>
           )}
 
+            {/* FMC GROUPING */}
+<TeslaSection title="Fleet by FMC">
+  <div className="mt-4 space-y-2">
+
+    {!stats.fmc_groups || stats.fmc_groups.length === 0 ? (
+      <div className="text-sm text-gray-500">No vehicles found.</div>
+    ) : (
+      stats.fmc_groups.map((g: any) => (
+        <div
+          key={g.fmc}
+          className="flex justify-between items-center border rounded-xl p-4 bg-[#FAFAFA]"
+        >
+          <div className="text-sm text-gray-700 font-medium">
+            {g.fmc}
+          </div>
+          <div className="text-gray-800 font-semibold">
+            {g.count}
+          </div>
+        </div>
+      ))
+    )}
+  </div>
+
+  <div className="mt-3">
+    <a
+      href="/customer/vehicles/fmc"
+      className="text-sm text-blue-600 underline"
+    >
+      View FMC Dashboard →
+    </a>
+  </div>
+</TeslaSection>
+
+
           {recentRequests.map((r) => (
             <div
               key={r.id}

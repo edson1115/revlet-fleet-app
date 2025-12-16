@@ -1,18 +1,23 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase/server";
-
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+import { createServerClient } from "@supabase/ssr";
 
 export async function POST() {
-  const supabase = await supabaseServer();
+  const cookieStore = cookies();
 
-  try {
-    // Clear the Supabase session cookies
-    await supabase.auth.signOut();
-  } catch (err) {
-    console.error("Logout error:", err);
-  }
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get: (name) => cookieStore.get(name)?.value,
+        set: (name, value, options) => cookieStore.set(name, value, options),
+        remove: (name, options) => cookieStore.delete(name, options),
+      },
+    }
+  );
+
+  await supabase.auth.signOut();
 
   return NextResponse.json({ ok: true });
 }

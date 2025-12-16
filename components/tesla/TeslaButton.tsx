@@ -1,17 +1,25 @@
-export function TeslaButton({
+"use client";
+
+export default function TeslaButton({
   children,
   onClick,
   type = "button",
+  className = "",
 }: {
-  children: React.ReactNode;
+  children: any;
   onClick?: () => void;
   type?: "button" | "submit";
+  className?: string;
 }) {
   return (
     <button
       type={type}
       onClick={onClick}
-      className="mt-8 w-full bg-black text-white py-3 rounded-lg text-sm hover:bg-[#111] transition"
+      className={`
+        w-full bg-black text-white rounded-xl py-3 text-sm font-semibold 
+        hover:bg-gray-800 active:bg-gray-900 transition-all 
+        ${className}
+      `}
     >
       {children}
     </button>

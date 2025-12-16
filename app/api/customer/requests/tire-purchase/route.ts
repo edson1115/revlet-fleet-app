@@ -6,7 +6,6 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const {
-      vehicle_id,
       tire_size,
       quantity,
       notes,
@@ -16,34 +15,64 @@ export async function POST(req: Request) {
 
     const supabase = await supabaseServer();
 
-    // 1. Auth
+    // --------------------------------------------------
+    // AUTH
+    // --------------------------------------------------
     const {
       data: { user },
     } = await supabase.auth.getUser();
 
-    if (!user)
-      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    if (!user) {
+      return NextResponse.json(
+        { ok: false, error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
 
-    // 2. Insert service request
+    // --------------------------------------------------
+    // LOAD CUSTOMER PROFILE
+    // --------------------------------------------------
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("customer_id")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (!profile?.customer_id) {
+      return NextResponse.json(
+        { ok: false, error: "Invalid customer profile" },
+        { status: 403 }
+      );
+    }
+
+    // --------------------------------------------------
+    // INSERT SERVICE REQUEST (NO VEHICLE BINDING)
+    // --------------------------------------------------
     const { data, error } = await supabase
       .from("service_requests")
       .insert({
-        customer_id: user.id,
-        vehicle_id,
+        customer_id: profile.customer_id,
         type: "TIRE_PURCHASE",
-        status: "WAITING",
+        service: "tire_purchase",
+        status: "NEW",
+
+        // tire-specific info (stored safely)
         tire_size,
-        quantity,
+        tire_quantity: quantity,
+        dropoff_address: location_name,
+
+        po: po_number,
         notes,
-        po_number,
-        location_name,
-        origin: "CUSTOMER_PORTAL",
       })
       .select()
       .single();
 
-    if (error)
-      return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+    if (error) {
+      return NextResponse.json(
+        { ok: false, error: error.message },
+        { status: 400 }
+      );
+    }
 
     return NextResponse.json({
       ok: true,
@@ -51,6 +80,10 @@ export async function POST(req: Request) {
       message: "Tire Purchase Request Created",
     });
   } catch (err: any) {
-    return NextResponse.json({ ok: false, error: err.message });
+    console.error("TIRE PURCHASE API ERROR:", err);
+    return NextResponse.json(
+      { ok: false, error: err.message || "Server error" },
+      { status: 500 }
+    );
   }
 }

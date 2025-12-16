@@ -1,42 +1,77 @@
-import { cookies as nextCookies } from "next/headers";
-import { createServerClient, type CookieOptions } from "@supabase/ssr";
+// lib/supabase/server.ts
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
 
-// 🚨 IMPORTANT — DO NOT call cookies() at module level
-// Next.js 15 requires cookies() to be awaited inside route handlers.
+// ---------------------------------------------------------
+// 1) SYNC CLIENT — used in Server Components (NO awaiting)
+// ---------------------------------------------------------
+export function supabaseServerSync() {
+  const cookieStore = cookies(); // sync in SC
 
-export function supabaseServer() {
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        async get(name: string) {
-          try {
-            const cookieStore = await nextCookies(); // ✅ Next.js 15 requirement
-            return cookieStore.get(name)?.value;
-          } catch {
-            return undefined;
-          }
+        get(name: string) {
+          return cookieStore.get(name)?.value;
         },
-
-        async set(name: string, value: string, options: CookieOptions) {
-          try {
-            const cookieStore = await nextCookies(); // ✅ must be awaited
-            cookieStore.set(name, value, options);
-          } catch {
-            // Ignore writes outside route handlers
-          }
+        set() {
+          /* ignored — cannot modify cookies in SC */
         },
-
-        async remove(name: string, options: CookieOptions) {
-          try {
-            const cookieStore = await nextCookies();
-            cookieStore.set(name, "", { ...options, maxAge: 0 });
-          } catch {
-            // ignore
-          }
+        remove() {
+          /* ignored — cannot modify cookies in SC */
         },
       },
     }
   );
 }
+
+// ---------------------------------------------------------
+// 2) ASYNC CLIENT — used ONLY in Route Handlers (/api/*)
+// ---------------------------------------------------------
+export async function supabaseServer() {
+  const cookieStore = await cookies(); // MUST await in API routes
+
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value;
+        },
+        set(name: string, value: string, options: any) {
+          try {
+            cookieStore.set(name, value, options);
+          } catch {}
+        },
+        remove(name: string, options: any) {
+          try {
+            cookieStore.delete(name, options);
+          } catch {}
+        },
+        
+      },
+    }
+  );
+}
+
+// ---------------------------------------------------------
+// 3) SERVICE CLIENT — full access (Storage upload, no RLS)
+// ---------------------------------------------------------
+import { createClient } from "@supabase/supabase-js";
+
+export function supabaseService() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,   // << REQUIRED
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    }
+  );
+}
+

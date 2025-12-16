@@ -3,24 +3,39 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 
 export async function GET() {
-  const supabase = await supabaseServer();
+  try {
+    const supabase = await supabaseServer();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    const {
+      data: { user },
+      error: userErr,
+    } = await supabase.auth.getUser();
 
-  if (!user)
-    return NextResponse.json({ ok: false, user: null, profile: null });
+    if (userErr || !user) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", user.id)
-    .maybeSingle();
+    const { data: profile, error: profileErr } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", user.id)
+      .single();
 
-  return NextResponse.json({
-    ok: true,
-    user,
-    profile,
-  });
+    if (profileErr || !profile) {
+      return NextResponse.json(
+        { ok: false, error: "Profile not found" },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      user,
+      role: profile.role,
+      profile
+    });
+  } catch (e) {
+    console.error("ME API ERROR:", e);
+    return NextResponse.json({ ok: false, error: "Server error" }, { status: 500 });
+  }
 }

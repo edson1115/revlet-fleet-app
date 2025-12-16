@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { TeslaSection } from "@/components/tesla/TeslaSection";
+import TeslaSection from "@/components/tesla/TeslaSection";
 import { TeslaDivider } from "@/components/tesla/TeslaDivider";
 import { TeslaStatusChip } from "@/components/tesla/TeslaStatusChip";
 
@@ -16,23 +16,19 @@ export default function OfficeDashboard() {
     completed: 0,
   });
 
-  async function load() {
-    try {
-      const r = await fetch("/api/requests/stats?scope=internal", {
-        cache: "no-store",
-      }).then((res) => res.json());
-
-      setStats(r.stats || {});
-    } catch (e) {
-      console.error("Failed to load Office dashboard stats", e);
-    } finally {
-      setLoading(false);
-    }
-  }
-
   useEffect(() => {
-    load();
-  }, []);
+  // Temporary static values until /api/office/dashboard is wired
+  setStats({
+    total: 0,
+    waiting: 0,
+    scheduled: 0,
+    in_progress: 0,
+    completed: 0,
+  });
+  setLoading(false);
+}, []);
+
+
 
   if (loading) {
     return <div className="p-8">Loading dashboard…</div>;

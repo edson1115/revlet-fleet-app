@@ -4,7 +4,8 @@ export function TeslaVehicleCard({ vehicle, onClick }) {
   return (
     <div
       onClick={onClick}
-      className="cursor-pointer rounded-2xl bg-white shadow-sm border border-gray-200 hover:shadow-md transition-all p-5 space-y-3"
+      className="cursor-pointer rounded-2xl bg-white shadow-sm border border-gray-200 
+                 hover:shadow-md transition-all p-5 space-y-3"
     >
       <div className="flex justify-between items-center">
         <h2 className="text-lg font-semibold text-gray-900">

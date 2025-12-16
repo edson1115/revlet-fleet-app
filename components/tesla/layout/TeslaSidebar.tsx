@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 export function TeslaSidebar() {
   const [role, setRole] = useState<string | null>(null);
 
+  // Load the user's role
   useEffect(() => {
     async function load() {
       try {
@@ -21,10 +22,20 @@ export function TeslaSidebar() {
 
   if (!role) return null;
 
-  /** --------------------------------------
-   *  ROLE → NAVIGATION MAP
-   * -------------------------------------- */
+  // ---------------------------------------------------------
+  // CLEAN NAVIGATION MAP (FINAL WORKING VERSION)
+  // FMC Dashboard removed, replaced by expanded VehicleDrawer
+  // ---------------------------------------------------------
   const NAV: Record<string, Array<{ label: string; href: string }>> = {
+    CUSTOMER: [
+      { label: "Home", href: "/customer" },
+      { label: "My Vehicles", href: "/customer/vehicles" },
+      { label: "Add Vehicle", href: "/customer/vehicles/add" },
+      { label: "My Requests", href: "/customer/requests" },
+      { label: "New Request", href: "/customer/requests/new" },
+      { label: "Tire Purchase", href: "/customer/requests/tire-purchase" },
+    ],
+
     SUPERADMIN: [
       { label: "Dashboard", href: "/admin/dashboard" },
       { label: "Markets", href: "/admin/markets" },
@@ -50,26 +61,12 @@ export function TeslaSidebar() {
       { label: "My Jobs", href: "/tech/queue" },
       { label: "Completed", href: "/tech/completed" },
     ],
-
-    /** --------------------------------------
-     *  UPDATED CUSTOMER NAV (Drop 13)
-     * -------------------------------------- */
-    CUSTOMER: [
-      { label: "Home", href: "/customer" },           // ← NEW
-      { label: "My Vehicles", href: "/customer/vehicles" },
-      { label: "My Requests", href: "/customer/requests" },
-      { label: "New Request", href: "/customer/requests/new" },
-      { label: "Tire Purchase", href: "/customer/requests/tire-purchase"},
-      { label: "Bulk Tire Order",href: "/customer/requests/tire-order",}
-    ],
   };
 
   const items = NAV[role] || [];
 
   return (
     <aside className="hidden md:block w-60 bg-white border-r border-gray-200 p-6">
-      <h1 className="text-xl font-bold mb-6 tracking-tight">Revlet</h1>
-
       <nav className="space-y-2">
         {items.map((item) => (
           <Link

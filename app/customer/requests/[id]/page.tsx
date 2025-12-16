@@ -1,12 +1,27 @@
 "use client";
 
-import TeslaLayoutShell from "@/components/tesla/layout/TeslaLayoutShell";
+import React from "react";
 import RequestDetailClient from "./RequestDetailClient";
 
-export default function CustomerRequestDetailWrapper({ params }: any) {
+type Props = {
+  params: Promise<{
+    id: string;
+  }>;
+};
+
+export default function CustomerRequestDetailPage(props: Props) {
+  // ✅ Next.js 15 compliant param unwrapping
+  const { id } = React.use(props.params);
+
+  // Shortened clean ID (first 8 chars, uppercase)
+  const shortId = id?.split("-")[0]?.toUpperCase() ?? "";
+
   return (
-    <TeslaLayoutShell>
-      <RequestDetailClient params={params} />
-    </TeslaLayoutShell>
+    <RequestDetailClient
+      params={{
+        id,
+        shortId,
+      }}
+    />
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { TeslaVehicleCard } from "@/components/tesla/vehicle/TeslaVehicleCard";
+import { TeslaVehicleCard } from "@/components/tesla/TeslaVehicleCard";
 import VehicleDrawerClient from "./VehicleDrawerClient";
 
 export default function VehicleGridClient() {

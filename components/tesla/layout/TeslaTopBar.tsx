@@ -7,9 +7,10 @@ export function TeslaTopBar() {
   const [me, setMe] = useState<any>(null);
 
   useEffect(() => {
-    fetch("/api/me", { cache: "no-store" })
+    fetch("/api/auth/me", { cache: "no-store" })   // ✔ FIXED
       .then(r => r.json())
-      .then(setMe);
+      .then(setMe)
+      .catch(() => setMe(null));                   // safety fallback
   }, []);
 
   return (
@@ -20,7 +21,6 @@ export function TeslaTopBar() {
       </div>
 
       <div className="flex items-center gap-4">
-
         {me?.role && (
           <TeslaStatusChip status={me.role} />
         )}

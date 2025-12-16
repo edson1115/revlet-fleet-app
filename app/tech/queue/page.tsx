@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import TeslaLayoutShell from "@/components/tesla/layout/TeslaLayoutShell";
 import { TeslaHeroBar } from "@/components/tesla/TeslaHeroBar";
-import { TeslaSection } from "@/components/tesla/TeslaSection";
+import TeslaSection from "@/components/tesla/TeslaSection";
 import { TeslaListRow } from "@/components/tesla/TeslaListRow";
 import { TeslaStatusChip } from "@/components/tesla/TeslaStatusChip";
 import { useRouter } from "next/navigation";

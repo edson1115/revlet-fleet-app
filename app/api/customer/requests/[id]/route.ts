@@ -2,6 +2,9 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 
+/* ============================================================
+   GET — Load single customer request
+============================================================ */
 export async function GET(req: Request, ctx: any) {
   try {
     const params = await ctx.params;
@@ -38,7 +41,7 @@ export async function GET(req: Request, ctx: any) {
       );
 
     // -----------------------------
-    // LOAD REQUEST (all fields)
+    // LOAD REQUEST
     // -----------------------------
     const { data: reqRow, error: reqErr } = await supabase
       .from("service_requests")
@@ -58,7 +61,7 @@ export async function GET(req: Request, ctx: any) {
         { status: 404 }
       );
 
-    // Ensure customer owns it
+    // Ensure ownership
     if (reqRow.customer_id !== profile.customer_id)
       return NextResponse.json(
         { ok: false, error: "Unauthorized request access" },
@@ -111,25 +114,23 @@ export async function GET(req: Request, ctx: any) {
     }
 
     // -----------------------------
-    // CLEAN RESPONSE — NOW INCLUDES TIRE FIELDS + TYPE
+    // RESPONSE
     // -----------------------------
     const request = {
       id: reqRow.id,
-      type: reqRow.type,                  // ⭐ CRITICAL
+      type: reqRow.type,
       status: reqRow.status,
       service: reqRow.service,
       service_needed: reqRow.service,
       mileage: reqRow.mileage,
       po: reqRow.po,
 
-      // ⭐ NEW TIRE FIELDS
       tire_size: reqRow.tire_size,
       tire_brand: reqRow.tire_brand,
       tire_model: reqRow.tire_model,
       tire_quantity: reqRow.tire_quantity,
       dropoff_address: reqRow.dropoff_address,
 
-      // EXISTING FIELDS
       ai_status: reqRow.ai_status,
       ai_po_number: reqRow.ai_po_number,
       fmc: reqRow.fmc,
@@ -164,6 +165,103 @@ export async function GET(req: Request, ctx: any) {
     return NextResponse.json({ ok: true, request });
   } catch (err: any) {
     console.error("REQUEST API CRASH:", err);
+    return NextResponse.json(
+      { ok: false, error: err.message || "Server error" },
+      { status: 500 }
+    );
+  }
+}
+
+/* ============================================================
+   DELETE — Delete customer request (NEW only)
+============================================================ */
+export async function DELETE(req: Request, ctx: any) {
+  try {
+    const params = await ctx.params;
+    const id = params.id as string;
+
+    const supabase = await supabaseServer();
+
+    // -----------------------------
+    // AUTH
+    // -----------------------------
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user)
+      return NextResponse.json(
+        { ok: false, error: "Unauthorized" },
+        { status: 401 }
+      );
+
+    // -----------------------------
+    // PROFILE
+    // -----------------------------
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("customer_id")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (!profile?.customer_id)
+      return NextResponse.json(
+        { ok: false, error: "Unauthorized" },
+        { status: 403 }
+      );
+
+    // -----------------------------
+    // LOAD REQUEST
+    // -----------------------------
+    const { data: reqRow, error } = await supabase
+      .from("service_requests")
+      .select("id, status, customer_id")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (error)
+      return NextResponse.json(
+        { ok: false, error: error.message },
+        { status: 400 }
+      );
+
+    if (!reqRow)
+      return NextResponse.json(
+        { ok: false, error: "Request not found" },
+        { status: 404 }
+      );
+
+    // Ownership
+    if (reqRow.customer_id !== profile.customer_id)
+      return NextResponse.json(
+        { ok: false, error: "Unauthorized request access" },
+        { status: 403 }
+      );
+
+    // Status guard
+    if (reqRow.status !== "NEW")
+      return NextResponse.json(
+        { ok: false, error: "Only NEW requests can be deleted" },
+        { status: 400 }
+      );
+
+    // -----------------------------
+    // DELETE
+    // -----------------------------
+    const { error: delErr } = await supabase
+      .from("service_requests")
+      .delete()
+      .eq("id", id);
+
+    if (delErr)
+      return NextResponse.json(
+        { ok: false, error: delErr.message },
+        { status: 400 }
+      );
+
+    return NextResponse.json({ ok: true });
+  } catch (err: any) {
+    console.error("REQUEST DELETE CRASH:", err);
     return NextResponse.json(
       { ok: false, error: err.message || "Server error" },
       { status: 500 }

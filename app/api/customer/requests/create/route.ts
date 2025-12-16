@@ -2,79 +2,110 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 
-// MULTIPART ROUTE
-export const runtime = "nodejs";
-
 export async function POST(req: Request) {
   try {
     const supabase = await supabaseServer();
 
-    // AUTH
+    // ------------------------
+    // 1. Parse incoming JSON
+    // ------------------------
+    const body = await req.json();
+
+    const {
+      vehicle_id,
+      service_type,
+      description,
+      image_urls = [],
+      ai_summary,
+      ai_parts,
+      ai_problem,
+      ai_next_service,
+    } = body;
+
+    if (!vehicle_id) {
+      return NextResponse.json(
+        { ok: false, error: "Missing vehicle_id" },
+        { status: 400 }
+      );
+    }
+
+    // ------------------------
+    // 2. Validate user session
+    // ------------------------
     const {
       data: { user },
+      error: userErr,
     } = await supabase.auth.getUser();
 
-    if (!user)
-      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    if (userErr || !user) {
+      return NextResponse.json(
+        { ok: false, error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
 
-    // PROFILE (customer_id)
-    const { data: profile } = await supabase
+    // ------------------------
+    // 3. Load user profile
+    // ------------------------
+    const { data: profile, error: profileErr } = await supabase
       .from("profiles")
-      .select("customer_id")
+      .select("id, role, customer_id")
       .eq("id", user.id)
-      .maybeSingle();
+      .single();
 
-    if (!profile?.customer_id)
-      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 403 });
+    if (profileErr || !profile) {
+      return NextResponse.json(
+        { ok: false, error: "Profile not found" },
+        { status: 404 }
+      );
+    }
 
-    // PARSE FORM DATA
-    const form = await req.formData();
+    if (profile.role !== "CUSTOMER") {
+      return NextResponse.json(
+        { ok: false, error: "Only customers can submit requests" },
+        { status: 403 }
+      );
+    }
 
-    const vehicle_id = form.get("vehicle_id") as string;
-    const service = form.get("service") as string;
-    const requested_date = form.get("requested_date") as string;
-
-    const mileage_str = form.get("mileage") as string;
-    const mileage = mileage_str ? Number(mileage_str) : null;
-
-    const po_number = form.get("po_number") as string | null;
-    const vendor = form.get("vendor") as string | null;
-    const urgent = form.get("urgent") === "true";
-    const key_drop = form.get("key_drop") === "true";
-    const parking_location = form.get("parking_location") as string | null;
-
-    // INSERT REQUEST — ⭐ FIXED (MILEAGE SAVED)
-    const { data, error } = await supabase
+    // ------------------------
+    // 4. Insert service request
+    // ------------------------
+    const { data: inserted, error: insertErr } = await supabase
       .from("service_requests")
       .insert({
         customer_id: profile.customer_id,
         vehicle_id,
-        service,
-        mileage,             // ⭐ IMPORTANT
-        po: po_number,
-        fmc: vendor,
-        urgent,
-        key_drop,
-        parking_location,
-        created_at: new Date().toISOString(),
-        requested_date,
-        status: "NEW",
+        service_type,
+        description,
+        status: "NEW", // default status
+        photos: image_urls, // array of URLs
+        ai_summary,
+        ai_parts,
+        ai_problem,
+        ai_next_service,
       })
       .select("id")
-      .maybeSingle();
+      .single();
 
-    if (error) {
-      console.error("CREATE REQUEST ERROR:", error);
-      return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+    if (insertErr) {
+      console.error("Insert error:", insertErr);
+      return NextResponse.json(
+        { ok: false, error: insertErr.message },
+        { status: 500 }
+      );
     }
 
-    const request_id = data?.id;
-
-    return NextResponse.json({ ok: true, request_id });
-  } catch (err: any) {
-    console.error("CREATE REQUEST CRASH:", err);
+    // ------------------------
+    // 5. Return new request ID
+    // ------------------------
+    return NextResponse.json({
+      ok: true,
+      id: inserted.id,
+    });
+  } catch (err) {
+    console.error("CREATE REQUEST API ERROR:", err);
     return NextResponse.json(
-      { ok: false, error: "Server error", detail: err.message },
+      { ok: false, error: "Server error" },
       { status: 500 }
     );
   }
