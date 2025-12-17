@@ -2,121 +2,81 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import TeslaSection from "@/components/tesla/TeslaSection";
-import { TeslaDivider } from "@/components/tesla/TeslaDivider";
-import { TeslaStatusChip } from "@/components/tesla/TeslaStatusChip";
 
-export default function OfficeDashboard() {
+import TeslaLayoutShell from "@/components/tesla/layout/TeslaLayoutShell";
+import { TeslaHeroBar } from "@/components/tesla/TeslaHeroBar";
+import TeslaSection from "@/components/tesla/TeslaSection"; // ✅ FIXED
+
+export default function OfficeDashboardPage() {
+  const [stats, setStats] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState<any>({
-    total: 0,
-    waiting: 0,
-    scheduled: 0,
-    in_progress: 0,
-    completed: 0,
-  });
 
   useEffect(() => {
-  // Temporary static values until /api/office/dashboard is wired
-  setStats({
-    total: 0,
-    waiting: 0,
-    scheduled: 0,
-    in_progress: 0,
-    completed: 0,
-  });
-  setLoading(false);
-}, []);
-
-
-
-  if (loading) {
-    return <div className="p-8">Loading dashboard…</div>;
-  }
+    async function load() {
+      try {
+        const res = await fetch("/api/office/dashboard", {
+          cache: "no-store",
+          credentials: "include",
+        });
+        const js = await res.json();
+        if (js.ok) setStats(js.stats);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
 
   return (
-    <div className="p-8 max-w-4xl mx-auto space-y-10">
-      <h1 className="text-3xl font-semibold">Office Dashboard</h1>
+    <TeslaLayoutShell>
+      <TeslaHeroBar
+        title="Office Dashboard"
+        subtitle="Overview of service & tire requests"
+      />
 
-      {/* KPIs */}
-      <TeslaSection label="Today's Overview">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <KpiCard label="Total" value={stats.total} />
-          <KpiCard label="Waiting" value={stats.waiting}>
-            <TeslaStatusChip status="WAITING" />
-          </KpiCard>
-          <KpiCard label="Scheduled" value={stats.scheduled}>
-            <TeslaStatusChip status="SCHEDULED" />
-          </KpiCard>
-          <KpiCard label="In Progress" value={stats.in_progress}>
-            <TeslaStatusChip status="IN_PROGRESS" />
-          </KpiCard>
-          <KpiCard label="Completed" value={stats.completed}>
-            <TeslaStatusChip status="COMPLETED" />
-          </KpiCard>
-        </div>
-      </TeslaSection>
+      <div className="max-w-6xl mx-auto p-6 space-y-10">
+        {/* KPI CARDS */}
+        <TeslaSection label="Request Overview">
+          {loading && (
+            <div className="text-gray-500">Loading dashboard…</div>
+          )}
 
-      <TeslaDivider />
+          {!loading && stats && (
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+              <KPI label="Total Requests" value={stats.total} />
+              <KPI label="New" value={stats.new} />
+              <KPI label="Waiting" value={stats.waiting} />
+              <KPI label="Scheduled" value={stats.scheduled} />
+              <KPI label="In Progress" value={stats.in_progress} />
+              <KPI label="Completed" value={stats.completed} />
+            </div>
+          )}
+        </TeslaSection>
 
-      {/* Navigation */}
-      <TeslaSection label="Actions">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-
+        {/* QUICK LINKS */}
+        <TeslaSection label="Actions">
           <Link
             href="/office/requests"
-            className="block p-5 rounded-xl border border-gray-200 hover:bg-gray-50 transition"
+            className="inline-flex items-center rounded-xl bg-black text-white px-6 py-3 text-sm font-medium hover:bg-gray-900 transition"
           >
-            <h2 className="text-lg font-medium">View All Requests</h2>
-            <p className="text-sm text-gray-500 mt-1">
-              Review, assign, update status, and add internal notes.
-            </p>
+            View All Requests
           </Link>
-
-          <Link
-            href="/dispatch/queue"
-            className="block p-5 rounded-xl border border-gray-200 hover:bg-gray-50 transition"
-          >
-            <h2 className="text-lg font-medium">Dispatch Scheduling</h2>
-            <p className="text-sm text-gray-500 mt-1">
-              Assign technicians and set appointment windows.
-            </p>
-          </Link>
-
-          <Link
-            href="/tech"
-            className="block p-5 rounded-xl border border-gray-200 hover:bg-gray-50 transition"
-          >
-            <h2 className="text-lg font-medium">Tech View</h2>
-            <p className="text-sm text-gray-500 mt-1">
-              View technician workflow for testing or training.
-            </p>
-          </Link>
-
-          <Link
-            href="/office/customers"
-            className="block p-5 rounded-xl border border-gray-200 hover:bg-gray-50 transition"
-          >
-            <h2 className="text-lg font-medium">Customer Management</h2>
-            <p className="text-sm text-gray-500 mt-1">
-              Add customers, edit accounts, and manage linked users.
-            </p>
-          </Link>
-        </div>
-      </TeslaSection>
-    </div>
+        </TeslaSection>
+      </div>
+    </TeslaLayoutShell>
   );
 }
 
-/* --------------------------------------------
-   KPI CARD COMPONENT
---------------------------------------------- */
-function KpiCard({ label, value, children }: any) {
+/* -------------------------------------------
+   KPI Card
+------------------------------------------- */
+function KPI({ label, value }: { label: string; value: number }) {
   return (
-    <div className="p-4 rounded-xl border border-gray-200 bg-white">
-      <div className="text-gray-500 text-sm">{label}</div>
-      <div className="text-2xl font-semibold">{value}</div>
-      {children && <div className="mt-1">{children}</div>}
+    <div className="rounded-xl border border-gray-200 bg-white p-5">
+      <div className="text-sm text-gray-500">{label}</div>
+      <div className="mt-2 text-3xl font-semibold text-gray-900">
+        {value}
+      </div>
     </div>
   );
 }

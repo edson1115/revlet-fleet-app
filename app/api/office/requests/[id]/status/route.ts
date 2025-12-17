@@ -15,74 +15,89 @@ const STATUS_FLOW = [
 
 export async function PATCH(
   req: Request,
-  context: { params: Promise<{ id: string }> }
+  { params }: { params: { id: string } }
 ) {
   try {
-    const { id: requestId } = await context.params;
+    const supabase = await supabaseServer();
+    const requestId = params.id;
+
     const { status: nextStatus } = await req.json();
 
-    if (!STATUS_FLOW.includes(nextStatus)) {
+    if (!nextStatus || !STATUS_FLOW.includes(nextStatus)) {
       return NextResponse.json(
         { error: "Invalid status" },
         { status: 400 }
       );
     }
 
-    const supabase = await supabaseServer();
-
-    /* -----------------------------
+    /* ---------------------------------------
        AUTH
-    ----------------------------- */
+    --------------------------------------- */
     const {
       data: { user },
     } = await supabase.auth.getUser();
 
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
     }
 
-    /* -----------------------------
-       PROFILE
-    ----------------------------- */
+    /* ---------------------------------------
+       PROFILE + MARKET
+    --------------------------------------- */
     const { data: profile } = await supabase
       .from("profiles")
       .select("role, active_market")
       .eq("id", user.id)
       .single();
 
-    const ALLOWED = new Set(["OFFICE", "DISPATCH", "ADMIN", "SUPERADMIN"]);
+    const ALLOWED = new Set([
+      "OFFICE",
+      "DISPATCH",
+      "ADMIN",
+      "SUPERADMIN",
+    ]);
 
     if (!profile || !ALLOWED.has(profile.role)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      return NextResponse.json(
+        { error: "Forbidden" },
+        { status: 403 }
+      );
     }
 
-    /* -----------------------------
-       USER MARKET → ID
-    ----------------------------- */
-    const { data: userMarket } = await supabase
+    if (!profile.active_market) {
+      return NextResponse.json(
+        { error: "No market assigned" },
+        { status: 403 }
+      );
+    }
+
+    /* ---------------------------------------
+       MARKET ID
+    --------------------------------------- */
+    const { data: market } = await supabase
       .from("markets")
       .select("id")
-      .eq(
-        "name",
-        profile.active_market.replace(/([a-z])([A-Z])/g, "$1 $2")
-      )
+      .eq("name", profile.active_market)
       .single();
 
-    if (!userMarket) {
+    if (!market) {
       return NextResponse.json(
         { error: "Market not found" },
         { status: 403 }
       );
     }
 
-    /* -----------------------------
+    /* ---------------------------------------
        LOAD REQUEST
-    ----------------------------- */
+    --------------------------------------- */
     const { data: reqRow } = await supabase
       .from("service_requests")
       .select("id, status, market_id")
       .eq("id", requestId)
-      .maybeSingle();
+      .single();
 
     if (!reqRow) {
       return NextResponse.json(
@@ -91,17 +106,19 @@ export async function PATCH(
       );
     }
 
-    if (reqRow.market_id !== userMarket.id) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (reqRow.market_id !== market.id) {
+      return NextResponse.json(
+        { error: "Forbidden" },
+        { status: 403 }
+      );
     }
 
-    /* -----------------------------
+    /* ---------------------------------------
        STATUS RULES
-    ----------------------------- */
+    --------------------------------------- */
     const currentIndex = STATUS_FLOW.indexOf(reqRow.status);
     const nextIndex = STATUS_FLOW.indexOf(nextStatus);
 
-    // Must move forward exactly one step
     if (nextIndex !== currentIndex + 1) {
       return NextResponse.json(
         { error: "Invalid status transition" },
@@ -109,7 +126,6 @@ export async function PATCH(
       );
     }
 
-    // Dispatch restriction
     if (
       profile.role === "DISPATCH" &&
       !(reqRow.status === "TO_BE_SCHEDULED" && nextStatus === "SCHEDULED")
@@ -120,10 +136,10 @@ export async function PATCH(
       );
     }
 
-    /* -----------------------------
+    /* ---------------------------------------
        UPDATE
-    ----------------------------- */
-    const { error: updateError } = await supabase
+    --------------------------------------- */
+    const { error: updateErr } = await supabase
       .from("service_requests")
       .update({
         status: nextStatus,
@@ -131,16 +147,19 @@ export async function PATCH(
       })
       .eq("id", requestId);
 
-    if (updateError) {
+    if (updateErr) {
       return NextResponse.json(
         { error: "Failed to update status" },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({
+      ok: true,
+      status: nextStatus,
+    });
   } catch (err: any) {
-    console.error("Request status update error:", err);
+    console.error("Status update error:", err);
     return NextResponse.json(
       { error: "Server error", detail: err.message },
       { status: 500 }
