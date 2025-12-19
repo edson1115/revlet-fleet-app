@@ -80,13 +80,14 @@ export default function OfficeDashboard() {
             </p>
           </Link>
 
+          {/* WALK-IN / DROP-OFF FLOW */}
           <Link
-            href="/office/customers"
+            href="/office/customers/new-request"
             className="block p-5 rounded-xl border hover:bg-gray-50 transition"
           >
             <h2 className="text-lg font-medium">Customers</h2>
             <p className="text-sm text-gray-500 mt-1">
-              Manage customers, fleets, and vehicles
+              Create a service request for a customer (walk-in or drop-off)
             </p>
           </Link>
         </div>

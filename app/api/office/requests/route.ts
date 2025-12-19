@@ -1,14 +1,32 @@
 import { NextResponse } from "next/server";
-import { supabaseServerRoute } from "@/lib/supabase/server-route";
+import { supabaseServer } from "@/lib/supabase/server";
+import { normalizeRole } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-export async function GET(req: Request) {
+/* ============================================================
+   POST — Create service request (Office / Walk-In)
+============================================================ */
+export async function POST(req: Request) {
   try {
-    const supabase = await supabaseServerRoute();
-    const { searchParams } = new URL(req.url);
-    const status = searchParams.get("status");
+    const supabase = await supabaseServer();
+    const body = await req.json();
 
+    const {
+      customer_id,
+      vehicle_id,
+      urgent = false,
+    } = body;
+
+    if (!customer_id || !vehicle_id) {
+      return NextResponse.json(
+        { error: "Missing customer or vehicle" },
+        { status: 400 }
+      );
+    }
+
+    /* ---------------- AUTH ---------------- */
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -17,68 +35,46 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role, active_market")
-      .eq("id", user.id)
-      .single();
+    const role = normalizeRole(user.user_metadata?.role);
+    const ALLOWED = new Set([
+      "OFFICE",
+      "ADMIN",
+      "SUPERADMIN",
+    ]);
 
-    const ALLOWED = new Set(["OFFICE", "DISPATCH", "ADMIN", "SUPERADMIN"]);
-
-    if (!profile || !ALLOWED.has(profile.role)) {
+    if (!role || !ALLOWED.has(role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const { data: market } = await supabase
-      .from("markets")
-      .select("id")
-      .eq("code", profile.active_market)
-      .single();
-
-    if (!market) {
-      return NextResponse.json({ error: "Market not found" }, { status: 403 });
-    }
-
-    let query = supabase
+    /* ---------------- CREATE REQUEST ---------------- */
+    const { data: request, error } = await supabase
       .from("service_requests")
-      .select(
-        `
-        id,
-        type,
-        status,
+      .insert({
+        customer_id,
+        vehicle_id,
+        status: "NEW",
         urgent,
-        created_at,
-        vehicle:vehicles (
-          year,
-          make,
-          model,
-          plate
-        ),
-        customer:customers (
-          name
-        )
-      `
-      )
-      .eq("market_id", market.id)
-      .order("created_at", { ascending: false });
+        created_by_role: role,
+      })
+      .select()
+      .maybeSingle();
 
-    if (status) query = query.eq("status", status);
-
-    const { data, error } = await query;
-
-    if (error) {
+    if (error || !request) {
       console.error(error);
       return NextResponse.json(
-        { error: "Query failed" },
+        { error: "Failed to create request" },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({ ok: true, rows: data });
-  } catch (e) {
-    console.error("OFFICE REQUESTS ERROR:", e);
+    return NextResponse.json({
+      ok: true,
+      request_id: request.id,
+    });
+  } catch (err: any) {
+    console.error("Office create request error:", err);
     return NextResponse.json(
-      { error: "Server error" },
+      { error: "Server error", detail: err.message },
       { status: 500 }
     );
   }

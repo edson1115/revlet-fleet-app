@@ -103,14 +103,23 @@ export default function OfficeRequestDetailClient({
 
   return (
     <div className="max-w-6xl mx-auto space-y-10">
-      {/* HEADER */}
+      {/* HEADER NAV */}
       <div className="flex items-center justify-between">
-        <button
-          onClick={() => router.push("/office/requests")}
-          className="text-sm text-gray-600 hover:underline"
-        >
-          ← Back to Office Requests
-        </button>
+        <div className="flex items-center gap-4 text-sm text-gray-600">
+          <button
+            onClick={() => router.push("/office")}
+            className="hover:underline"
+          >
+            ← Office Dashboard
+          </button>
+          <span className="text-gray-300">|</span>
+          <button
+            onClick={() => router.push("/office/requests")}
+            className="hover:underline"
+          >
+            ← Office Requests
+          </button>
+        </div>
         <TeslaStatusChip status={request.status} />
       </div>
 
@@ -178,8 +187,7 @@ export default function OfficeRequestDetailClient({
       >
         {serviceLocked && (
           <div className="text-xs text-gray-500 mb-2">
-            Service definition is locked once the request is scheduled or in
-            progress.
+            Service definition is locked once the request is ready to schedule.
           </div>
         )}
 
@@ -219,7 +227,7 @@ export default function OfficeRequestDetailClient({
             {saving
               ? "Saving…"
               : serviceLocked
-              ? "Locked after scheduling"
+              ? "Locked after READY TO SCHEDULE"
               : "Save Service Definition"}
           </button>
         </div>

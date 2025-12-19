@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase/server";
 import OfficeRequestDetailClient from "./OfficeRequestDetailClient";
@@ -89,20 +88,8 @@ export default async function OfficeRequestPage({
     notFound();
   }
 
-  return (
-    <div className="space-y-4">
-      {/* ================= BACK NAV ================= */}
-      <div>
-        <Link
-          href="/office/requests"
-          className="inline-flex items-center text-sm text-gray-600 hover:text-black transition"
-        >
-          ← Back to Office Requests
-        </Link>
-      </div>
-
-      {/* ================= DETAIL ================= */}
-      <OfficeRequestDetailClient request={request} />
-    </div>
-  );
+  /* ----------------------------------
+     RENDER DETAIL (NAV LIVES IN CLIENT)
+  ---------------------------------- */
+  return <OfficeRequestDetailClient request={request} />;
 }
