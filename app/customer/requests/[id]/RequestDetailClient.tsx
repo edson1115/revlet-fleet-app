@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
 
-import TeslaSection from "@/components/tesla/TeslaSection";
+import { TeslaSection } from "@/components/tesla/TeslaSection";
+
 import { TeslaStatusChip } from "@/components/tesla/TeslaStatusChip";
 
 const STATUS_FLOW = [
@@ -20,7 +21,7 @@ const STATUS_FLOW = [
 export default function RequestDetailClient({ params }: any) {
   const router = useRouter();
   const { id } = params;
-const shortId = id?.slice(0, 8)?.toUpperCase();
+  const shortId = id?.slice(0, 8)?.toUpperCase();
 
 
   const [loading, setLoading] = useState(true);

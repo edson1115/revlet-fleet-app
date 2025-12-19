@@ -5,21 +5,25 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 /* ----------------------------------------
-   MARKET NORMALIZATION
+   NORMALIZE ACTIVE MARKET → MARKET CODE
 ---------------------------------------- */
-function normalizeMarket(name: string) {
-  if (!name) return null;
+function normalizeMarketCode(value: string) {
+  if (!value) return null;
 
-  // Explicit known mappings (safe + clear)
+  const v = value.trim();
+
+  if (v.includes("_")) return v.toUpperCase();
+
   const MAP: Record<string, string> = {
-    NorCal: "NorCal",
-    SanAntonio: "San Antonio",
-    Dallas: "Dallas",
-    Houston: "Houston",
-    Washington: "Washington",
+    NorCal: "NORCAL",
+    "San Antonio": "SAN_ANTONIO",
+    SanAntonio: "SAN_ANTONIO",
+    Dallas: "DALLAS",
+    Houston: "HOUSTON",
+    Washington: "WASHINGTON",
   };
 
-  return MAP[name] ?? name;
+  return MAP[v] ?? v.toUpperCase();
 }
 
 export async function GET() {
@@ -69,26 +73,26 @@ export async function GET() {
 
     if (!profile.active_market) {
       return NextResponse.json(
-        { error: "Invalid market" },
+        { error: "Active market not set" },
         { status: 403 }
       );
     }
 
     /* -----------------------------
-       RESOLVE MARKET ID
+       RESOLVE MARKET (BY CODE)
     ----------------------------- */
-    const marketName = normalizeMarket(profile.active_market);
+    const marketCode = normalizeMarketCode(profile.active_market);
 
     const { data: market, error: marketErr } = await supabase
       .from("markets")
-      .select("id")
-      .eq("name", marketName)
+      .select("id, code")
+      .eq("code", marketCode)
       .single();
 
     if (marketErr || !market) {
       console.error("Market lookup failed:", {
-        active_market: profile.active_market,
-        normalized: marketName,
+        raw: profile.active_market,
+        normalized: marketCode,
       });
 
       return NextResponse.json(
@@ -98,15 +102,14 @@ export async function GET() {
     }
 
     /* -----------------------------
-       LOAD QUEUE
+       LOAD QUEUE (VALID ENUMS ONLY)
     ----------------------------- */
     const { data: rows, error } = await supabase
       .from("service_requests")
       .select(`
         id,
-        type,
-        status,
         service,
+        status,
         notes,
         created_at,
         customer:customers (
@@ -123,7 +126,6 @@ export async function GET() {
       .in("status", [
         "NEW",
         "WAITING",
-        "TO_BE_SCHEDULED",
       ])
       .order("created_at", { ascending: true });
 

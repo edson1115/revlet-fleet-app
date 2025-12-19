@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 // Tesla UI Components
 import TeslaPhotoUploader from "@/components/tesla/TeslaPhotoUploader";
-import TeslaSection from "@/components/tesla/TeslaSection";
+import { TeslaSection } from "@/components/tesla/TeslaSection";
 import TeslaInput from "@/components/tesla/TeslaInput";
 import TeslaButton from "@/components/tesla/TeslaButton";
 import TeslaSelect from "@/components/tesla/TeslaSelect";

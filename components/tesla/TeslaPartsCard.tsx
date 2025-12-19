@@ -2,7 +2,7 @@
 
 import React from "react";
 import { TeslaServiceCard } from "./TeslaServiceCard";
-import TeslaSection from "./TeslaSection";
+import { TeslaSection } from "@/components/tesla/TeslaSection";
 
 
 export type PartLine = {

@@ -10,9 +10,16 @@ export function TeslaSidebar() {
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch("/api/auth/me", { cache: "no-store" });
+        const res = await fetch("/api/auth/me", {
+          cache: "no-store",
+          credentials: "include",
+        });
         const js = await res.json();
-        if (js.ok) setRole(js.role);
+        if (js.ok) {
+          // 🔒 NORMALIZE ROLE
+          const rawRole = js.user?.role;
+          setRole(rawRole === "USER" ? "CUSTOMER" : rawRole);
+        }
       } catch {
         setRole(null);
       }
@@ -24,7 +31,6 @@ export function TeslaSidebar() {
 
   // ---------------------------------------------------------
   // CLEAN NAVIGATION MAP (FINAL WORKING VERSION)
-  // FMC Dashboard removed, replaced by expanded VehicleDrawer
   // ---------------------------------------------------------
   const NAV: Record<string, Array<{ label: string; href: string }>> = {
     CUSTOMER: [
@@ -48,7 +54,7 @@ export function TeslaSidebar() {
     ],
 
     OFFICE: [
-      { label: "Office Queue", href: "/office/queue" },
+      { label: "Office Dashboard", href: "/office" },
       { label: "Requests", href: "/office/requests" },
     ],
 

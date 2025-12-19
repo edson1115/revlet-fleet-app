@@ -1,14 +1,25 @@
-"use client";
+import React from "react";
 
-export default function TeslaSection({ label, children, className = "" }) {
+export function TeslaSection({
+  label,
+  children,
+}: {
+  label?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className={`w-full ${className}`}>
+    <section className="space-y-3">
       {label && (
-        <div className="text-sm text-gray-600 font-semibold mb-2">{label}</div>
+        <h2 className="text-sm font-medium text-gray-600 uppercase tracking-wide">
+          {label}
+        </h2>
       )}
-      <div className="rounded-xl border border-gray-200 p-4 bg-white">
+      <div className="bg-white rounded-xl border border-gray-200">
         {children}
       </div>
-    </div>
+    </section>
   );
 }
+
+// ✅ DEFENSIVE DEFAULT EXPORT (fixes Next.js resolution edge-cases)
+export default TeslaSection;

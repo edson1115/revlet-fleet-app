@@ -1,38 +1,68 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { TeslaStatusChip } from "@/components/tesla/TeslaStatusChip";
+import { useRouter } from "next/navigation";
 
-export function TeslaTopBar() {
-  const [me, setMe] = useState<any>(null);
+type Me = {
+  role?: string;
+  market?: string;
+  email?: string;
+};
+
+export default function TeslaTopBar() {
+  const router = useRouter();
+  const [me, setMe] = useState<Me | null>(null);
 
   useEffect(() => {
-    fetch("/api/auth/me", { cache: "no-store" })   // ✔ FIXED
-      .then(r => r.json())
-      .then(setMe)
-      .catch(() => setMe(null));                   // safety fallback
+    (async () => {
+      const res = await fetch("/api/auth/me", {
+        cache: "no-store",
+        credentials: "include",
+      });
+      const js = await res.json();
+      if (js.ok) setMe(js.user);
+    })();
   }, []);
 
-  return (
-    <header className="h-14 border-b bg-white flex items-center justify-between px-8">
+  async function signOut() {
+    await fetch("/api/auth/logout", {
+      method: "POST",
+      credentials: "include",
+    });
+    router.push("/login");
+  }
 
-      <div className="text-lg font-semibold tracking-tight">
-        Revlet
+  if (!me) return null;
+
+  return (
+    <div className="h-14 border-b bg-white flex items-center justify-between px-6">
+
+      {/* LEFT — SESSION CONTEXT */}
+      <div className="flex items-center gap-2 text-sm">
+        <span className="font-semibold uppercase tracking-wide">
+          {me.role ?? "USER"}
+        </span>
+
+        <span className="text-gray-400">·</span>
+
+        <span className="font-medium text-gray-700">
+          {me.market ?? "—"}
+        </span>
       </div>
 
+      {/* RIGHT — USER */}
       <div className="flex items-center gap-4">
-        {me?.role && (
-          <TeslaStatusChip status={me.role} />
-        )}
+        <span className="text-sm text-gray-500">
+          {me.email}
+        </span>
 
         <button
-          onClick={() => window.location.href = "/auth/signout"}
-          className="text-sm text-gray-600 hover:text-black"
+          onClick={signOut}
+          className="text-sm text-red-600 hover:underline"
         >
-          Sign Out
+          Sign out
         </button>
       </div>
-
-    </header>
+    </div>
   );
 }

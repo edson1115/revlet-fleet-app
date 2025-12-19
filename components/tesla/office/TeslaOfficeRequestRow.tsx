@@ -17,6 +17,11 @@ export function TeslaOfficeRequestRow({
   const plate = req.vehicle_plate ?? req?.vehicle?.plate ?? "";
   const type = req.service_type ?? req.type ?? "Service Request";
 
+  const customerName =
+    req.customer_name ??
+    req?.customer?.name ??
+    null;
+
   function handleClick() {
     if (!req?.id) return;
     router.push(`/office/requests/${req.id}`);
@@ -40,9 +45,9 @@ export function TeslaOfficeRequestRow({
             {year} {make} {model} {plate && `— ${plate}`}
           </p>
 
-          {req.customer_name && (
+          {customerName && (
             <p className="text-xs text-gray-400 mt-0.5">
-              Customer: {req.customer_name}
+              Customer: {customerName}
             </p>
           )}
         </div>

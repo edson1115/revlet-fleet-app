@@ -1,173 +1,232 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import clsx from "clsx";
 
-import TeslaSection from "@/components/tesla/TeslaSection";
+import { TeslaSection } from "@/components/tesla/TeslaSection";
 import { TeslaStatusChip } from "@/components/tesla/TeslaStatusChip";
+import { RequestNotesTimeline } from "@/components/office/RequestNotesTimeline";
+import { RequestPartsSection } from "@/components/office/RequestPartsSection";
+import { OfficeFieldsSection } from "@/components/office/OfficeFieldsSection";
 
 const STATUS_FLOW = [
   "NEW",
   "WAITING",
-  "TO_BE_SCHEDULED",
+  "READY_TO_SCHEDULE",
   "SCHEDULED",
   "IN_PROGRESS",
   "COMPLETED",
 ];
 
-export default function OfficeRequestDetailClient() {
-  const { id } = useParams<{ id: string }>();
+const SERVICE_EDITABLE_STATUSES = ["NEW", "WAITING"];
 
-  const [request, setRequest] = useState<any>(null);
-  const [role, setRole] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+function formatWindow(start?: string | null, end?: string | null) {
+  if (!start && !end) return "—";
+  try {
+    const s = start ? new Date(start).toLocaleString() : "—";
+    const e = end ? new Date(end).toLocaleString() : "—";
+    return start && end ? `${s} → ${e}` : start || end || "—";
+  } catch {
+    return "—";
+  }
+}
+
+export default function OfficeRequestDetailClient({
+  request: initialRequest,
+}: {
+  request: any;
+}) {
+  const router = useRouter();
+  const [request, setRequest] = useState(initialRequest);
   const [saving, setSaving] = useState(false);
 
-  /* ---------------------------------------------
-     LOAD REQUEST + USER ROLE
-  --------------------------------------------- */
-  async function load() {
-    setLoading(true);
+  // --------------------------------------------------
+  // Service Definition (Office-owned)
+  // --------------------------------------------------
+  const [serviceTitle, setServiceTitle] = useState(
+    initialRequest?.service_title ?? ""
+  );
+  const [serviceDescription, setServiceDescription] = useState(
+    initialRequest?.service_description ?? ""
+  );
 
-    const [reqRes, meRes] = await Promise.all([
-      fetch(`/api/office/requests/${id}`, { cache: "no-store" }),
-      fetch(`/api/auth/me`, { cache: "no-store" }),
-    ]);
+  const serviceLocked = !SERVICE_EDITABLE_STATUSES.includes(request.status);
+  const currentIndex = STATUS_FLOW.indexOf(request.status);
 
-    const reqJson = await reqRes.json();
-    const meJson = await meRes.json();
+  const assignedTechName = useMemo(
+    () =>
+      request?.tech?.full_name ||
+      request?.assigned_tech?.full_name ||
+      request?.assigned_tech_name ||
+      request?.tech_name ||
+      null,
+    [request]
+  );
 
-    if (reqJson.ok) setRequest(reqJson.request);
-    if (meJson.ok) setRole(meJson.role);
+  const scheduledWindow = useMemo(
+    () => formatWindow(request?.scheduled_start_at, request?.scheduled_end_at),
+    [request]
+  );
 
-    setLoading(false);
-  }
-
-  useEffect(() => {
-    load();
-  }, [id]);
-
-  /* ---------------------------------------------
-     STATUS UPDATE
-  --------------------------------------------- */
-  async function updateStatus(nextStatus: string) {
-    if (!request || saving) return;
-
+  async function saveServiceOverride() {
+    if (saving || serviceLocked) return;
     setSaving(true);
 
-    const res = await fetch(
-      `/api/office/requests/${request.id}/status`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: nextStatus }),
-      }
-    );
+    const res = await fetch(`/api/office/requests/${request.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        service_title: serviceTitle || null,
+        service_description: serviceDescription || null,
+      }),
+    });
 
     const js = await res.json();
     setSaving(false);
 
     if (!res.ok) {
-      alert(js.error || "Failed to update status");
+      alert(js.error || "Failed to save service definition");
       return;
     }
 
-    setRequest({ ...request, status: nextStatus });
+    setRequest({
+      ...request,
+      service_title: serviceTitle || null,
+      service_description: serviceDescription || null,
+    });
   }
 
-  if (loading || !request) {
-    return <div className="p-6 text-gray-500">Loading request…</div>;
-  }
-
-  const currentIndex = STATUS_FLOW.indexOf(request.status);
-
-  /* ---------------------------------------------
-     ROLE RULES
-  --------------------------------------------- */
-  function canClick(status: string, index: number) {
-    if (saving) return false;
-    if (index !== currentIndex + 1) return false;
-
-    if (role === "DISPATCH") {
-      return (
-        request.status === "TO_BE_SCHEDULED" &&
-        status === "SCHEDULED"
-      );
-    }
-
-    return true; // OFFICE / ADMIN
-  }
+  const v = request.vehicle;
+  const c = request.customer;
 
   return (
-    <div className="space-y-10">
-
+    <div className="max-w-6xl mx-auto space-y-10">
       {/* HEADER */}
-      <div className="flex justify-between items-start">
-        <div>
-          <h1 className="text-2xl font-semibold">
-            Office Request
-          </h1>
-          <div className="mt-2">
-            <TeslaStatusChip status={request.status} />
-          </div>
-        </div>
+      <div className="flex items-center justify-between">
+        <button
+          onClick={() => router.push("/office/requests")}
+          className="text-sm text-gray-600 hover:underline"
+        >
+          ← Back to Office Requests
+        </button>
+        <TeslaStatusChip status={request.status} />
       </div>
 
-      {/* STATUS TIMELINE */}
+      {/* CONTEXT */}
+      <div className="text-sm text-gray-600">
+        {c?.name && <span className="font-medium">{c.name}</span>}
+        {v?.unit_number && <span> · Unit {v.unit_number}</span>}
+        {!v?.unit_number && v?.plate && <span> · Plate {v.plate}</span>}
+        {(v?.year || v?.make || v?.model) && (
+          <span>
+            {" "}
+            · {[v?.year, v?.make, v?.model].filter(Boolean).join(" ")}
+          </span>
+        )}
+      </div>
+
+      {/* STATUS */}
       <TeslaSection label="Status Progression">
         <div className="flex flex-wrap gap-3">
-          {STATUS_FLOW.map((status, i) => {
-            const active = i <= currentIndex;
-            const clickable = canClick(status, i);
-
-            return (
-              <button
-                key={status}
-                disabled={!clickable}
-                onClick={() => updateStatus(status)}
-                className={clsx(
-                  "px-4 py-2 rounded-full text-xs font-semibold transition",
-                  active
-                    ? "bg-black text-white"
-                    : "bg-gray-200 text-gray-600",
-                  clickable &&
-                    "hover:bg-black hover:text-white cursor-pointer",
-                  !clickable && "opacity-60 cursor-not-allowed"
-                )}
-              >
-                {status.replaceAll("_", " ")}
-              </button>
-            );
-          })}
+          {STATUS_FLOW.map((s, i) => (
+            <div
+              key={s}
+              className={clsx(
+                "px-4 py-2 rounded-full text-xs font-semibold",
+                i <= currentIndex
+                  ? "bg-black text-white"
+                  : "bg-gray-200 text-gray-600"
+              )}
+            >
+              {s.replaceAll("_", " ")}
+            </div>
+          ))}
         </div>
       </TeslaSection>
 
-      {/* REQUEST SUMMARY */}
-      <TeslaSection label="Request Details">
-        <div className="text-sm space-y-1">
+      {/* DISPATCH (READ ONLY) */}
+      <TeslaSection label="Dispatch Assignment (Read Only)">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
           <div>
-            <strong>Type:</strong>{" "}
-            {request.type === "TIRE_PURCHASE"
-              ? "Tire Purchase"
-              : "Service Request"}
+            <div className="text-xs text-gray-500">Assigned Technician</div>
+            <div className="font-medium">{assignedTechName ?? "—"}</div>
           </div>
-
-          {request.vehicle && (
-            <div>
-              <strong>Vehicle:</strong>{" "}
-              {request.vehicle.year} {request.vehicle.make}{" "}
-              {request.vehicle.model}
-            </div>
-          )}
-
-          {request.notes && (
-            <div>
-              <strong>Notes:</strong> {request.notes}
-            </div>
-          )}
+          <div>
+            <div className="text-xs text-gray-500">Scheduled Window</div>
+            <div className="font-medium">{scheduledWindow}</div>
+          </div>
         </div>
       </TeslaSection>
+
+      {/* OFFICE INTERNAL */}
+      <OfficeFieldsSection request={request} />
+
+      {/* SERVICE DEFINITION */}
+      <TeslaSection
+        label={
+          <div className="flex items-center gap-2">
+            <span>Service Definition (Customer-Facing)</span>
+            {serviceLocked && (
+              <span className="text-xs px-2 py-1 rounded-full bg-gray-200 text-gray-700">
+                Locked
+              </span>
+            )}
+          </div>
+        }
+      >
+        {serviceLocked && (
+          <div className="text-xs text-gray-500 mb-2">
+            Service definition is locked once the request is scheduled or in
+            progress.
+          </div>
+        )}
+
+        <div className="space-y-4">
+          <input
+            disabled={serviceLocked}
+            value={serviceTitle}
+            onChange={(e) => setServiceTitle(e.target.value)}
+            placeholder={request.service || request.type || "Service Request"}
+            className={clsx(
+              "w-full rounded-lg border px-3 py-2 text-sm",
+              serviceLocked && "bg-gray-100 cursor-not-allowed"
+            )}
+          />
+
+          <textarea
+            disabled={serviceLocked}
+            value={serviceDescription}
+            onChange={(e) => setServiceDescription(e.target.value)}
+            rows={3}
+            className={clsx(
+              "w-full rounded-lg border px-3 py-2 text-sm",
+              serviceLocked && "bg-gray-100 cursor-not-allowed"
+            )}
+          />
+
+          <button
+            onClick={saveServiceOverride}
+            disabled={serviceLocked || saving}
+            className={clsx(
+              "rounded-lg py-2 text-sm font-medium",
+              serviceLocked
+                ? "bg-gray-300 cursor-not-allowed text-gray-600"
+                : "bg-black text-white hover:bg-gray-900"
+            )}
+          >
+            {saving
+              ? "Saving…"
+              : serviceLocked
+              ? "Locked after scheduling"
+              : "Save Service Definition"}
+          </button>
+        </div>
+      </TeslaSection>
+
+      <RequestPartsSection requestId={request.id} />
+      <RequestNotesTimeline requestId={request.id} />
     </div>
   );
 }

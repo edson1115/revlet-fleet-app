@@ -1,24 +1,40 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+
 import TeslaLayoutShell from "@/components/tesla/layout/TeslaLayoutShell";
 import { TeslaHeroBar } from "@/components/tesla/TeslaHeroBar";
-import TeslaSection from "@/components/tesla/TeslaSection";
-import { TeslaListRow } from "@/components/tesla/TeslaListRow";
-import { TeslaStatusChip } from "@/components/tesla/TeslaStatusChip";
-import { useRouter } from "next/navigation";
+import { TeslaSection } from "@/components/tesla/TeslaSection";
+import { TeslaRequestCard } from "@/components/tesla/TeslaRequestCard";
+
+type Job = {
+  id: string;
+  status: string;
+  service?: string;
+  created_at: string;
+
+  vehicle?: {
+    year?: number;
+    make?: string;
+    model?: string;
+    plate?: string;
+    unit_number?: string;
+  };
+};
 
 export default function TechQueuePage() {
   const router = useRouter();
-
+  const [rows, setRows] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
-  const [rows, setRows] = useState([]);
 
   async function load() {
     setLoading(true);
-    const res = await fetch("/api/tech/queue", { cache: "no-store" });
+    const res = await fetch("/api/tech/queue", {
+      cache: "no-store",
+    });
     const js = await res.json();
-    if (js.ok) setRows(js.rows || []);
+    if (js.ok) setRows(js.rows ?? []);
     setLoading(false);
   }
 
@@ -30,39 +46,43 @@ export default function TechQueuePage() {
     <TeslaLayoutShell>
       <TeslaHeroBar
         title="My Jobs"
-        subtitle="Your upcoming and active service jobs"
+        subtitle="Your assigned service requests"
       />
 
       <div className="max-w-5xl mx-auto p-6 space-y-10">
+        <TeslaSection>
+          {loading && (
+            <div className="p-6 text-gray-500">Loading…</div>
+          )}
 
-        <TeslaSection label="Assigned Jobs">
-          <div className="bg-white rounded-xl divide-y">
+          {!loading && rows.length === 0 && (
+            <div className="p-6 text-gray-500">
+              No assigned jobs.
+            </div>
+          )}
 
-            {loading && (
-              <div className="p-6 text-center text-gray-500">
-                Loading…
-              </div>
-            )}
+          <div className="space-y-4">
+            {rows.map((r) => {
+              const v = r.vehicle;
+              const title = v
+                ? `${v.year ?? ""} ${v.make ?? ""} ${v.model ?? ""}`
+                : "Service Request";
 
-            {!loading && rows.length === 0 && (
-              <div className="p-8 text-center text-gray-400">
-                No assigned jobs.
-              </div>
-            )}
-
-            {rows.map((r) => (
-              <TeslaListRow
-                key={r.id}
-                title={`${r.vehicle?.year} ${r.vehicle?.make} ${r.vehicle?.model}`}
-                subtitle={`Plate ${r.vehicle?.plate} — ${r.service || "Service"}`}
-                right={<TeslaStatusChip status={r.status} />}
-                onClick={() => router.push(`/tech/requests/${r.id}`)}
-              />
-            ))}
-
+              return (
+                <TeslaRequestCard
+                  key={r.id}
+                  title={title}
+                  subtitle={r.service || "Service"}
+                  status={r.status}
+                  createdAt={r.created_at}
+                  onClick={() =>
+                    router.push(`/tech/requests/${r.id}`)
+                  }
+                />
+              );
+            })}
           </div>
         </TeslaSection>
-
       </div>
     </TeslaLayoutShell>
   );

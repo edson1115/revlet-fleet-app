@@ -1,37 +1,18 @@
 // lib/supabase/server.ts
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
+import { createClient } from "@supabase/supabase-js";
 
-// ---------------------------------------------------------
-// 1) SYNC CLIENT — used in Server Components (NO awaiting)
-// ---------------------------------------------------------
-export function supabaseServerSync() {
-  const cookieStore = cookies(); // sync in SC
-
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-        set() {
-          /* ignored — cannot modify cookies in SC */
-        },
-        remove() {
-          /* ignored — cannot modify cookies in SC */
-        },
-      },
-    }
-  );
-}
-
-// ---------------------------------------------------------
-// 2) ASYNC CLIENT — used ONLY in Route Handlers (/api/*)
-// ---------------------------------------------------------
+/**
+ * ✅ Use this in:
+ * - Route Handlers (/app/api/**)
+ * - Server Components (async pages/layouts are fine)
+ *
+ * Next.js 15 requires awaiting cookies() in dynamic contexts,
+ * and Route Handlers are one of them.
+ */
 export async function supabaseServer() {
-  const cookieStore = await cookies(); // MUST await in API routes
+  const cookieStore = await cookies();
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -44,28 +25,32 @@ export async function supabaseServer() {
         set(name: string, value: string, options: any) {
           try {
             cookieStore.set(name, value, options);
-          } catch {}
+          } catch {
+            // ignore if called from a context that can't mutate cookies
+          }
         },
         remove(name: string, options: any) {
           try {
             cookieStore.delete(name, options);
-          } catch {}
+          } catch {
+            // ignore if called from a context that can't mutate cookies
+          }
         },
-        
       },
     }
   );
 }
 
-// ---------------------------------------------------------
-// 3) SERVICE CLIENT — full access (Storage upload, no RLS)
-// ---------------------------------------------------------
-import { createClient } from "@supabase/supabase-js";
-
+/**
+ * ✅ Service Role client (NO RLS) — use ONLY in server code (never client).
+ * Typical uses:
+ * - Storage uploads
+ * - Admin tasks
+ */
 export function supabaseService() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,   // << REQUIRED
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
     {
       auth: {
         autoRefreshToken: false,
@@ -74,4 +59,3 @@ export function supabaseService() {
     }
   );
 }
-

@@ -1,137 +1,147 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import { resolveUserScope } from "@/lib/api/scope";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+/* ============================================================
+   GET — Office loads single service request
+============================================================ */
 export async function GET(
   req: Request,
-  context: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id: requestId } = await context.params;
+    const { id } = await params;
+
+    const scope = await resolveUserScope();
+    if (
+      !scope.uid ||
+      (!scope.isOffice && !scope.isAdmin && !scope.isSuperadmin)
+    ) {
+      return NextResponse.json(
+        { ok: false, error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
     const supabase = await supabaseServer();
 
-    /* -----------------------------
-       AUTH
-    ----------------------------- */
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    /* -----------------------------
-       PROFILE
-    ----------------------------- */
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role, active_market")
-      .eq("id", user.id)
-      .single();
-
-    const ALLOWED = new Set(["OFFICE", "DISPATCH", "ADMIN", "SUPERADMIN"]);
-
-    if (!profile || !ALLOWED.has(profile.role)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-
-    if (!profile.active_market) {
-      return NextResponse.json(
-        { error: "No active market assigned" },
-        { status: 403 }
-      );
-    }
-
-    /* -----------------------------
-       RESOLVE USER MARKET → ID
-    ----------------------------- */
-    const { data: userMarket } = await supabase
-      .from("markets")
-      .select("id")
-      .eq("name", profile.active_market.replace(/([a-z])([A-Z])/g, "$1 $2"))
-      .single();
-
-    if (!userMarket) {
-      return NextResponse.json(
-        { error: "User market not found" },
-        { status: 403 }
-      );
-    }
-
-    /* -----------------------------
-       LOAD REQUEST
-    ----------------------------- */
-    const { data: reqRow } = await supabase
+    const { data: request, error } = await supabase
       .from("service_requests")
-      .select(`
-        id,
-        type,
-        status,
-        service,
-        notes,
-        dispatch_notes,
-        urgent,
-        po,
-        tire_size,
-        tire_quantity,
-        dropoff_address,
-        created_at,
-        scheduled_start_at,
-        scheduled_end_at,
-        completed_at,
-        market_id,
-
+      .select(
+        `
+        *,
+        customer:customers (
+          id,
+          name
+        ),
         vehicle:vehicles (
           id,
           year,
           make,
           model,
           plate,
-          unit_number,
-          vin
-        ),
-
-        technician:profiles!technician_id (
-          id,
-          full_name
-        ),
-
-        customer:customers (
-          id,
-          name
+          unit_number
         )
-      `)
-      .eq("id", requestId)
+      `
+      )
+      .eq("id", id)
       .maybeSingle();
 
-    if (!reqRow) {
+    if (error || !request) {
       return NextResponse.json(
-        { error: "Request not found" },
+        { ok: false, error: "Request not found" },
         { status: 404 }
       );
     }
 
-    /* -----------------------------
-       FINAL MARKET SECURITY CHECK
-    ----------------------------- */
-    if (reqRow.market_id !== userMarket.id) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    return NextResponse.json({ ok: true, request });
+  } catch (e) {
+    console.error("OFFICE REQUEST GET ERROR:", e);
+    return NextResponse.json(
+      { ok: false, error: "Server error" },
+      { status: 500 }
+    );
+  }
+}
+
+/* ============================================================
+   PATCH — Office updates service definition (LOCKED SAFELY)
+============================================================ */
+export async function PATCH(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+
+    const scope = await resolveUserScope();
+    if (!scope.uid || !scope.isOffice) {
+      return NextResponse.json(
+        { ok: false, error: "Unauthorized" },
+        { status: 401 }
+      );
     }
 
-    /* -----------------------------
-       SUCCESS
-    ----------------------------- */
-    return NextResponse.json({
-      ok: true,
-      request: reqRow,
-    });
-  } catch (err: any) {
-    console.error("Office request detail error:", err);
+    const body = await req.json();
+    const supabase = await supabaseServer();
+
+    // --------------------------------------------------
+    // Load current status to enforce lock
+    // --------------------------------------------------
+    const { data: existing, error: loadErr } = await supabase
+      .from("service_requests")
+      .select("status")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (loadErr || !existing) {
+      return NextResponse.json(
+        { ok: false, error: "Request not found" },
+        { status: 404 }
+      );
+    }
+
+    if (
+      existing.status !== "NEW" &&
+      existing.status !== "WAITING"
+    ) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Service definition is locked after scheduling",
+        },
+        { status: 400 }
+      );
+    }
+
+    // --------------------------------------------------
+    // Update service definition
+    // --------------------------------------------------
+    const { error } = await supabase
+      .from("service_requests")
+      .update({
+        service_title: body.service_title ?? null,
+        service_description: body.service_description ?? null,
+        service_override_at: new Date().toISOString(),
+        service_override_by: scope.uid,
+      })
+      .eq("id", id);
+
+    if (error) {
+      return NextResponse.json(
+        { ok: false, error: error.message },
+        { status: 400 }
+      );
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    console.error("SERVICE OVERRIDE PATCH ERROR:", e);
     return NextResponse.json(
-      { error: "Server error", detail: err.message },
+      { ok: false, error: "Server error" },
       { status: 500 }
     );
   }

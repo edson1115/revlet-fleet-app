@@ -1,20 +1,39 @@
 "use client";
 
-export function TeslaSegmented({ value, onChange, options }: any) {
+type Option = {
+  label: string;
+  value: string;
+};
+
+export function TeslaSegmented({
+  options,
+  value,
+  onChange,
+}: {
+  options: Option[];
+  value: string;
+  onChange?: (value: string) => void;
+}) {
   return (
-    <div className="inline-flex bg-gray-100 p-1 rounded-xl">
-      {options.map((opt: any) => {
+    <div className="inline-flex rounded-xl bg-gray-100 p-1">
+      {options.map((opt) => {
         const active = opt.value === value;
+
         return (
           <button
             key={opt.value}
-            onClick={() => onChange(opt.value)}
-            className={
-              "px-4 py-2 text-sm rounded-lg transition " +
-              (active
-                ? "bg-black text-white shadow"
-                : "text-gray-600 hover:text-black")
-            }
+            type="button"
+            onClick={() => {
+              if (onChange) {
+                onChange(opt.value);
+              }
+            }}
+            className={`px-4 py-1.5 text-sm rounded-lg transition-all
+              ${
+                active
+                  ? "bg-black text-white"
+                  : "text-gray-600 hover:text-black"
+              }`}
           >
             {opt.label}
           </button>

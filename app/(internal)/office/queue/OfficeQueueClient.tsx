@@ -3,33 +3,37 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { TeslaStatusChip } from "@/components/tesla/TeslaStatusChip";
-import { TeslaDivider } from "@/components/tesla/TeslaDivider";
+import { TeslaSection } from "@/components/tesla/TeslaSection";
+import { TeslaRequestCard } from "@/components/tesla/TeslaRequestCard";
 
-type OfficeRequest = {
+type QueueRequest = {
   id: string;
-  short_id?: string;
-  service?: string;
+  type: string;
   status: string;
+  service?: string;
+  urgent?: boolean;
+  po?: string;
   created_at: string;
-  market?: string;
+
   customer?: {
     name?: string;
   };
+
   vehicle?: {
     year?: number;
     make?: string;
     model?: string;
     plate?: string;
+    unit_number?: string;
   };
 };
 
 export default function OfficeQueueClient() {
   const router = useRouter();
+  const [rows, setRows] = useState<QueueRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [rows, setRows] = useState<OfficeRequest[]>([]);
 
-  async function load() {
+  async function loadQueue() {
     setLoading(true);
     try {
       const res = await fetch("/api/office/queue", {
@@ -43,66 +47,82 @@ export default function OfficeQueueClient() {
       } else {
         console.error("Queue load failed:", js.error);
       }
-    } catch (e) {
-      console.error("Office queue error:", e);
+    } catch (err) {
+      console.error("Office queue error:", err);
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    load();
+    loadQueue();
   }, []);
 
-  if (loading) {
-    return <div className="text-sm text-gray-500">Loading queue…</div>;
-  }
-
-  if (rows.length === 0) {
-    return (
-      <div className="text-sm text-gray-500">
-        No requests waiting for office review.
-      </div>
-    );
-  }
-
   return (
-    <div className="bg-white border rounded-2xl divide-y">
-      {rows.map((req) => (
-        <div
-          key={req.id}
-          onClick={() => router.push(`/office/requests/${req.id}`)}
-          className="p-4 hover:bg-gray-50 cursor-pointer transition"
-        >
-          <div className="flex items-start justify-between gap-4">
-            {/* LEFT */}
-            <div className="space-y-1">
-              <div className="font-medium text-gray-900 flex items-center gap-2">
-                {req.service || "Service Request"}
-                <TeslaStatusChip status={req.status} />
-              </div>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold">Office Queue</h1>
+        <p className="text-sm text-gray-500">
+          Requests waiting for office review
+        </p>
+      </div>
 
-              {req.vehicle && (
-                <div className="text-sm text-gray-600">
-                  {req.vehicle.year} {req.vehicle.make} {req.vehicle.model}
-                  {req.vehicle.plate && ` • ${req.vehicle.plate}`}
-                </div>
-              )}
-
-              {req.customer?.name && (
-                <div className="text-xs text-gray-500">
-                  Customer: {req.customer.name}
-                </div>
-              )}
-            </div>
-
-            {/* RIGHT */}
-            <div className="text-right text-xs text-gray-400 whitespace-nowrap">
-              {new Date(req.created_at).toLocaleString()}
-            </div>
+      <TeslaSection>
+        {loading && (
+          <div className="p-6 text-sm text-gray-500">
+            Loading queue…
           </div>
+        )}
+
+        {!loading && rows.length === 0 && (
+          <div className="p-6 text-sm text-gray-500">
+            No requests waiting for office review.
+          </div>
+        )}
+
+        <div className="space-y-4">
+          {rows.map((req) => {
+            const v = req.vehicle;
+
+            // OFFICE SERVICE NAME WINS
+            const title =
+              req.service ||
+              req.type ||
+              "Service Request";
+
+            const vehicleLine = v
+              ? `${v.year ?? ""} ${v.make ?? ""} ${v.model ?? ""}`.trim()
+              : null;
+
+            const unitOrPlate =
+              v?.unit_number
+                ? `Unit ${v.unit_number}`
+                : v?.plate
+                ? `Plate ${v.plate}`
+                : null;
+
+            const subtitle = [vehicleLine, unitOrPlate]
+              .filter(Boolean)
+              .join(" • ");
+
+            return (
+              <TeslaRequestCard
+                key={req.id}
+                title={title}
+                subtitle={subtitle}
+                status={req.status}
+                urgent={req.urgent}
+                po={req.po}
+                createdAt={req.created_at}
+                customer={req.customer?.name}
+                onClick={() =>
+                  router.push(`/office/requests/${req.id}`)
+                }
+              />
+            );
+          })}
         </div>
-      ))}
+      </TeslaSection>
     </div>
   );
 }

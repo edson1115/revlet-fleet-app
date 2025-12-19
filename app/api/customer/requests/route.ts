@@ -26,22 +26,32 @@ export async function GET(req: Request) {
     const supabase = await supabaseServer();
 
     let q = supabase
-      .from("service_requests")
-      .select(`
-        id,
-        vehicle_id,
-        customer_id,
-        service_type,
-        mileage,
-        status,
-        notes,
-        created_at,
-        completed_at,
-        vehicle:vehicles(id, year, make, model, plate)
-      `)
-      .eq("customer_id", scope.customer_id)
-      .order("created_at", { ascending: false })
-      .limit(limit);
+  .from("service_requests")
+  .select(`
+    id,
+    vehicle_id,
+    customer_id,
+    service_type,
+    service,
+    service_title,
+    service_description,
+    mileage,
+    status,
+    notes,
+    created_at,
+    completed_at,
+    vehicle:vehicles (
+      id,
+      year,
+      make,
+      model,
+      plate
+    )
+  `)
+  .eq("customer_id", scope.customer_id)
+  .order("created_at", { ascending: false })
+  .limit(limit);
+
 
     if (vehicleId) q = q.eq("vehicle_id", vehicleId);
 
@@ -51,9 +61,28 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, error: error.message });
     }
 
-    return NextResponse.json({ ok: true, rows: data });
+    // 🔒 NORMALIZE SHAPE (NON-BREAKING)
+    const rows = (data || []).map((r) => ({
+      ...r,
+
+      // UI expects `type`
+      type: r.service_type,
+
+      // Legacy compatibility
+      service: r.service,
+
+      // Office override fields
+      service_title: r.service_title,
+      service_description: r.service_description,
+    }));
+
+    return NextResponse.json({ ok: true, rows });
   } catch (err: any) {
-    return NextResponse.json({ ok: false, error: err.message });
+    console.error("CUSTOMER REQUEST LOAD ERROR:", err);
+    return NextResponse.json(
+      { ok: false, error: "Server error", detail: err.message },
+      { status: 500 }
+    );
   }
 }
 
