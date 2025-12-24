@@ -5,6 +5,56 @@ import { normalizeRole } from "@/lib/permissions";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+
+export async function GET() {
+  const supabase = await supabaseServer();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { data: requests, error } = await supabase
+    .from("service_requests")
+    .select(`
+      id,
+      status,
+      type,
+      urgent,
+      created_at,
+      customer:customers!left ( id, name ),
+      vehicle:vehicles!left (
+        year,
+        make,
+        model,
+        plate,
+        vin,
+        unit_number
+      )
+    `)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error(error);
+    return NextResponse.json(
+      { error: "Failed to load requests" },
+      { status: 500 }
+    );
+  }
+
+  return NextResponse.json({
+    ok: true,
+    requests: requests ?? [],
+  });
+}
+
+
+/* ============================================================
+   POST — Create service request (Office / Walk-In)
+============================================================ */
 /* ============================================================
    POST — Create service request (Office / Walk-In)
 ============================================================ */
@@ -15,13 +65,13 @@ export async function POST(req: Request) {
 
     const {
       customer_id,
-      vehicle_id,
+      vehicle_id = null,
       urgent = false,
     } = body;
 
-    if (!customer_id || !vehicle_id) {
+    if (!customer_id) {
       return NextResponse.json(
-        { error: "Missing customer or vehicle" },
+        { error: "Missing customer" },
         { status: 400 }
       );
     }
@@ -36,15 +86,14 @@ export async function POST(req: Request) {
     }
 
     const role = normalizeRole(user.user_metadata?.role);
-    const ALLOWED = new Set([
-      "OFFICE",
-      "ADMIN",
-      "SUPERADMIN",
-    ]);
+    const ALLOWED = new Set(["OFFICE", "ADMIN", "SUPERADMIN"]);
 
     if (!role || !ALLOWED.has(role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+
+    /* ---------------- STATUS LOGIC ---------------- */
+    const status = vehicle_id ? "NEW" : "WAITING";
 
     /* ---------------- CREATE REQUEST ---------------- */
     const { data: request, error } = await supabase
@@ -52,7 +101,7 @@ export async function POST(req: Request) {
       .insert({
         customer_id,
         vehicle_id,
-        status: "NEW",
+        status,
         urgent,
         created_by_role: role,
       })
@@ -69,7 +118,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       ok: true,
-      request_id: request.id,
+      request: {
+        id: request.id,
+        status: request.status,
+      },
     });
   } catch (err: any) {
     console.error("Office create request error:", err);

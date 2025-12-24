@@ -1,18 +1,29 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { TeslaSection } from "@/components/tesla/TeslaSection";
 import { TeslaRequestRow } from "@/components/tesla/office/TeslaRequestRow";
 
 export default function RequestListClient() {
+  const router = useRouter();
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   async function load() {
     setLoading(true);
-    const res = await fetch("/api/requests", { cache: "no-store" });
+
+    const res = await fetch("/api/office/requests", {
+      cache: "no-store",
+      credentials: "include",
+    });
+
     const js = await res.json();
-    if (js.ok) setRows(js.rows || []);
+
+    if (js.ok) {
+      setRows(js.requests || []);
+    }
+
     setLoading(false);
   }
 
@@ -28,11 +39,20 @@ export default function RequestListClient() {
         )}
 
         {!loading && rows.length === 0 && (
-          <div className="text-center text-gray-400 py-6">No requests found.</div>
+          <div className="text-center text-gray-400 py-6">
+            No requests found.
+          </div>
         )}
 
         {rows.map((r) => (
-          <TeslaRequestRow key={r.id} req={r} />
+          <TeslaRequestRow
+            key={r.id}
+            req={r}
+            onClick={() => {
+              console.log("➡️ NAVIGATE TO", r.id);
+              router.push(`/office/requests/${r.id}`);
+            }}
+          />
         ))}
       </div>
     </TeslaSection>

@@ -7,20 +7,22 @@ export default function LoginPage() {
   const [sent, setSent] = useState(false);
 
   async function sendMagicLink(e: any) {
-    e.preventDefault();
+  e.preventDefault();
 
-    const res = await fetch("/api/auth/magic-link", {
-      method: "POST",
-      body: JSON.stringify({
-        email,
-        next: "/", // where user lands after login
-      }),
-    });
+  const res = await fetch("/api/auth/magic-link", {
+    method: "POST",
+    body: JSON.stringify({
+  email,
+  next: "/office/requests", // canonical office home
+}),
 
-    const js = await res.json();
-    if (js.ok) setSent(true);
-    else alert(js.error || "Error sending magic link");
-  }
+  });
+
+  const js = await res.json();
+  if (js.ok) setSent(true);
+  else alert(js.error || "Error sending magic link");
+}
+
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100">

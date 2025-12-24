@@ -42,9 +42,9 @@ export default function OfficeRequestDetailClient({
   const [saving, setSaving] = useState(false);
   const [completing, setCompleting] = useState(false);
 
-  /* -------------------------------------------
-     SERVICE DEFINITION
-  -------------------------------------------- */
+  // --------------------------------------------------
+  // Service Definition (Office-owned)
+  // --------------------------------------------------
   const [serviceTitle, setServiceTitle] = useState(
     initialRequest?.service_title ?? ""
   );
@@ -52,26 +52,8 @@ export default function OfficeRequestDetailClient({
     initialRequest?.service_description ?? ""
   );
 
-  /* -------------------------------------------
-     COMPLETION NOTE (REQUIRED)
-  -------------------------------------------- */
-  const [completionNote, setCompletionNote] = useState("");
-
   const serviceLocked = !SERVICE_EDITABLE_STATUSES.includes(request.status);
   const currentIndex = STATUS_FLOW.indexOf(request.status);
-
-  /* -------------------------------------------
-     WALK-IN CHECK
-  -------------------------------------------- */
-  const isWalkIn =
-    request?.created_by_role === "OFFICE" &&
-    !request?.technician_id &&
-    !request?.scheduled_start_at;
-
-  const canOfficeComplete =
-    isWalkIn && request.status !== "COMPLETED";
-
-  const isCompleted = request.status === "COMPLETED";
 
   const assignedTechName = useMemo(
     () =>
@@ -84,17 +66,24 @@ export default function OfficeRequestDetailClient({
   );
 
   const scheduledWindow = useMemo(
-    () =>
-      formatWindow(
-        request?.scheduled_start_at,
-        request?.scheduled_end_at
-      ),
+    () => formatWindow(request?.scheduled_start_at, request?.scheduled_end_at),
     [request]
   );
 
-  /* -------------------------------------------
-     SAVE SERVICE OVERRIDE
-  -------------------------------------------- */
+  /* --------------------------------------------------
+     WALK-IN COMPLETION RULE
+     Office CAN complete if:
+     - No tech
+     - No schedule
+     - Not READY_TO_SCHEDULE
+     - Not already COMPLETED
+  -------------------------------------------------- */
+  const canCompleteWalkIn =
+    !request.technician_id &&
+    !request.scheduled_start_at &&
+    request.status !== "READY_TO_SCHEDULE" &&
+    request.status !== "COMPLETED";
+
   async function saveServiceOverride() {
     if (saving || serviceLocked) return;
     setSaving(true);
@@ -124,20 +113,12 @@ export default function OfficeRequestDetailClient({
     });
   }
 
-  /* -------------------------------------------
-     MARK COMPLETE (OFFICE WALK-IN)
-  -------------------------------------------- */
-  async function markComplete() {
-    if (!canOfficeComplete || completing) return;
-
-    if (!completionNote.trim()) {
-      alert("Completion note is required.");
-      return;
-    }
+  async function completeWalkIn() {
+    if (!canCompleteWalkIn || completing) return;
 
     if (
       !confirm(
-        "Mark this walk-in request as COMPLETED?\n\nThis action cannot be undone."
+        "Complete this walk-in service?\n\nThis will mark the request as COMPLETED."
       )
     ) {
       return;
@@ -145,31 +126,25 @@ export default function OfficeRequestDetailClient({
 
     setCompleting(true);
 
-    const res = await fetch(`/api/office/requests/${request.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({
-        status: "COMPLETED",
-        completed_by_role: "OFFICE",
-        completed_at: new Date().toISOString(),
-        completion_note: completionNote,
-      }),
-    });
+    const res = await fetch(
+      `/api/office/requests/${request.id}/complete`,
+      {
+        method: "POST",
+        credentials: "include",
+      }
+    );
 
     const js = await res.json();
     setCompleting(false);
 
-    if (!res.ok) {
-      alert(js.error || "Failed to complete request");
+    if (!res.ok || !js.ok) {
+      alert(js.error || "Failed to complete walk-in service");
       return;
     }
 
     setRequest({
       ...request,
       status: "COMPLETED",
-      completed_at: js.completed_at,
-      completed_by_role: "OFFICE",
     });
   }
 
@@ -181,23 +156,21 @@ export default function OfficeRequestDetailClient({
       {/* HEADER NAV */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4 text-sm text-gray-600">
-          <button onClick={() => router.push("/office")} className="hover:underline">
+          <button
+            onClick={() => router.push("/office")}
+            className="hover:underline"
+          >
             ← Office Dashboard
           </button>
           <span className="text-gray-300">|</span>
-          <button onClick={() => router.push("/office/requests")} className="hover:underline">
+          <button
+            onClick={() => router.push("/office/requests")}
+            className="hover:underline"
+          >
             ← Office Requests
           </button>
         </div>
-
-        <div className="flex items-center gap-3">
-          {request.completed_by_role === "OFFICE" && (
-            <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
-              Completed by Office
-            </span>
-          )}
-          <TeslaStatusChip status={request.status} />
-        </div>
+        <TeslaStatusChip status={request.status} />
       </div>
 
       {/* CONTEXT */}
@@ -247,54 +220,87 @@ export default function OfficeRequestDetailClient({
       </TeslaSection>
 
       {/* OFFICE INTERNAL */}
-{/* <OfficeFieldsSection request={request} readOnly={isCompleted} /> */}
-
+      <OfficeFieldsSection request={request} />
 
       {/* SERVICE DEFINITION */}
-      <TeslaSection label="Service Definition">
+      <TeslaSection
+        label={
+          <div className="flex items-center gap-2">
+            <span>Service Definition (Customer-Facing)</span>
+            {serviceLocked && (
+              <span className="text-xs px-2 py-1 rounded-full bg-gray-200 text-gray-700">
+                Locked
+              </span>
+            )}
+          </div>
+        }
+      >
+        {serviceLocked && (
+          <div className="text-xs text-gray-500 mb-2">
+            Service definition is locked once the request is ready to schedule.
+          </div>
+        )}
+
         <div className="space-y-4">
           <input
-            disabled={serviceLocked || isCompleted}
+            disabled={serviceLocked}
             value={serviceTitle}
             onChange={(e) => setServiceTitle(e.target.value)}
-            className="w-full rounded-lg border px-3 py-2 text-sm"
+            placeholder={request.service || request.type || "Service Request"}
+            className={clsx(
+              "w-full rounded-lg border px-3 py-2 text-sm",
+              serviceLocked && "bg-gray-100 cursor-not-allowed"
+            )}
           />
 
           <textarea
-            disabled={serviceLocked || isCompleted}
+            disabled={serviceLocked}
             value={serviceDescription}
             onChange={(e) => setServiceDescription(e.target.value)}
             rows={3}
-            className="w-full rounded-lg border px-3 py-2 text-sm"
-          />
-        </div>
-      </TeslaSection>
-
-      {/* WALK-IN COMPLETE */}
-      {canOfficeComplete && (
-        <TeslaSection label="Complete Walk-In">
-          <textarea
-            placeholder="Completion note (required)"
-            value={completionNote}
-            onChange={(e) => setCompletionNote(e.target.value)}
-            rows={3}
-            className="w-full rounded-lg border px-3 py-2 text-sm mb-4"
+            className={clsx(
+              "w-full rounded-lg border px-3 py-2 text-sm",
+              serviceLocked && "bg-gray-100 cursor-not-allowed"
+            )}
           />
 
           <button
-            onClick={markComplete}
-            disabled={completing}
-            className="w-full rounded-xl bg-green-600 py-3 text-sm font-semibold text-white hover:bg-green-700"
+            onClick={saveServiceOverride}
+            disabled={serviceLocked || saving}
+            className={clsx(
+              "rounded-lg py-2 text-sm font-medium",
+              serviceLocked
+                ? "bg-gray-300 cursor-not-allowed text-gray-600"
+                : "bg-black text-white hover:bg-gray-900"
+            )}
           >
-            {completing ? "Completing…" : "✔ Mark Complete"}
+            {saving
+              ? "Saving…"
+              : serviceLocked
+              ? "Locked after READY TO SCHEDULE"
+              : "Save Service Definition"}
           </button>
+        </div>
+      </TeslaSection>
+
+      {/* WALK-IN COMPLETION */}
+      {canCompleteWalkIn && (
+        <TeslaSection label="Walk-In Completion">
+          <button
+            onClick={completeWalkIn}
+            disabled={completing}
+            className="bg-green-600 text-white px-6 py-3 rounded-xl font-medium hover:bg-green-700 disabled:opacity-60"
+          >
+            {completing ? "Completing…" : "Complete Walk-In Service"}
+          </button>
+          <p className="text-xs text-gray-500 mt-2">
+            This service does not require dispatch or technician scheduling.
+          </p>
         </TeslaSection>
       )}
 
-      {/* LOCKED AFTER COMPLETE */}
-{/* <RequestPartsSection requestId={request.id} readOnly={isCompleted} /> */}
-{/* <RequestNotesTimeline requestId={request.id} readOnly={isCompleted} /> */}
-
+      <RequestPartsSection requestId={request.id} />
+      <RequestNotesTimeline requestId={request.id} />
     </div>
   );
 }

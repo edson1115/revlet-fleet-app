@@ -1,20 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import TeslaSection from "@/components/tesla/TeslaSection";
+import OfficeStepHeader from "@/components/office/OfficeStepHeader";
 
 type Vehicle = {
   id: string;
-  year?: number;
-  make?: string;
-  model?: string;
-  plate?: string;
-  unit_number?: string;
-  vin?: string;
-  total_requests?: number;
-  open_requests?: number;
+  year: number;
+  make: string;
+  model: string;
+  unit_number?: string | null;
+  plate?: string | null;
+  vin?: string | null;
 };
 
 export default function OfficeSelectVehiclePage() {
@@ -24,104 +23,184 @@ export default function OfficeSelectVehiclePage() {
 
   const [loading, setLoading] = useState(true);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-  const [selectedVehicle, setSelectedVehicle] = useState<string | null>(null);
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
+  const [customerName, setCustomerName] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
+  /* -------------------------------------------------
+     LOAD CUSTOMER NAME
+  ------------------------------------------------- */
   useEffect(() => {
     if (!customerId) return;
 
-    async function loadVehicles() {
-      const res = await fetch(
-        `/api/office/customers/${customerId}/vehicles`,
-        { cache: "no-store", credentials: "include" }
-      );
-      const js = await res.json();
-      setVehicles(js.vehicles ?? []);
-      setLoading(false);
-    }
-
-    loadVehicles();
+    fetch(`/api/office/customers/${customerId}`, {
+      credentials: "include",
+      cache: "no-store",
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.customer?.name) {
+          setCustomerName(d.customer.name);
+        }
+      })
+      .catch(() => setCustomerName(null));
   }, [customerId]);
 
-  if (!customerId) {
-    return <div className="p-8">Missing customer context.</div>;
-  }
+  /* -------------------------------------------------
+     LOAD VEHICLES
+  ------------------------------------------------- */
+  useEffect(() => {
+    if (!customerId) return;
 
-  if (loading) {
-    return <div className="p-8">Loading vehicles…</div>;
-  }
+    async function load() {
+      setLoading(true);
+      try {
+        const res = await fetch(
+          `/api/office/customers/${customerId}/vehicles`,
+          {
+            credentials: "include",
+            cache: "no-store",
+          }
+        );
 
+        const js = await res.json();
+        setVehicles(js?.vehicles ?? []);
+      } catch (err) {
+        console.error("Failed to load vehicles", err);
+        setVehicles([]);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    load();
+  }, [customerId]);
+
+  /* -------------------------------------------------
+     FILTERED VEHICLES
+  ------------------------------------------------- */
+  const filteredVehicles = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return vehicles;
+
+    return vehicles.filter((v) => {
+      return (
+        v.unit_number?.toLowerCase().includes(q) ||
+        v.plate?.toLowerCase().includes(q) ||
+        v.vin?.toLowerCase().includes(q) ||
+        `${v.year} ${v.make} ${v.model}`.toLowerCase().includes(q)
+      );
+    });
+  }, [vehicles, query]);
+
+  /* -------------------------------------------------
+     RENDER
+  ------------------------------------------------- */
   return (
-    <div className="p-8 max-w-4xl mx-auto space-y-10">
-      <h1 className="text-2xl font-semibold">Select Vehicle</h1>
+    <div className="p-8 max-w-4xl mx-auto space-y-6">
+      <OfficeStepHeader
+        title="Select Vehicle"
+        backHref="/office/customers/new-request"
+        rightAction={{ label: "Dashboard", href: "/office" }}
+      />
 
-      <p className="text-sm text-gray-600">
-        Choose an existing vehicle or add a new one to continue.
-      </p>
+      {/* CUSTOMER CONTEXT */}
+      {customerName && (
+        <div className="text-sm text-gray-600">
+          Vehicles for{" "}
+          <span className="font-semibold text-gray-900">
+            {customerName}
+          </span>
+        </div>
+      )}
 
       <TeslaSection label="Existing Vehicles">
-        {vehicles.length === 0 && (
-          <div className="text-sm text-gray-500 p-4">
+        {/* SEARCH + ADD */}
+        <div className="flex items-center gap-3 mb-4">
+          {vehicles.length > 0 && (
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by unit, plate, VIN, or vehicle"
+              className="flex-1 px-3 py-2 border rounded-lg text-sm"
+            />
+          )}
+
+          <button
+            onClick={() =>
+              router.push(
+                `/office/customers/new-request/add-vehicle?customerId=${customerId}`
+              )
+            }
+            className="inline-flex items-center px-4 py-2 rounded-lg bg-black text-white text-sm"
+          >
+            ➕ Add Vehicle
+          </button>
+        </div>
+
+        {/* LOADING */}
+        {loading && (
+          <div className="text-sm text-gray-500">
+            Loading vehicles…
+          </div>
+        )}
+
+        {/* EMPTY STATE */}
+        {!loading && vehicles.length === 0 && (
+          <div className="text-sm text-gray-500">
             No vehicles found for this customer.
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {vehicles.map((v) => {
-            const title = `${v.year ?? ""} ${v.make ?? ""} ${v.model ?? ""}`.trim();
-            const subtitle =
-              v.unit_number
-                ? `Unit ${v.unit_number}`
-                : v.plate
-                ? `Plate ${v.plate}`
-                : v.vin
-                ? `VIN ${v.vin}`
-                : "—";
+        {/* VEHICLE LIST */}
+        {!loading && filteredVehicles.length > 0 && (
+          <div className="divide-y rounded-xl border">
+            {filteredVehicles.map((v) => {
+              const selected = selectedVehicleId === v.id;
 
-            return (
-              <button
-                key={v.id}
-                onClick={() => setSelectedVehicle(v.id)}
-                className={`p-4 rounded-xl border text-left transition ${
-                  selectedVehicle === v.id
-                    ? "border-black bg-gray-50"
-                    : "hover:bg-gray-50"
-                }`}
-              >
-                <div className="font-medium">{title || "Vehicle"}</div>
-                <div className="text-sm text-gray-500">{subtitle}</div>
-                <div className="text-xs text-gray-400 mt-1">
-                  Open requests: {v.open_requests ?? 0}
-                </div>
-              </button>
-            );
-          })}
-        </div>
+              return (
+                <button
+                  key={v.id}
+                  onClick={() => setSelectedVehicleId(v.id)}
+                  className={`w-full text-left px-4 py-3 transition ${
+                    selected ? "bg-gray-100" : "hover:bg-gray-50"
+                  }`}
+                >
+                  {/* UNIT NUMBER – PRIMARY */}
+                  <div className="font-semibold text-sm">
+                    {v.unit_number || "No Unit Number"}
+                  </div>
+
+                  {/* YEAR / MAKE / MODEL */}
+                  <div className="text-sm text-gray-700">
+                    {v.year} {v.make} {v.model}
+                  </div>
+
+                  {/* LICENSE PLATE */}
+                  {v.plate && (
+                    <div className="text-xs text-gray-500">
+                      Plate: {v.plate}
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </TeslaSection>
 
-      <TeslaSection>
-        <button
-          onClick={() =>
-            router.push(
-              `/office/customers/new-request/vehicle/new?customerId=${customerId}`
-            )
-          }
-          className="w-full p-4 rounded-xl border-dashed border-2 text-sm hover:bg-gray-50"
-        >
-          ➕ Add New Vehicle
-        </button>
-      </TeslaSection>
-
+      {/* CONTINUE */}
       <div className="flex justify-end">
         <button
-          disabled={!selectedVehicle}
+          disabled={!selectedVehicleId}
           onClick={() =>
             router.push(
-              `/office/customers/new-request/confirm?customerId=${customerId}&vehicleId=${selectedVehicle}`
+              `/office/customers/new-request/details?customerId=${customerId}&vehicleId=${selectedVehicleId}`
             )
           }
-          className={`px-5 py-2 rounded-lg text-sm font-medium ${
-            selectedVehicle
-              ? "bg-black text-white hover:bg-gray-900"
+          className={`px-5 py-2 rounded-lg ${
+            selectedVehicleId
+              ? "bg-black text-white"
               : "bg-gray-300 text-gray-600 cursor-not-allowed"
           }`}
         >

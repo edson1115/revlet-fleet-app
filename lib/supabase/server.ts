@@ -1,18 +1,20 @@
 // lib/supabase/server.ts
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 
 /**
- * ✅ Use this in:
+ * ✅ Use in:
  * - Route Handlers (/app/api/**)
- * - Server Components (async pages/layouts are fine)
+ * - Server Components
  *
- * Next.js 15 requires awaiting cookies() in dynamic contexts,
- * and Route Handlers are one of them.
+ * REQUIRED for Next.js App Router:
+ * - cookies()
+ * - headers()
  */
 export async function supabaseServer() {
   const cookieStore = await cookies();
+  const headerStore = headers();
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,15 +28,20 @@ export async function supabaseServer() {
           try {
             cookieStore.set(name, value, options);
           } catch {
-            // ignore if called from a context that can't mutate cookies
+            // ignore (read-only contexts)
           }
         },
         remove(name: string, options: any) {
           try {
             cookieStore.delete(name, options);
           } catch {
-            // ignore if called from a context that can't mutate cookies
+            // ignore
           }
+        },
+      },
+      headers: {
+        get(name: string) {
+          return headerStore.get(name) ?? undefined;
         },
       },
     }
@@ -42,10 +49,8 @@ export async function supabaseServer() {
 }
 
 /**
- * ✅ Service Role client (NO RLS) — use ONLY in server code (never client).
- * Typical uses:
- * - Storage uploads
- * - Admin tasks
+ * ✅ Service Role client (NO RLS)
+ * Server-side ONLY
  */
 export function supabaseService() {
   return createClient(

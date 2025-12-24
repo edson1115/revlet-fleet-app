@@ -1,88 +1,112 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
-import { normalizeRole } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
 
-export async function GET(req: Request, { params }: any) {
-  try {
-    const supabase = await supabaseServer();
+/* =========================================================
+   GET — List vehicles for customer (Office)
+========================================================= */
+export async function GET(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
+  const supabase = await supabaseServer();
+  const customerId = params.id;
 
-    const customerId = params.id;
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-    // AUTH
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const role = normalizeRole(user.user_metadata?.role);
-    const ALLOWED = new Set([
-      "OFFICE",
-      "DISPATCH",
-      "ADMIN",
-      "SUPERADMIN",
-      "FLEET_MANAGER",
-    ]);
-
-    if (!role || !ALLOWED.has(role)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-
-    // VEHICLE LIST
-    const { data: vehicles, error } = await supabase
-      .from("vehicles")
-      .select(
-        `
-        id,
-        customer_id,
-        year,
-        make,
-        model,
-        plate,
-        vin,
-        unit_number,
-        status,
-        market,
-        created_at
-      `
-      )
-      .eq("customer_id", customerId)
-      .order("unit_number", { ascending: true });
-
-    if (error) {
-      return NextResponse.json(
-        { error: "Failed to load vehicles" },
-        { status: 500 }
-      );
-    }
-
-    // REQUEST COUNTS FOR EACH VEHICLE
-    const { data: requests } = await supabase
-      .from("service_requests")
-      .select("id, vehicle_id, status, created_at");
-
-    // map → attach request counts
-    const enriched = vehicles.map((v) => {
-      const r = requests.filter((r) => r.vehicle_id === v.id);
-
-      return {
-        ...v,
-        total_requests: r.length,
-        open_requests: r.filter((x) => x.status !== "COMPLETED").length,
-      };
-    });
-
-    return NextResponse.json({ vehicles: enriched });
-  } catch (err: any) {
-    console.error("Customer vehicles error:", err);
+  if (!user) {
     return NextResponse.json(
-      { error: "Server error", detail: err.message },
+      { ok: false, error: "Unauthorized" },
+      { status: 401 }
+    );
+  }
+
+  const { data, error } = await supabase
+    .from("vehicles")
+    .select(`
+      id,
+      year,
+      make,
+      model,
+      unit_number,
+      plate,
+      vin
+    `)
+    .eq("customer_id", customerId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Vehicle load error:", error);
+    return NextResponse.json(
+      { ok: false, error: error.message },
       { status: 500 }
     );
   }
+
+  return NextResponse.json({
+    ok: true,
+    vehicles: data ?? [],
+  });
+}
+
+/* =========================================================
+   POST — Create vehicle for customer (Office)
+========================================================= */
+export async function POST(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
+  const supabase = await supabaseServer();
+  const customerId = params.id;
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json(
+      { ok: false, error: "Unauthorized" },
+      { status: 401 }
+    );
+  }
+
+  const body = await req.json();
+  const { year, make, model, unit_number, plate, vin } = body;
+
+  if (!year || !make || !model) {
+    return NextResponse.json(
+      { ok: false, error: "Missing required fields" },
+      { status: 400 }
+    );
+  }
+
+  const { data, error } = await supabase
+    .from("vehicles")
+    .insert({
+      customer_id: customerId,
+      year,
+      make,
+      model,
+      unit_number: unit_number || null,
+      plate: plate || null,
+      vin: vin || null,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Vehicle insert error:", error);
+    return NextResponse.json(
+      { ok: false, error: error.message },
+      { status: 500 }
+    );
+  }
+
+  return NextResponse.json({
+    ok: true,
+    vehicle: data,
+  });
 }

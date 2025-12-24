@@ -13,3 +13,21 @@ export default function RootLayout({ children }) {
     </html>
   );
 }
+
+if (typeof window !== "undefined") {
+  try {
+    // Prevent duplicate custom element registration
+    window.customElements.define = new Proxy(
+      window.customElements.define,
+      {
+        apply(target, thisArg, args) {
+          try {
+            return Reflect.apply(target, thisArg, args);
+          } catch {
+            return;
+          }
+        },
+      }
+    );
+  } catch {}
+}

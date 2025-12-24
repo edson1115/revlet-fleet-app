@@ -1,51 +1,46 @@
-import { notFound } from "next/navigation";
-import { supabaseServer } from "@/lib/supabase/server";
 import OfficeRequestDetailClient from "./OfficeRequestDetailClient";
+import { supabaseServer } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-export default async function OfficeRequestPage({
+export default async function OfficeRequestDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id } = await params; // ✅ REQUIRED in Next.js 15
+  const { id } = await params;
+
+  if (!id) redirect("/office/requests");
+
   const supabase = await supabaseServer();
 
-  /* ----------------------------------
-     AUTH
-  ---------------------------------- */
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) notFound();
+  if (!user) redirect("/login");
 
-  /* ----------------------------------
-     LOAD REQUEST
-  ---------------------------------- */
   const { data: request, error } = await supabase
-    .from("service_requests")
+    .from("requests")
     .select(
       `
       id,
-      type,
       status,
-      urgent,
       service,
-      po,
       notes,
-      dropoff_address,
-      dispatch_notes,
-      tire_size,
-      tire_quantity,
+      created_at,
       scheduled_start_at,
       scheduled_end_at,
-      created_at,
+      technician_id,
+      completed_at,
+      completed_by_role,
+      created_by_role,
 
-      approval_number,
-      invoice_number,
-      office_notes,
+      customer:customers (
+        id,
+        name
+      ),
 
       vehicle:vehicles (
         id,
@@ -53,30 +48,7 @@ export default async function OfficeRequestPage({
         make,
         model,
         plate,
-        unit_number,
-        vin,
-        last_reported_mileage,
-        mileage_override,
-        market
-      ),
-
-      customer:customers (
-        id,
-        name
-      ),
-
-      parts:service_request_parts (
-        id,
-        part_number,
-        description,
-        quantity
-      ),
-
-      timeline:service_request_notes (
-        id,
-        role,
-        note,
-        created_at
+        unit_number
       )
     `
     )
@@ -84,12 +56,16 @@ export default async function OfficeRequestPage({
     .single();
 
   if (error || !request) {
-    console.error("Office request load failed:", error);
-    notFound();
+    redirect("/office/requests");
   }
 
-  /* ----------------------------------
-     RENDER DETAIL (NAV LIVES IN CLIENT)
-  ---------------------------------- */
-  return <OfficeRequestDetailClient request={request} />;
+  return (
+    <OfficeRequestDetailClient
+      request={{
+        ...request,
+        service_title: request.service ?? "",
+        service_description: request.notes ?? "",
+      }}
+    />
+  );
 }

@@ -5,16 +5,17 @@ import { TeslaStatusBadge } from "./TeslaStatusBadge";
 export function TeslaRequestRow({ req, onClick }) {
   return (
     <div
-      onClick={onClick}
+      onClick={() => onClick?.()}
       className="cursor-pointer border-b border-gray-200 py-3 px-1 hover:bg-gray-50 transition-all"
     >
       <div className="flex justify-between items-center">
         <div>
           <h3 className="font-semibold text-gray-900">
-            {req.service_type || "Service Request"}
+            {req.type || "Service Request"}
           </h3>
           <p className="text-sm text-gray-500">
-            {req.vehicle_make} {req.vehicle_model} — {req.vehicle_plate}
+            {req.vehicle?.make} {req.vehicle?.model}
+            {req.vehicle?.unit_number && ` — Unit ${req.vehicle.unit_number}`}
           </p>
         </div>
         <TeslaStatusBadge status={req.status} />

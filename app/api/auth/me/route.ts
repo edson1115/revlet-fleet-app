@@ -8,9 +8,10 @@ export async function GET() {
 
   const {
     data: { user },
+    error: userError,
   } = await supabase.auth.getUser();
 
-  if (!user) {
+  if (!user || userError) {
     return NextResponse.json(
       { ok: false, error: "Unauthorized" },
       { status: 401 }
@@ -20,27 +21,36 @@ export async function GET() {
   /* -------------------------------------------------
      LOAD PROFILE (ROLE + MARKET)
   ------------------------------------------------- */
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("role, market")
     .eq("id", user.id)
     .single();
 
+  if (profileError || !profile) {
+    return NextResponse.json(
+      { ok: false, error: "Profile not found" },
+      { status: 403 }
+    );
+  }
+
   /* -------------------------------------------------
-     🔒 HARD MARKET LOCK (SAFE)
-     Only San Antonio allowed for now
+     ✅ NORMALIZE ROLE (CRITICAL)
   ------------------------------------------------- */
-  const LOCKED_MARKET = "San Antonio";
+  const role = String(profile.role || "USER").toUpperCase();
+
+  /* -------------------------------------------------
+     🔒 MARKET LOCK (MATCH DB + UI)
+  ------------------------------------------------- */
+  const market = "SAN_ANTONIO";
 
   return NextResponse.json({
     ok: true,
     user: {
       id: user.id,
       email: user.email,
-      role: profile?.role ?? "USER",
-
-      // 🔒 force market
-      market: LOCKED_MARKET,
+      role,
+      market,
     },
   });
 }

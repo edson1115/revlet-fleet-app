@@ -6,20 +6,22 @@ import { useRouter } from "next/navigation";
 import { TeslaSection } from "@/components/tesla/TeslaSection";
 import { TeslaRequestCard } from "@/components/tesla/TeslaRequestCard";
 
+
+
 type Request = {
   id: string;
   status: string;
   type: string;
   urgent?: boolean;
-
-  /** CUSTOMER PROVIDED */
-  customer_notes?: string;
-
-  /** OFFICE FINAL SERVICE NAME */
-  service?: string;
-
   po?: string;
   created_at: string;
+
+  customer_notes?: string;
+  service?: string;
+
+  created_by_role?: string;
+  technician_id?: string | null;
+  scheduled_start_at?: string | null;
 
   customer?: {
     id: string;
@@ -37,43 +39,74 @@ type Request = {
 
 export default function OfficeRequestsPage() {
   const router = useRouter();
+
   const [rows, setRows] = useState<Request[]>([]);
   const [loading, setLoading] = useState(true);
+
   const [groupByCustomer, setGroupByCustomer] = useState(false);
+  const [showWalkInsOnly, setShowWalkInsOnly] = useState(false);
+  const [expandedView, setExpandedView] = useState(false);
 
   async function load() {
     setLoading(true);
-    const res = await fetch("/api/office/requests", {
-      cache: "no-store",
-      credentials: "include",
-    });
-    const js = await res.json();
-    if (js.ok) setRows(js.rows ?? []);
-    setLoading(false);
+    try {
+      const res = await fetch("/api/office/requests", {
+        cache: "no-store",
+        credentials: "include",
+      });
+      const js = await res.json();
+
+      if (js.ok) {
+        setRows(js.requests ?? []);
+      } else {
+        setRows([]);
+      }
+    } catch (err) {
+      console.error("Failed to load office requests", err);
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
     load();
   }, []);
 
-  /* -------------------------------
-     GROUPING (CLIENT-SIDE ONLY)
+  /* --------------------------------
+     WALK-IN FILTER
+  -------------------------------- */
+  const filteredRows = useMemo(() => {
+    if (!showWalkInsOnly) return rows;
+
+    return rows.filter(
+      (r) =>
+        r.created_by_role === "OFFICE" &&
+        !r.technician_id &&
+        !r.scheduled_start_at
+    );
+  }, [rows, showWalkInsOnly]);
+
+  /* --------------------------------
+     GROUPING
   -------------------------------- */
   const grouped = useMemo(() => {
-    if (!groupByCustomer) return { All: rows };
+    const base = filteredRows;
 
-    return rows.reduce<Record<string, Request[]>>((acc, r) => {
+    if (!groupByCustomer) return { All: base };
+
+    return base.reduce<Record<string, Request[]>>((acc, r) => {
       const key = r.customer?.name || "Unknown Customer";
       acc[key] = acc[key] || [];
       acc[key].push(r);
       return acc;
     }, {});
-  }, [rows, groupByCustomer]);
+  }, [filteredRows, groupByCustomer]);
 
   return (
     <div className="space-y-6">
       {/* HEADER */}
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">Office Requests</h1>
           <p className="text-sm text-gray-500">
@@ -81,12 +114,28 @@ export default function OfficeRequestsPage() {
           </p>
         </div>
 
-        <button
-          onClick={() => setGroupByCustomer((v) => !v)}
-          className="text-sm px-3 py-1 rounded-lg border hover:bg-gray-50"
-        >
-          {groupByCustomer ? "Ungroup" : "Group by Customer"}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setShowWalkInsOnly((v) => !v)}
+            className="text-sm px-3 py-1 rounded-lg border hover:bg-gray-50"
+          >
+            {showWalkInsOnly ? "Show All" : "Walk-Ins Only"}
+          </button>
+
+          <button
+            onClick={() => setGroupByCustomer((v) => !v)}
+            className="text-sm px-3 py-1 rounded-lg border hover:bg-gray-50"
+          >
+            {groupByCustomer ? "Ungroup" : "Group by Customer"}
+          </button>
+
+          <button
+            onClick={() => setExpandedView((v) => !v)}
+            className="text-sm px-3 py-1 rounded-lg border hover:bg-gray-50"
+          >
+            {expandedView ? "Compact View" : "Expanded View"}
+          </button>
+        </div>
       </div>
 
       <TeslaSection>
@@ -94,9 +143,11 @@ export default function OfficeRequestsPage() {
           <div className="p-6 text-gray-500">Loading…</div>
         )}
 
-        {!loading && rows.length === 0 && (
+        {!loading && filteredRows.length === 0 && (
           <div className="p-6 text-gray-500">
-            No requests found.
+            {showWalkInsOnly
+              ? "No walk-in requests found."
+              : "No requests found."}
           </div>
         )}
 
@@ -112,11 +163,8 @@ export default function OfficeRequestsPage() {
               {groupRows.map((r) => {
                 const v = r.vehicle;
 
-                /* OFFICE SERVICE NAME WINS */
                 const title =
-                  r.service ||
-                  r.type ||
-                  "Service Request";
+                  r.service || r.type || "Service Request";
 
                 const vehicleLine = v
                   ? `${v.year ?? ""} ${v.make ?? ""} ${v.model ?? ""}`.trim()
@@ -129,28 +177,53 @@ export default function OfficeRequestsPage() {
                     ? `Plate ${v.plate}`
                     : null;
 
-                const subtitle = [
-                  vehicleLine,
-                  unitOrPlate,
-                ]
-                  .filter(Boolean)
-                  .join(" • ");
+                const subtitle = expandedView
+                  ? [r.customer?.name, vehicleLine, unitOrPlate]
+                      .filter(Boolean)
+                      .join(" • ")
+                  : [vehicleLine, unitOrPlate]
+                      .filter(Boolean)
+                      .join(" • ");
+
+                const isWalkIn =
+                  r.created_by_role === "OFFICE" &&
+                  !r.technician_id &&
+                  !r.scheduled_start_at;
 
                 return (
-                  <TeslaRequestCard
-                    key={r.id}
-                    title={title}
-                    subtitle={subtitle}
-                    status={r.status}
-                    urgent={r.urgent}
-                    po={r.po}
-                    createdAt={r.created_at}
-                    customer={r.customer?.name}
-                    notePreview={r.customer_notes}
-                    onClick={() =>
-                      router.push(`/office/requests/${r.id}`)
-                    }
-                  />
+                  <div
+  key={r.id}
+  role="button"
+  tabIndex={0}
+  className="cursor-pointer focus:outline-none"
+  onClick={() => {
+    console.log("CLICK FIRED →", r.id);
+    router.push(`/office/requests/${r.id}`);
+  }}
+  onKeyDown={(e) => {
+    if (e.key === "Enter") {
+      console.log("ENTER FIRED →", r.id);
+      router.push(`/office/requests/${r.id}`);
+    }
+  }}
+>
+
+                    <TeslaRequestCard
+                      title={title}
+                      subtitle={subtitle}
+                      status={r.status}
+                      urgent={r.urgent}
+                      po={r.po}
+                      createdAt={r.created_at}
+                      customer={
+                        expandedView ? undefined : r.customer?.name
+                      }
+                      notePreview={
+                        expandedView ? r.customer_notes : undefined
+                      }
+                      isWalkIn={isWalkIn}
+                    />
+                  </div>
                 );
               })}
             </div>

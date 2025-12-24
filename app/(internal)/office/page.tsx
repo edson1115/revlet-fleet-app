@@ -7,25 +7,71 @@ import { useRouter } from "next/navigation";
 import TeslaSection from "@/components/tesla/TeslaSection";
 import { TeslaStatusChip } from "@/components/tesla/TeslaStatusChip";
 
+type DashboardStats = {
+  new: number;
+  waiting: number;
+  scheduled: number;
+  in_progress: number;
+  completed: number;
+};
+
 export default function OfficeDashboard() {
   const router = useRouter();
+
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState<any>(null);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   async function load() {
-    const res = await fetch("/api/office/dashboard", { cache: "no-store" });
-    const js = await res.json();
-    if (js.ok) setStats(js.stats);
-    setLoading(false);
+    try {
+      const res = await fetch("/api/office/dashboard", {
+        cache: "no-store",
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        throw new Error(`Dashboard API failed (${res.status})`);
+      }
+
+      const js = await res.json();
+
+      // 🔒 Defensive: ensure stats object exists
+      if (!js || !js.stats) {
+        throw new Error("Invalid dashboard response");
+      }
+
+      setStats(js.stats);
+    } catch (err: any) {
+      console.error("Dashboard load error:", err);
+      setError("Unable to load dashboard");
+      setStats(null);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
     load();
   }, []);
 
+  /* ---------------- STATES ---------------- */
+
   if (loading) {
     return <div className="p-8">Loading dashboard…</div>;
   }
+
+  if (error || !stats) {
+    return (
+      <div className="p-8 max-w-4xl mx-auto">
+        <h1 className="text-2xl font-semibold mb-2">Office Dashboard</h1>
+        <p className="text-red-600">
+          Dashboard unavailable. Please refresh or re-login.
+        </p>
+      </div>
+    );
+  }
+
+  /* ---------------- SAFE RENDER ---------------- */
 
   return (
     <div className="p-8 max-w-4xl mx-auto space-y-10">
@@ -80,7 +126,7 @@ export default function OfficeDashboard() {
             </p>
           </Link>
 
-          {/* WALK-IN / DROP-OFF FLOW */}
+          {/* WALK-IN / DROP-OFF */}
           <Link
             href="/office/customers/new-request"
             className="block p-5 rounded-xl border hover:bg-gray-50 transition"
@@ -95,6 +141,8 @@ export default function OfficeDashboard() {
     </div>
   );
 }
+
+/* ---------------- KPI CARD ---------------- */
 
 function KpiCard({
   label,

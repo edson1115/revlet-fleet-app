@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-
 import TeslaSection from "@/components/tesla/TeslaSection";
+import OfficeStepHeader from "@/components/office/OfficeStepHeader";
 
 type Customer = {
   id: string;
@@ -12,37 +12,21 @@ type Customer = {
 
 export default function OfficeNewRequestPage() {
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
 
   useEffect(() => {
-    async function loadCustomers() {
-      const res = await fetch("/api/office/customers", {
-        cache: "no-store",
-        credentials: "include",
-      });
+    async function load() {
+      const res = await fetch("/api/office/customers", { cache: "no-store" });
       const js = await res.json();
       if (js.ok) setCustomers(js.customers ?? []);
-      setLoading(false);
     }
-
-    loadCustomers();
+    load();
   }, []);
 
-  if (loading) {
-    return <div className="p-8">Loading customers…</div>;
-  }
-
   return (
-    <div className="p-8 max-w-3xl mx-auto space-y-10">
-      <h1 className="text-2xl font-semibold">
-        Create Service Request (Walk-In)
-      </h1>
-
-      <p className="text-sm text-gray-600">
-        Select a customer to begin a service request for a drop-off or walk-in.
-      </p>
+    <div className="p-8 max-w-3xl mx-auto">
+      <OfficeStepHeader title="Create Service Request (Walk-In)" />
 
       <TeslaSection label="Select Customer">
         <div className="space-y-3">
@@ -50,19 +34,19 @@ export default function OfficeNewRequestPage() {
             <button
               key={c.id}
               onClick={() => setSelectedCustomer(c.id)}
-              className={`w-full text-left p-4 rounded-lg border transition ${
+              className={`w-full p-4 text-left rounded-lg border ${
                 selectedCustomer === c.id
                   ? "border-black bg-gray-50"
                   : "hover:bg-gray-50"
               }`}
             >
-              <div className="font-medium">{c.name}</div>
+              {c.name}
             </button>
           ))}
         </div>
       </TeslaSection>
 
-      <div className="flex justify-end">
+      <div className="flex justify-end mt-6">
         <button
           disabled={!selectedCustomer}
           onClick={() =>
@@ -70,10 +54,10 @@ export default function OfficeNewRequestPage() {
               `/office/customers/new-request/vehicle?customerId=${selectedCustomer}`
             )
           }
-          className={`px-5 py-2 rounded-lg text-sm font-medium ${
+          className={`px-5 py-2 rounded-lg ${
             selectedCustomer
-              ? "bg-black text-white hover:bg-gray-900"
-              : "bg-gray-300 text-gray-600 cursor-not-allowed"
+              ? "bg-black text-white"
+              : "bg-gray-300 text-gray-600"
           }`}
         >
           Continue

@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { TeslaSection } from "@/components/tesla/TeslaSection";
 import TeslaButton from "@/components/tesla/TeslaButton";
-import TeslaInput from "@/components/tesla/TeslaInput";
 
 type Note = {
   id: string;
@@ -19,7 +18,7 @@ export function RequestNotesTimeline({ requestId }: { requestId: string }) {
   const [saving, setSaving] = useState(false);
 
   /* =====================================================
-     LOAD NOTES (READ)
+     LOAD NOTES
   ===================================================== */
   async function loadNotes() {
     setLoading(true);
@@ -48,10 +47,10 @@ export function RequestNotesTimeline({ requestId }: { requestId: string }) {
   }
 
   /* =====================================================
-     ADD NOTE (OFFICE WRITE)
+     ADD NOTE (OFFICE)
   ===================================================== */
   async function addNote() {
-    if (!newNote.trim()) return;
+    if (!newNote.trim() || saving) return;
 
     setSaving(true);
 
@@ -60,9 +59,7 @@ export function RequestNotesTimeline({ requestId }: { requestId: string }) {
         `/api/office/requests/${requestId}/notes`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           credentials: "include",
           body: JSON.stringify({ note: newNote }),
         }
@@ -125,12 +122,20 @@ export function RequestNotesTimeline({ requestId }: { requestId: string }) {
 
       {/* ADD NOTE */}
       <div className="mt-4 space-y-2">
-        <TeslaInput
-          as="textarea"
+        <label className="text-sm text-gray-600 font-medium">
+          Add internal note
+        </label>
+
+        <textarea
           rows={3}
-          placeholder="Add internal note…"
           value={newNote}
-          onChange={(e: any) => setNewNote(e.target.value)}
+          onChange={(e) => setNewNote(e.target.value)}
+          placeholder="Add internal note…"
+          className="
+            w-full border border-gray-300 rounded-xl px-4 py-2
+            text-sm focus:outline-none focus:ring-[2px]
+            focus:ring-black transition-all
+          "
         />
 
         <TeslaButton
