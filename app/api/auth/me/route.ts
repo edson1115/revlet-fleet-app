@@ -4,53 +4,50 @@ import { supabaseServer } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const supabase = await supabaseServer();
+  try {
+    const supabase = await supabaseServer();
+    
+    // 1. Get Auth User
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ ok: false, error: "Not logged in" }, { status: 401 });
+    }
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+    // 2. Get Profile + Customer Name
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select(`
+        *,
+        customer:customers (
+          name
+        )
+      `)
+      .eq("id", user.id)
+      .single();
 
-  if (!user || userError) {
-    return NextResponse.json(
-      { ok: false, error: "Unauthorized" },
-      { status: 401 }
-    );
+    if (profileError) {
+      // Return basic user info if profile is missing (prevents crash)
+      return NextResponse.json({ 
+          ok: true, 
+          user: { 
+              email: user.email, 
+              role: "GUEST",
+              customer_name: "Unknown Account" 
+          } 
+      });
+    }
+
+    // 3. Return combined data
+    return NextResponse.json({ 
+      ok: true, 
+      user: {
+        ...profile,
+        email: user.email,
+        customer_name: profile.customer?.name || "Private Account"
+      }
+    });
+
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
   }
-
-  /* -------------------------------------------------
-     LOAD PROFILE (ROLE + MARKET)
-  ------------------------------------------------- */
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("role, market")
-    .eq("id", user.id)
-    .single();
-
-  if (profileError || !profile) {
-    return NextResponse.json(
-      { ok: false, error: "Profile not found" },
-      { status: 403 }
-    );
-  }
-
-  /* -------------------------------------------------
-     ✅ NORMALIZE ROLE (CRITICAL)
-  ------------------------------------------------- */
-  const role = String(profile.role || "USER").toUpperCase();
-
-  /* -------------------------------------------------
-     🔒 MARKET LOCK (MATCH DB + UI)
-  ------------------------------------------------- */
-  const market = "SAN_ANTONIO";
-
-  return NextResponse.json({
-    ok: true,
-    user: {
-      id: user.id,
-      email: user.email,
-      role,
-      market,
-    },
-  });
 }

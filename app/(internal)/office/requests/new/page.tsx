@@ -1,28 +1,44 @@
-"use client";
+import { redirect } from "next/navigation";
+import { supabaseServer } from "@/lib/supabase/server";
+import { resolveUserScope } from "@/lib/api/scope";
+// We will reuse your existing Create Client (assuming it exists)
+// If you named it differently, let me know. 
+// Based on previous contexts, it might be named `OfficeCreateRequestClient` or similar.
+import OfficeCreateRequestClient from "./OfficeCreateRequestClient";
 
-import { useSearchParams } from "next/navigation";
-import RequestCreateForm from "@/components/requests/RequestCreateForm";
+export const dynamic = "force-dynamic";
 
-export default function OfficeNewRequestPage() {
-  const params = useSearchParams();
-  const customerId = params.get("customer") ?? undefined;
-  const vehicleId = params.get("vehicle") ?? undefined;
+type PageProps = {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+};
 
-  if (!customerId) {
-    return <div className="p-6 text-gray-500">Missing customer context.</div>;
+export default async function OfficeNewRequestPage({ searchParams }: PageProps) {
+  // 1. Await Search Params (Next.js 15 Fix)
+  const params = await searchParams;
+  const customerId = typeof params.customer_id === "string" ? params.customer_id : null;
+
+  const scope = await resolveUserScope();
+  if (!scope.uid) redirect("/login");
+
+  const supabase = await supabaseServer();
+
+  // 2. If we have a customer ID, fetch their details to prepopulate
+  let preselectedCustomer = null;
+
+  if (customerId) {
+    const { data } = await supabase
+      .from("customers")
+      .select("id, name, market")
+      .eq("id", customerId)
+      .single();
+    
+    preselectedCustomer = data;
   }
 
+  // 3. Pass data to the Client Form
   return (
-    <div className="p-6 max-w-3xl mx-auto">
-      <h1 className="text-2xl font-semibold tracking-tight mb-6">
-        Create Service Request (Office)
-      </h1>
-
-      <RequestCreateForm
-        mode="office"
-        customerId={customerId}
-        vehicleId={vehicleId}
-      />
-    </div>
+    <OfficeCreateRequestClient 
+      preselectedCustomer={preselectedCustomer}
+    />
   );
 }

@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image"; // ✅ Import Image
 
 type Me = {
   role?: string;
   market?: string;
   email?: string;
+  customer_name?: string;
 };
 
 export default function TeslaTopBar() {
@@ -15,52 +17,68 @@ export default function TeslaTopBar() {
 
   useEffect(() => {
     (async () => {
-      const res = await fetch("/api/auth/me", {
-        cache: "no-store",
-        credentials: "include",
-      });
-      const js = await res.json();
-      if (js.ok) setMe(js.user);
+      try {
+        const res = await fetch("/api/auth/me", { cache: "no-store" });
+        const js = await res.json();
+        if (js.ok) setMe(js.user);
+      } catch (e) {
+        console.error(e);
+      }
     })();
   }, []);
 
   async function signOut() {
-    await fetch("/api/auth/logout", {
-      method: "POST",
-      credentials: "include",
-    });
+    await fetch("/api/auth/signout", { method: "POST" });
     router.push("/login");
+    router.refresh();
   }
 
-  if (!me) return null;
+  if (!me) return <div className="h-16 border-b bg-white" />;
 
   return (
-    <div className="h-14 border-b bg-white flex items-center justify-between px-6">
+    <div className="h-16 border-b border-gray-100 bg-white flex items-center justify-between px-6 shrink-0 z-20 relative">
 
-      {/* LEFT — SESSION CONTEXT */}
-      <div className="flex items-center gap-2 text-sm">
-        <span className="font-semibold uppercase tracking-wide">
-          {me.role ?? "USER"}
-        </span>
+      {/* LEFT: BRANDING + ACCOUNT */}
+      <div className="flex items-center gap-6">
+        {/* LOGO */}
+        <div className="flex items-center">
+            {/* Make sure revlet-logo.png is in your /public folder */}
+            <img 
+                src="/revlet-logo.png" 
+                alt="Revlet" 
+                className="h-8 w-auto object-contain" 
+            />
+        </div>
 
-        <span className="text-gray-400">·</span>
+        <div className="h-8 w-[1px] bg-gray-200 hidden sm:block"></div>
 
-        <span className="font-medium text-gray-700">
-          {me.market ?? "—"}
-        </span>
+        {/* CUSTOMER ACCOUNT NAME */}
+        <div className="hidden sm:block">
+            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                Account
+            </div>
+            <div className="font-bold text-gray-900 leading-none text-lg">
+                {me.customer_name || "Loading..."}
+            </div>
+        </div>
       </div>
 
-      {/* RIGHT — USER */}
+      {/* RIGHT: USER INFO & SIGNOUT */}
       <div className="flex items-center gap-4">
-        <span className="text-sm text-gray-500">
-          {me.email}
-        </span>
+        <div className="text-right hidden md:block">
+            <div className="text-sm font-medium text-black">
+                {me.email}
+            </div>
+            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">
+                {me.role ?? "USER"} • {me.market ?? "USA"}
+            </div>
+        </div>
 
         <button
           onClick={signOut}
-          className="text-sm text-red-600 hover:underline"
+          className="text-xs font-bold bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-600 px-4 py-2 rounded-lg transition"
         >
-          Sign out
+          Sign Out
         </button>
       </div>
     </div>

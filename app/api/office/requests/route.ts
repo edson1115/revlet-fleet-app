@@ -1,133 +1,63 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
-import { normalizeRole } from "@/lib/permissions";
+import { resolveUserScope } from "@/lib/api/scope";
 
 export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
 
-
+/* GET: List Recent Requests (Dashboard/Queue) */
 export async function GET() {
   const supabase = await supabaseServer();
+  const scope = await resolveUserScope();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!scope.uid) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { data: requests, error } = await supabase
     .from("service_requests")
     .select(`
-      id,
-      status,
-      type,
-      urgent,
-      created_at,
-      customer:customers!left ( id, name ),
-      vehicle:vehicles!left (
-        year,
-        make,
-        model,
-        plate,
-        vin,
-        unit_number
-      )
+      *,
+      customer:customers(id, name),
+      vehicle:vehicles(id, year, make, model, unit_number, plate)
     `)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(50); // Simple limit for now
 
-  if (error) {
-    console.error(error);
-    return NextResponse.json(
-      { error: "Failed to load requests" },
-      { status: 500 }
-    );
-  }
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  return NextResponse.json({
-    ok: true,
-    requests: requests ?? [],
-  });
+  return NextResponse.json({ ok: true, requests });
 }
 
-
-/* ============================================================
-   POST — Create service request (Office / Walk-In)
-============================================================ */
-/* ============================================================
-   POST — Create service request (Office / Walk-In)
-============================================================ */
+/* POST: Create New Request */
 export async function POST(req: Request) {
-  try {
-    const supabase = await supabaseServer();
-    const body = await req.json();
-
-    const {
-      customer_id,
-      vehicle_id = null,
-      urgent = false,
-    } = body;
-
-    if (!customer_id) {
-      return NextResponse.json(
-        { error: "Missing customer" },
-        { status: 400 }
-      );
-    }
-
-    /* ---------------- AUTH ---------------- */
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const role = normalizeRole(user.user_metadata?.role);
-    const ALLOWED = new Set(["OFFICE", "ADMIN", "SUPERADMIN"]);
-
-    if (!role || !ALLOWED.has(role)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-
-    /* ---------------- STATUS LOGIC ---------------- */
-    const status = vehicle_id ? "NEW" : "WAITING";
-
-    /* ---------------- CREATE REQUEST ---------------- */
-    const { data: request, error } = await supabase
-      .from("service_requests")
-      .insert({
-        customer_id,
-        vehicle_id,
-        status,
-        urgent,
-        created_by_role: role,
-      })
-      .select()
-      .maybeSingle();
-
-    if (error || !request) {
-      console.error(error);
-      return NextResponse.json(
-        { error: "Failed to create request" },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({
-      ok: true,
-      request: {
-        id: request.id,
-        status: request.status,
-      },
-    });
-  } catch (err: any) {
-    console.error("Office create request error:", err);
-    return NextResponse.json(
-      { error: "Server error", detail: err.message },
-      { status: 500 }
-    );
+  const scope = await resolveUserScope();
+  
+  // Security Check
+  if (!scope.uid || scope.role !== "OFFICE") {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const body = await req.json();
+  const supabase = await supabaseServer();
+
+  // Create the request
+  const { data, error } = await supabase
+    .from("service_requests")
+    .insert({
+      customer_id: body.customer_id,
+      vehicle_id: body.vehicle_id,
+      status: "NEW", // Always starts as NEW
+      service_title: body.service_title,
+      service_description: body.service_description,
+      reported_mileage: body.reported_mileage || null, // ✅ Save Mileage
+      created_by_role: "OFFICE",
+      market_id: scope.marketId // Assign to office user's market
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Create Request Error:", error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true, request: data });
 }

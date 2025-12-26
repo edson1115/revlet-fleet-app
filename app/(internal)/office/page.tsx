@@ -1,170 +1,124 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { TeslaSection } from "@/components/tesla/TeslaSection";
+import { TeslaStatusBadge } from "@/components/tesla/TeslaStatusBadge";
 
-import TeslaSection from "@/components/tesla/TeslaSection";
-import { TeslaStatusChip } from "@/components/tesla/TeslaStatusChip";
-
-type DashboardStats = {
-  new: number;
-  waiting: number;
-  scheduled: number;
-  in_progress: number;
-  completed: number;
-};
-
-export default function OfficeDashboard() {
+export default function OfficeDashboardPage() {
   const router = useRouter();
-
+  const [stats, setStats] = useState({
+    new_requests: 0,
+    waiting_approval: 0,
+    scheduled: 0,
+    in_progress: 0
+  });
+  const [recent, setRecent] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  async function load() {
-    try {
-      const res = await fetch("/api/office/dashboard", {
-        cache: "no-store",
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        throw new Error(`Dashboard API failed (${res.status})`);
-      }
-
-      const js = await res.json();
-
-      // 🔒 Defensive: ensure stats object exists
-      if (!js || !js.stats) {
-        throw new Error("Invalid dashboard response");
-      }
-
-      setStats(js.stats);
-    } catch (err: any) {
-      console.error("Dashboard load error:", err);
-      setError("Unable to load dashboard");
-      setStats(null);
-    } finally {
-      setLoading(false);
-    }
-  }
 
   useEffect(() => {
+    async function load() {
+      try {
+        const res = await fetch("/api/office/requests", { cache: "no-store" });
+        const js = await res.json();
+        
+        const reqs = js.requests || [];
+        
+        setStats({
+            new_requests: reqs.filter((r: any) => r.status === 'NEW').length,
+            waiting_approval: reqs.filter((r: any) => r.status === 'WAITING_APPROVAL').length,
+            scheduled: reqs.filter((r: any) => r.status === 'SCHEDULED').length,
+            in_progress: reqs.filter((r: any) => r.status === 'IN_PROGRESS').length,
+        });
+
+        setRecent(reqs.slice(0, 5));
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    }
     load();
   }, []);
 
-  /* ---------------- STATES ---------------- */
-
-  if (loading) {
-    return <div className="p-8">Loading dashboard…</div>;
-  }
-
-  if (error || !stats) {
-    return (
-      <div className="p-8 max-w-4xl mx-auto">
-        <h1 className="text-2xl font-semibold mb-2">Office Dashboard</h1>
-        <p className="text-red-600">
-          Dashboard unavailable. Please refresh or re-login.
-        </p>
-      </div>
-    );
-  }
-
-  /* ---------------- SAFE RENDER ---------------- */
-
   return (
-    <div className="p-8 max-w-4xl mx-auto space-y-10">
-      <h1 className="text-3xl font-semibold">Office Dashboard</h1>
-
-      {/* KPIs */}
-      <TeslaSection label="Today's Overview">
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          <KpiCard
-            label="New"
-            value={stats.new}
-            status="NEW"
-            onClick={() => router.push("/office/requests?status=NEW")}
-          />
-          <KpiCard
-            label="Waiting"
-            value={stats.waiting}
-            status="WAITING"
-            onClick={() => router.push("/office/requests?status=WAITING")}
-          />
-          <KpiCard
-            label="Scheduled"
-            value={stats.scheduled}
-            status="SCHEDULED"
-            onClick={() => router.push("/office/requests?status=SCHEDULED")}
-          />
-          <KpiCard
-            label="In Progress"
-            value={stats.in_progress}
-            status="IN_PROGRESS"
-            onClick={() => router.push("/office/requests?status=IN_PROGRESS")}
-          />
-          <KpiCard
-            label="Completed"
-            value={stats.completed}
-            status="COMPLETED"
-            onClick={() => router.push("/office/requests?status=COMPLETED")}
-          />
+    <div className="space-y-8 pb-20">
+      {/* HEADER */}
+      <div className="flex items-center justify-between border-b border-gray-100 pb-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-black">Office Dashboard</h1>
+          <p className="text-gray-500 text-sm mt-1">Overview of incoming service requests.</p>
         </div>
-      </TeslaSection>
+        <button 
+            onClick={() => router.push("/office/requests/new")}
+            className="bg-black text-white px-5 py-2 rounded-lg text-sm font-bold hover:bg-gray-800 transition shadow-lg"
+        >
+            + Create Request
+        </button>
+      </div>
 
-      {/* Actions */}
-      <TeslaSection label="Actions">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Link
-            href="/office/requests"
-            className="block p-5 rounded-xl border hover:bg-gray-50 transition"
-          >
-            <h2 className="text-lg font-medium">View All Requests</h2>
-            <p className="text-sm text-gray-500 mt-1">
-              Review, approve, and manage all service & tire requests
-            </p>
-          </Link>
+      {/* KPI CARDS */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div onClick={() => router.push("/office/requests?status=NEW")} className="p-5 bg-white border border-gray-200 rounded-xl shadow-sm cursor-pointer hover:border-blue-500 transition">
+            <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">New / Untouched</div>
+            <div className="text-4xl font-bold text-blue-600">{stats.new_requests}</div>
+        </div>
+        
+        <div onClick={() => router.push("/office/requests?status=WAITING")} className="p-5 bg-white border border-gray-200 rounded-xl shadow-sm cursor-pointer hover:border-amber-500 transition">
+            <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Needs Approval</div>
+            <div className="text-4xl font-bold text-amber-500">{stats.waiting_approval}</div>
+        </div>
 
-          {/* WALK-IN / DROP-OFF */}
-          <Link
-            href="/office/customers/new-request"
-            className="block p-5 rounded-xl border hover:bg-gray-50 transition"
-          >
-            <h2 className="text-lg font-medium">Customers</h2>
-            <p className="text-sm text-gray-500 mt-1">
-              Create a service request for a customer (walk-in or drop-off)
-            </p>
-          </Link>
+        <div onClick={() => router.push("/office/requests?status=SCHEDULED")} className="p-5 bg-white border border-gray-200 rounded-xl shadow-sm cursor-pointer hover:border-black transition">
+            <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Scheduled</div>
+            <div className="text-4xl font-bold text-gray-900">{stats.scheduled}</div>
+        </div>
+
+        <div className="p-5 bg-gray-900 rounded-xl shadow-sm text-white">
+            <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">In Progress</div>
+            <div className="text-4xl font-bold">{stats.in_progress}</div>
+        </div>
+      </div>
+
+      {/* RECENT INCOMING */}
+      <TeslaSection label="Recent Incoming">
+        <div className="bg-white rounded-xl divide-y border border-gray-100">
+            {loading && <div className="p-8 text-center text-gray-400">Loading queue...</div>}
+            
+            {!loading && recent.length === 0 && (
+                <div className="p-8 text-center text-gray-500">No active requests.</div>
+            )}
+
+            {recent.map((r) => (
+                <div 
+                    key={r.id}
+                    onClick={() => router.push(`/office/requests/${r.id}`)}
+                    className="flex items-center justify-between p-4 hover:bg-gray-50 cursor-pointer transition"
+                >
+                    <div className="flex items-center gap-4">
+                         {/* Customer Avatar / Initial */}
+                        <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center font-bold text-xs text-gray-500">
+                            {r.customer?.name?.[0] || "?"}
+                        </div>
+                        <div>
+                            <div className="font-bold text-gray-900 capitalize flex items-center gap-2">
+                                {r.service_title?.replace(/_/g, " ")}
+                                {r.created_by_role === 'CUSTOMER' && (
+                                    <span className="bg-purple-100 text-purple-700 text-[10px] px-2 py-0.5 rounded uppercase font-bold">Portal</span>
+                                )}
+                            </div>
+                            <div className="text-xs text-gray-500 flex gap-2">
+                                <span className="font-bold text-black">{r.customer?.name || "Unknown"}</span>
+                                <span>•</span>
+                                <span>{r.vehicle?.year} {r.vehicle?.model}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <TeslaStatusBadge status={r.status} />
+                </div>
+            ))}
         </div>
       </TeslaSection>
     </div>
-  );
-}
-
-/* ---------------- KPI CARD ---------------- */
-
-function KpiCard({
-  label,
-  value,
-  status,
-  onClick,
-}: {
-  label: string;
-  value: number;
-  status: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="p-4 rounded-xl border bg-white hover:bg-gray-50 text-left transition"
-    >
-      <div className="text-gray-500 text-sm">{label}</div>
-      <div className="text-2xl font-semibold">{value}</div>
-      <div className="mt-1">
-        <TeslaStatusChip status={status} />
-      </div>
-    </button>
   );
 }

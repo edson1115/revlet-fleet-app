@@ -1,12 +1,40 @@
-"use client";
+import { notFound } from "next/navigation";
+import { supabaseServer } from "@/lib/supabase/server";
+import OfficeCustomerFleetClient from "./OfficeCustomerFleetClient";
 
-import TeslaLayoutShell from "@/components/tesla/layout/TeslaLayoutShell";
-import OfficeCustomerDetailClient from "./OfficeCustomerDetailClient";
+export const dynamic = "force-dynamic";
 
-export default function OfficeCustomerDetailPage({ params }: any) {
+type PageProps = {
+  params: Promise<{ id: string }>;
+};
+
+export default async function OfficeCustomerDetailPage({ params }: PageProps) {
+  // 1. Await Params (Next.js 15)
+  const { id } = await params;
+  
+  const supabase = await supabaseServer();
+
+  // 2. Fetch Customer
+  const { data: customer } = await supabase
+    .from("customers")
+    .select("*")
+    .eq("id", id)
+    .single();
+
+  if (!customer) notFound();
+
+  // 3. Fetch Vehicles
+  const { data: vehicles } = await supabase
+    .from("vehicles")
+    .select("*")
+    .eq("customer_id", customer.id)
+    .order("unit_number", { ascending: true });
+
+  // 4. Pass Data to Client Component
   return (
-    <TeslaLayoutShell>
-      <OfficeCustomerDetailClient params={params} />
-    </TeslaLayoutShell>
+    <OfficeCustomerFleetClient 
+      customer={customer} 
+      vehicles={vehicles || []} 
+    />
   );
 }

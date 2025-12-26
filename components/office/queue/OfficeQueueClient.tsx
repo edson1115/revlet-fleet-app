@@ -1,71 +1,46 @@
-// components/office/queue/OfficeQueueClient.tsx
 "use client";
 
 import { useEffect, useState } from "react";
-import OfficeRequestCard from "./OfficeRequestCard";
+import { useRouter } from "next/navigation";
 import OfficeRequestRow from "./OfficeRequestRow";
 
-type Row = {
-  id: string;
-  status: string;
-  service?: string | null;
-  created_at?: string;
-  vehicle?: {
-    year?: number | null;
-    make?: string | null;
-    model?: string | null;
-    plate?: string | null;
-    unit_number?: string | null;
-  } | null;
-  customer?: {
-    name?: string | null;
-  } | null;
-};
-
 export default function OfficeQueueClient() {
-  const [rows, setRows] = useState<Row[]>([]);
+  const router = useRouter();
+  const [requests, setRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  async function load() {
-    const r = await fetch("/api/requests?scope=internal", {
-      cache: "no-store",
-    }).then((x) => x.json());
-
-    setRows(r.rows || []);
-    setLoading(false);
-  }
-
   useEffect(() => {
+    async function load() {
+      const res = await fetch("/api/office/requests", {
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      const js = await res.json();
+      setRequests(js.requests || []);
+      setLoading(false);
+    }
+
     load();
   }, []);
 
-  if (loading) return <div className="p-6">Loading…</div>;
+  if (loading) {
+    return <div className="p-6 text-sm text-gray-500">Loading queue…</div>;
+  }
+
+  if (!requests.length) {
+    return <div className="p-6 text-sm text-gray-500">No requests in queue.</div>;
+  }
 
   return (
-    <div className="max-w-5xl mx-auto">
-      <h1 className="text-2xl font-semibold mb-6">Office — Requests</h1>
-
-      {/* MOBILE LIST */}
-      <div className="block md:hidden space-y-3">
-        {rows.map((r) => (
-          <OfficeRequestRow key={r.id} row={r} />
-        ))}
-      </div>
-
-      {/* DESKTOP GRID */}
-      <div className="
-        hidden md:grid 
-        grid-cols-2 
-        gap-4 
-      ">
-        {rows.map((r) => (
-          <OfficeRequestCard key={r.id} row={r} />
-        ))}
-      </div>
-
-      {rows.length === 0 && (
-        <div className="p-6 text-gray-500 text-sm">No requests found.</div>
-      )}
+    <div className="max-w-6xl mx-auto space-y-3 px-6">
+      {requests.map((r) => (
+        <OfficeRequestRow
+          key={r.id}
+          request={r}
+          onClick={() => router.push(`/office/requests/${r.id}`)}
+        />
+      ))}
     </div>
   );
 }

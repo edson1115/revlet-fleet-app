@@ -2,15 +2,30 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-// Next.js 15 FIXED VERSION — fully async cookie compliance
+// Next.js 15 — SAFE magic link handler
 export async function POST(req: Request) {
-  const { email, next } = await req.json();
+  let body: any = {};
 
-  if (!email) {
-    return NextResponse.json({ error: "Email required" }, { status: 400 });
+  // ✅ SAFE BODY PARSE (prevents crash)
+  try {
+    const text = await req.text();
+    body = text ? JSON.parse(text) : {};
+  } catch {
+    body = {};
   }
 
-  // MUST await cookies() in route handlers (Next.js 15)
+  const email =
+    body.email ||
+    new URL(req.url).searchParams.get("email");
+
+  if (!email) {
+    return NextResponse.json(
+      { ok: false, error: "Email required" },
+      { status: 400 }
+    );
+  }
+
+  // ✅ MUST await cookies() in Next.js 15
   const cookieStore = await cookies();
 
   const supabase = createServerClient(
@@ -32,8 +47,7 @@ export async function POST(req: Request) {
   );
 
   const redirectTo =
-  `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback?redirect=/customer`;
-
+    `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback?redirect=/customer`;
 
   const { error } = await supabase.auth.signInWithOtp({
     email,
@@ -43,9 +57,11 @@ export async function POST(req: Request) {
   });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: error.message },
+      { status: 400 }
+    );
   }
 
-  return NextResponse.json({ ok: true }, { status: 200 });
+  return NextResponse.json({ ok: true });
 }
-

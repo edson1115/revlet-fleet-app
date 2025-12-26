@@ -1,126 +1,21 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
-import { resolveUserScope } from "@/lib/api/scope";
 
 export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
 
-/* ============================================================
-   GET — Load service requests for logged-in customer
-============================================================ */
-export async function GET(req: Request) {
-  try {
-    const scope = await resolveUserScope();
-
-    if (!scope.uid || !scope.isCustomer) {
-      return NextResponse.json(
-        { ok: false, error: "Unauthorized" },
-        { status: 401 }
-      );
-    }
-
-    const url = new URL(req.url);
-    const limit = Number(url.searchParams.get("limit") || "20");
-    const vehicleId = url.searchParams.get("vehicle_id");
-
-    const supabase = await supabaseServer();
-
-    let q = supabase
-  .from("service_requests")
-  .select(`
-    id,
-    vehicle_id,
-    customer_id,
-    service_type,
-    service,
-    service_title,
-    service_description,
-    mileage,
-    status,
-    notes,
-    created_at,
-    completed_at,
-    vehicle:vehicles (
-      id,
-      year,
-      make,
-      model,
-      plate
-    )
-  `)
-  .eq("customer_id", scope.customer_id)
-  .order("created_at", { ascending: false })
-  .limit(limit);
-
-
-    if (vehicleId) q = q.eq("vehicle_id", vehicleId);
-
-    const { data, error } = await q;
-
-    if (error) {
-      return NextResponse.json({ ok: false, error: error.message });
-    }
-
-    // 🔒 NORMALIZE SHAPE (NON-BREAKING)
-    const rows = (data || []).map((r) => ({
-      ...r,
-
-      // UI expects `type`
-      type: r.service_type,
-
-      // Legacy compatibility
-      service: r.service,
-
-      // Office override fields
-      service_title: r.service_title,
-      service_description: r.service_description,
-    }));
-
-    return NextResponse.json({ ok: true, rows });
-  } catch (err: any) {
-    console.error("CUSTOMER REQUEST LOAD ERROR:", err);
-    return NextResponse.json(
-      { ok: false, error: "Server error", detail: err.message },
-      { status: 500 }
-    );
-  }
-}
-
-/* ============================================================
-   POST — Create new service request (FORM DATA VERSION)
-============================================================ */
-export async function POST(req: Request) {
+/* ========================================================================
+   GET: List Requests (With Safety Check for Customer ID)
+======================================================================== */
+export async function GET() {
   try {
     const supabase = await supabaseServer();
+    
+    // 1. Get the Auth User
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json(
-        { ok: false, error: "Unauthorized" },
-        { status: 401 }
-      );
-    }
-
-    const form = await req.formData();
-
-    const vehicle_id = form.get("vehicle_id")?.toString();
-    const service_type = form.get("service_type")?.toString();
-    const notes = form.get("notes")?.toString() ?? "";
-
-    // ⭐ Mileage
-    const mileageRaw = form.get("mileage")?.toString() ?? null;
-    const mileage = mileageRaw ? Number(mileageRaw) : null;
-
-    if (!vehicle_id || !service_type) {
-      return NextResponse.json(
-        { ok: false, error: "Missing required fields" },
-        { status: 400 }
-      );
-    }
-
+    // 2. SAFETY CHECK: Find the Customer ID for this User
+    // We query the profile to ensure we have the correct link
     const { data: profile } = await supabase
       .from("profiles")
       .select("customer_id")
@@ -128,50 +23,104 @@ export async function POST(req: Request) {
       .single();
 
     if (!profile?.customer_id) {
-      return NextResponse.json(
-        { ok: false, error: "Customer profile missing" },
-        { status: 400 }
-      );
+      console.error("PROFILE ERROR: No customer_id linked to user", user.id);
+      // Return empty list instead of crashing
+      return NextResponse.json({ ok: true, rows: [] });
     }
 
-    // Insert service request
-    const { data: reqRow, error: insertErr } = await supabase
+    // 3. Now fetch the requests using the confirmed ID
+    const { data: requests, error } = await supabase
       .from("service_requests")
-      .insert([
-        {
-          customer_id: profile.customer_id,
-          vehicle_id,
-          service_type,
-          mileage,
-          notes,
-          status: "NEW",
-        },
-      ])
+      .select(`
+        *,
+        vehicle:vehicles (
+          year, make, model, plate, vin
+        )
+      `)
+      .eq("customer_id", profile.customer_id)
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+
+    return NextResponse.json({ ok: true, rows: requests || [] });
+
+  } catch (e: any) {
+    console.error("FETCH ERROR:", e);
+    return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
+  }
+}
+
+/* ========================================================================
+   POST: Create Request
+======================================================================== */
+export async function POST(req: Request) {
+  try {
+    const supabase = await supabaseServer();
+    
+    // 1. Get User
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+
+    // 2. Find Customer ID
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("customer_id, role")
+      .eq("id", user.id)
+      .single();
+
+    if (!profile?.customer_id) {
+      return NextResponse.json({ ok: false, error: "No customer linked to account" }, { status: 403 });
+    }
+
+    // 3. Parse Body
+    const body = await req.json(); 
+    const {
+      vehicle_id,
+      service_title,
+      service_description,
+      reported_mileage,
+      photo_urls
+    } = body;
+
+    if (!vehicle_id) return NextResponse.json({ ok: false, error: "Vehicle is required" }, { status: 400 });
+
+    // ... inside export async function POST(req: Request) ...
+
+    // 4. Create Request
+    const { data: request, error: reqError } = await supabase
+      .from("service_requests")
+      .insert({
+        customer_id: profile.customer_id,
+        vehicle_id,
+        service_title: service_title || "General Service",
+        service_description: service_description,
+        reported_mileage: reported_mileage || null,
+        status: "NEW",
+        created_by_role: "CUSTOMER",
+        // market_id: "SAN_ANTONIO"  <-- ❌ DELETE OR COMMENT THIS LINE
+      })
       .select()
       .single();
 
-    if (insertErr) throw insertErr;
+// ... rest of file
 
-    // Photos
-    const photos: File[] = [];
-    form.forEach((v, key) => {
-      if (key.startsWith("photo_") && v instanceof File) photos.push(v);
-    });
+    if (reqError) throw new Error(reqError.message);
 
-    for (const file of photos) {
-      await supabase.storage
-        .from("request_photos")
-        .upload(`${reqRow.id}/${Date.now()}-${file.name}`, file, {
-          upsert: true,
-        });
+    // 5. Link Photos
+    if (photo_urls && Array.isArray(photo_urls) && photo_urls.length > 0) {
+      const imageRows = photo_urls.map((url) => ({
+        request_id: request.id,
+        url_full: url,
+        uploaded_by: user.id
+      }));
+
+      await supabase.from("request_images").insert(imageRows);
     }
 
-    return NextResponse.json({ ok: true, request: reqRow });
+    return NextResponse.json({ ok: true, request });
+
   } catch (err: any) {
-    console.error("REQUEST CREATE ERROR:", err);
-    return NextResponse.json(
-      { ok: false, error: "Server error", detail: err.message },
-      { status: 500 }
-    );
+    console.error("CREATE ERROR:", err);
+    return NextResponse.json({ ok: false, error: err.message }, { status: 500 });
   }
 }

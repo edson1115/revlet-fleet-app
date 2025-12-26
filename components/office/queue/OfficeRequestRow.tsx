@@ -1,33 +1,41 @@
-// components/office/queue/OfficeRequestRow.tsx
 "use client";
 
-import { TeslaStatusChip } from "@/components/tesla/TeslaStatusChip";
-import { openRequestDrawer } from "@/components/RequestDrawerHost";
+import clsx from "clsx";
 
-export default function OfficeRequestRow({ row }: { row: any }) {
-  const v = row.vehicle || {};
-
-  const title = `${v.year ?? ""} ${v.make ?? ""} ${v.model ?? ""}`.trim();
-  const subtitle = row.service || "—";
-
-  const plate = v.plate || v.unit_number || "";
-
+export default function OfficeRequestRow({
+  request,
+  onClick,
+}: {
+  request: any;
+  onClick: () => void;
+}) {
   return (
-    <div
-      onClick={() => openRequestDrawer(row.id)}
-      className="
-        p-4 border border-gray-200 rounded-xl bg-white
-        flex justify-between items-center
-        active:bg-gray-100 transition cursor-pointer
-      "
+    <button
+      onClick={onClick}
+      className={clsx(
+        "w-full rounded-xl border bg-white px-4 py-3 text-left",
+        "hover:bg-gray-50 transition"
+      )}
     >
-      <div>
-        <div className="font-medium">{title}</div>
-        <div className="text-sm text-gray-600">{subtitle}</div>
-        {plate && <div className="text-xs text-gray-500 mt-1">{plate}</div>}
-      </div>
+      <div className="flex items-center justify-between">
+        <div className="space-y-1">
+          <div className="text-sm font-semibold">
+            {request.customer?.name ?? "Unknown Customer"}
+          </div>
 
-      <TeslaStatusChip status={row.status} />
-    </div>
+          <div className="text-xs text-gray-500">
+            {request.vehicle?.unit_number
+              ? `Unit ${request.vehicle.unit_number}`
+              : request.vehicle?.plate
+              ? `Plate ${request.vehicle.plate}`
+              : "Vehicle"}
+          </div>
+        </div>
+
+        <div className="text-xs font-semibold text-gray-700">
+          {request.status}
+        </div>
+      </div>
+    </button>
   );
 }
