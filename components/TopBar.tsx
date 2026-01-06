@@ -123,7 +123,7 @@ export default function TopBar() {
           href="/auth/signout"
           className="text-xs rounded-md border px-3 py-1 hover:bg-gray-50"
         >
-          Sign out
+          Sign out 
         </Link>
       </div>
     </header>

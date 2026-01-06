@@ -1,41 +1,15 @@
 // app/page.tsx
-import { redirect } from "next/navigation";
-import { resolveUserScope } from "@/lib/api/scope";
+"use client";
 
-export default async function Home() {
-  const scope = await resolveUserScope();
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
-  // Not logged in → login
-  if (!scope.uid) return redirect("/login");
+export default function Home() {
+  const router = useRouter();
 
-  // SUPERADMIN
-  if (scope.role === "SUPERADMIN") {
-    return redirect("/home");
-  }
+  useEffect(() => {
+    router.replace("/office");
+  }, [router]);
 
-  // OFFICE
-  if (scope.role === "OFFICE") {
-    return redirect("/office");
-  }
-
-  // DISPATCH
-  if (scope.role === "DISPATCH") {
-    return redirect("/dispatch");
-  }
-
-  // TECHNICIAN
-  if (scope.role === "TECH") {
-    return redirect("/tech");
-  }
-
-  // CUSTOMER
-  if (scope.role === "CUSTOMER" || scope.role === "CUSTOMER_USER") {
-    return redirect("/portal");
-  }
-
-  // Unknown → login
-  return redirect("/login");
+  return null;
 }
-
-
-

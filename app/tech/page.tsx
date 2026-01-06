@@ -1,49 +1,31 @@
-"use client";
+import { redirect } from "next/navigation";
+import { supabaseServer } from "@/lib/supabase/server";
+import { resolveUserScope } from "@/lib/api/scope";
+import TechDashboardClient from "./TechDashboardClient";
 
-import TeslaLayoutShell from "@/components/tesla/layout/TeslaLayoutShell";
-import Link from "next/link";
-import { ClipboardCheck, Camera, Wrench } from "lucide-react";
+export const dynamic = "force-dynamic";
 
-export default function TechHomePage() {
-  return (
-    <TeslaLayoutShell>
-      <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
-        Technician Dashboard
-      </h1>
+export default async function TechPage() {
+  const scope = await resolveUserScope();
+  if (!scope.uid) redirect("/login");
 
-      <p className="text-gray-600 mt-1 mb-8">
-        View and complete your assigned jobs.
-      </p>
+  const supabase = await supabaseServer();
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+  // Fetch jobs WITH parts data
+  const { data: requests } = await supabase
+    .from("service_requests")
+    .select(`
+      id,
+      status,
+      created_at,
+      service_title,
+      scheduled_start_at,
+      customer:customers(name, address),
+      vehicle:vehicles(year, make, model, plate, unit_number),
+      request_parts(id, part_name, part_number, quantity, vendor)  // <--- ADDED THIS
+    `)
+    .in("status", ["READY_TO_SCHEDULE", "SCHEDULED", "IN_PROGRESS"])
+    .order("created_at", { ascending: false });
 
-        <Link
-          href="/tech/queue"
-          className="p-6 bg-white border rounded-2xl shadow-sm hover:shadow transition block"
-        >
-          <Wrench className="w-6 h-6 text-black" />
-          <h2 className="text-lg font-semibold text-gray-900 mt-4">
-            Assigned Jobs
-          </h2>
-          <p className="text-gray-600 text-sm mt-1">
-            View today’s assigned service jobs.
-          </p>
-        </Link>
-
-        <Link
-          href="/tech/completed"
-          className="p-6 bg-white border rounded-2xl shadow-sm hover:shadow transition block"
-        >
-          <ClipboardCheck className="w-6 h-6 text-black" />
-          <h2 className="text-lg font-semibold text-gray-900 mt-4">
-            Completed Jobs
-          </h2>
-          <p className="text-gray-600 text-sm mt-1">
-            Review completed service reports.
-          </p>
-        </Link>
-
-      </div>
-    </TeslaLayoutShell>
-  );
+  return <TechDashboardClient requests={requests || []} />;
 }

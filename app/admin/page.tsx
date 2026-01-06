@@ -1,137 +1,119 @@
-'use client';
+import Link from "next/link";
+import { createClient } from "@supabase/supabase-js";
+import { cookies } from "next/headers";
 
-import { useEffect, useState } from 'react';
+// Helper to get REAL counts
+async function getStats() {
+  const cookieStore = await cookies();
+  const authCookie = cookieStore.getAll().find(c => c.name.includes("-auth-token"));
+  
+  if (!authCookie) return { customers: 0, pending: 0, active: 0 }; 
 
-type Tech = { id: string; name: string; active?: boolean | null };
+  let token = authCookie.value;
+  try {
+     if (token.startsWith("base64-")) token = Buffer.from(token.replace("base64-", ""), 'base64').toString('utf-8');
+     const parsed = JSON.parse(decodeURIComponent(token));
+     token = parsed.access_token;
+  } catch(e) { /* use raw */ }
 
-async function fetchJSON<T>(url: string) {
-  const res = await fetch(url, { credentials: 'include' });
-  if (!res.ok) throw new Error((await res.text().catch(()=>'')).trim() || `GET ${url} failed`);
-  return res.json() as Promise<T>;
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { global: { headers: { Authorization: `Bearer ${token}` } } }
+  );
+
+  const [cust, reqNew, reqActive] = await Promise.all([
+     supabase.from("customers").select("*", { count: 'exact', head: true }),
+     supabase.from("service_requests").select("*", { count: 'exact', head: true }).eq('status', 'NEW'),
+     supabase.from("service_requests").select("*", { count: 'exact', head: true }).in('status', ['NEW', 'WAITING', 'SCHEDULED', 'IN_PROGRESS'])
+  ]);
+
+  return {
+    customers: cust.count || 0,
+    pending: reqNew.count || 0,
+    active: reqActive.count || 0
+  };
 }
-async function postJSON<T>(url: string, body: any) {
-  const res = await fetch(url, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error((await res.text().catch(()=>'')).trim() || `POST ${url} failed`);
-  return res.json() as Promise<T>;
-}
-async function delJSON<T>(url: string) {
-  const res = await fetch(url, { method: 'DELETE', credentials: 'include' });
-  if (!res.ok) throw new Error((await res.text().catch(()=>'')).trim() || `DELETE ${url} failed`);
-  return res.json() as Promise<T>;
-}
 
-export default function AdminTechsPage() {
-  const [rows, setRows] = useState<Tech[]>([]);
-  const [name, setName] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  const [toast, setToast] = useState('');
+export const dynamic = "force-dynamic";
 
-  async function refresh() {
-    setErr('');
-    const data = await fetchJSON<{ rows: { id: string; name: string }[] }>('/api/techs?active=1');
-    setRows((data.rows || []).map(r => ({ id: r.id, name: r.name || 'Tech' })));
-  }
-
-  useEffect(() => {
-    refresh().catch(e => setErr(e.message || 'Failed to load techs'));
-  }, []);
-
-  async function addTech() {
-    const n = name.trim();
-    if (!n) return;
-    setBusy(true); setErr(''); setToast('');
-    try {
-      await postJSON('/api/techs', { name: n, active: true });
-      setName('');
-      setToast('Technician added.');
-      await refresh();
-    } catch (e: any) {
-      setErr(e?.message || 'Create failed');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function removeTech(id: string) {
-    setBusy(true); setErr(''); setToast('');
-    try {
-      await delJSON(`/api/techs?id=${encodeURIComponent(id)}`);
-      setToast('Technician removed.');
-      await refresh();
-    } catch (e: any) {
-      setErr(e?.message || 'Delete failed');
-    } finally {
-      setBusy(false);
-    }
-  }
+export default async function AdminHub() {
+  const stats = await getStats();
 
   return (
-    <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Technicians</h1>
+    <div className="max-w-6xl mx-auto p-8">
+      
+      {/* HEADER */}
+      <div className="mb-10">
+          <h1 className="text-4xl font-black text-gray-900 tracking-tighter mb-2">
+              COMMAND<span className="text-green-600">CENTER</span>
+          </h1>
+          <p className="text-gray-500 text-lg">Select a dashboard to manage operations.</p>
       </div>
 
-      {err ? (
-        <div className="rounded-md border border-red-300 bg-red-50 text-red-800 p-3 text-sm">{err}</div>
-      ) : null}
-      {toast ? (
-        <div className="rounded-md border border-green-300 bg-green-50 text-green-800 p-3 text-sm">{toast}</div>
-      ) : null}
+      {/* DASHBOARDS */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+          
+          <Link href="/office" className="group">
+              <div className="bg-white p-8 rounded-3xl border border-gray-200 shadow-sm hover:shadow-xl hover:border-blue-500 transition-all cursor-pointer h-full relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-4 opacity-10 text-9xl group-hover:scale-110 transition-transform">🏢</div>
+                  <div className="relative z-10">
+                      <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center text-2xl mb-4 text-blue-600">🖥️</div>
+                      <h2 className="text-2xl font-bold text-gray-900 mb-2">Office View</h2>
+                      <p className="text-gray-500 text-sm">Manage Work Orders, Approve Sales Leads.</p>
+                      <div className="mt-6 text-blue-600 font-bold text-sm">Enter Dashboard &rarr;</div>
+                  </div>
+              </div>
+          </Link>
 
-      <div className="flex gap-2">
-        <input
-          className="border rounded-md px-3 py-2"
-          placeholder="Full name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          disabled={busy}
-        />
-        <button
-          className="px-4 py-2 rounded-md border bg-black text-white disabled:opacity-40"
-          onClick={addTech}
-          disabled={busy || !name.trim()}
-        >
-          {busy ? 'Adding…' : 'Add'}
-        </button>
+          {/* DISPATCH BOARD - NOW ACTIVE */}
+          <Link href="/dispatch" className="group">
+              <div className="bg-white p-8 rounded-3xl border border-gray-200 shadow-sm hover:shadow-xl hover:border-orange-500 transition-all cursor-pointer h-full relative overflow-hidden">
+                   <div className="absolute top-0 right-0 p-4 opacity-10 text-9xl group-hover:scale-110 transition-transform">🚚</div>
+                   <div className="relative z-10">
+                       <div className="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center text-2xl mb-4 text-orange-600">🗺️</div>
+                       <h2 className="text-2xl font-bold text-gray-900 mb-2">Dispatch Board</h2>
+                       <p className="text-gray-500 text-sm">Schedule technicians, assign routes.</p>
+                       <div className="mt-6 flex items-center gap-2">
+                           <span className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></span>
+                           <span className="text-orange-600 font-bold text-sm">Live Monitoring &rarr;</span>
+                       </div>
+                   </div>
+              </div>
+          </Link>
+
+          {/* TECH APP - STILL LOCKED */}
+          <div className="group opacity-60 cursor-not-allowed">
+              <div className="bg-white p-8 rounded-3xl border border-gray-200 shadow-sm h-full relative">
+                   <div className="absolute top-0 right-0 p-4 opacity-10 text-9xl">🛠️</div>
+                   <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center text-2xl mb-4 text-purple-600">🔧</div>
+                   <h2 className="text-2xl font-bold text-gray-900 mb-2">Tech App</h2>
+                   <p className="text-gray-500 text-sm">(Coming Soon)</p>
+              </div>
+          </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
-          <thead>
-            <tr className="text-left border-b bg-gray-50">
-              <th className="py-2 px-3">Name</th>
-              <th className="py-2 px-3 w-28"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
-              <tr><td className="py-4 px-3 text-gray-500" colSpan={2}>No technicians yet.</td></tr>
-            ) : rows.map(t => (
-              <tr key={t.id} className="border-b">
-                <td className="py-2 px-3">{t.name}</td>
-                <td className="py-2 px-3">
-                  <button
-                    className="px-3 py-1 border rounded"
-                    onClick={() => removeTech(t.id)}
-                    disabled={busy}
-                  >
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* REAL STATS BAR */}
+      <div className="bg-black text-white p-8 rounded-3xl relative overflow-hidden shadow-2xl">
+          <div className="relative z-10 grid grid-cols-2 md:grid-cols-4 gap-8">
+              <div>
+                  <div className="text-gray-400 text-xs font-bold uppercase mb-1">Total Customers</div>
+                  <div className="text-4xl font-black">{stats.customers}</div>
+              </div>
+              <div>
+                  <div className="text-gray-400 text-xs font-bold uppercase mb-1">Pending Approvals</div>
+                  <div className="text-4xl font-black text-yellow-400">{stats.pending}</div>
+              </div>
+              <div>
+                  <div className="text-gray-400 text-xs font-bold uppercase mb-1">Active Work Orders</div>
+                  <div className="text-4xl font-black text-blue-400">{stats.active}</div>
+              </div>
+              <div>
+                  <div className="text-gray-400 text-xs font-bold uppercase mb-1">Revenue (Mo)</div>
+                  <div className="text-4xl font-black text-green-400">$0.00</div>
+              </div>
+          </div>
       </div>
     </div>
   );
 }
-
-
-

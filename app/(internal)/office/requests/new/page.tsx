@@ -1,10 +1,7 @@
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase/server";
-import { resolveUserScope } from "@/lib/api/scope";
-// We will reuse your existing Create Client (assuming it exists)
-// If you named it differently, let me know. 
-// Based on previous contexts, it might be named `OfficeCreateRequestClient` or similar.
-import OfficeCreateRequestClient from "./OfficeCreateRequestClient";
+// import { resolveUserScope } from "@/lib/api/scope"; // <-- REMOVE THIS STRICT CHECK
+import OfficeNewRequestForm from "./OfficeNewRequestForm";
 
 export const dynamic = "force-dynamic";
 
@@ -13,31 +10,32 @@ type PageProps = {
 };
 
 export default async function OfficeNewRequestPage({ searchParams }: PageProps) {
-  // 1. Await Search Params (Next.js 15 Fix)
   const params = await searchParams;
   const customerId = typeof params.customer_id === "string" ? params.customer_id : null;
 
-  const scope = await resolveUserScope();
-  if (!scope.uid) redirect("/login");
-
+  // 1. Use Standard Server Auth (More reliable)
   const supabase = await supabaseServer();
+  const { data: { user }, error } = await supabase.auth.getUser();
 
-  // 2. If we have a customer ID, fetch their details to prepopulate
+  if (error || !user) {
+    console.log("❌ [New Request] No user found, redirecting to login");
+    redirect("/login");
+  }
+
+  // 2. Fetch Preselected Customer (if any)
   let preselectedCustomer = null;
-
   if (customerId) {
     const { data } = await supabase
       .from("customers")
       .select("id, name, market")
       .eq("id", customerId)
       .single();
-    
     preselectedCustomer = data;
   }
 
-  // 3. Pass data to the Client Form
+  // 3. Render Form
   return (
-    <OfficeCreateRequestClient 
+    <OfficeNewRequestForm 
       preselectedCustomer={preselectedCustomer}
     />
   );

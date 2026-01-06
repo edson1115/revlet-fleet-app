@@ -53,7 +53,7 @@ export default function UserChip() {
 
           <form action="/api/auth/signout" method="post">
             <button className="text-sm px-2 py-1 border rounded" type="submit">
-              Sign out
+              Sign out 
             </button>
           </form>
         </>

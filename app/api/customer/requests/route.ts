@@ -1,34 +1,39 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import { resolveUserScope } from "@/lib/api/scope";
 
 export const dynamic = "force-dynamic";
 
 /* ========================================================================
-   GET: List Requests (With Safety Check for Customer ID)
+   GET: List Requests
 ======================================================================== */
 export async function GET() {
   try {
-    const supabase = await supabaseServer();
-    
-    // 1. Get the Auth User
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-
-    // 2. SAFETY CHECK: Find the Customer ID for this User
-    // We query the profile to ensure we have the correct link
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("customer_id")
-      .eq("id", user.id)
-      .single();
-
-    if (!profile?.customer_id) {
-      console.error("PROFILE ERROR: No customer_id linked to user", user.id);
-      // Return empty list instead of crashing
-      return NextResponse.json({ ok: true, rows: [] });
+    // 1. Resolve Scope & Auth
+    const scope = await resolveUserScope();
+    if (!scope.uid || !scope.isCustomer) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    // 3. Now fetch the requests using the confirmed ID
+    const supabase = await supabaseServer();
+
+    // 2. 🔥 HARD ENFORCEMENT: Block actions until approved
+    if (scope.role === "CUSTOMER") {
+      const { data: customer } = await supabase
+        .from("customers")
+        .select("status")
+        .eq("id", scope.customer_id)
+        .single();
+
+      if (customer?.status !== "ACTIVE") {
+        return NextResponse.json(
+          { error: "Account pending approval" },
+          { status: 403 }
+        );
+      }
+    }
+
+    // 3. Fetch requests
     const { data: requests, error } = await supabase
       .from("service_requests")
       .select(`
@@ -37,7 +42,7 @@ export async function GET() {
           year, make, model, plate, vin
         )
       `)
-      .eq("customer_id", profile.customer_id)
+      .eq("customer_id", scope.customer_id)
       .order("created_at", { ascending: false });
 
     if (error) throw error;
@@ -55,21 +60,28 @@ export async function GET() {
 ======================================================================== */
 export async function POST(req: Request) {
   try {
+    // 1. Resolve Scope & Auth
+    const scope = await resolveUserScope();
+    if (!scope.uid || !scope.isCustomer) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    }
+
     const supabase = await supabaseServer();
-    
-    // 1. Get User
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
-    // 2. Find Customer ID
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("customer_id, role")
-      .eq("id", user.id)
-      .single();
+    // 2. 🔥 HARD ENFORCEMENT: Block actions until approved
+    if (scope.role === "CUSTOMER") {
+      const { data: customer } = await supabase
+        .from("customers")
+        .select("status")
+        .eq("id", scope.customer_id)
+        .single();
 
-    if (!profile?.customer_id) {
-      return NextResponse.json({ ok: false, error: "No customer linked to account" }, { status: 403 });
+      if (customer?.status !== "ACTIVE") {
+        return NextResponse.json(
+          { error: "Account pending approval" },
+          { status: 403 }
+        );
+      }
     }
 
     // 3. Parse Body
@@ -84,25 +96,20 @@ export async function POST(req: Request) {
 
     if (!vehicle_id) return NextResponse.json({ ok: false, error: "Vehicle is required" }, { status: 400 });
 
-    // ... inside export async function POST(req: Request) ...
-
     // 4. Create Request
     const { data: request, error: reqError } = await supabase
       .from("service_requests")
       .insert({
-        customer_id: profile.customer_id,
+        customer_id: scope.customer_id,
         vehicle_id,
         service_title: service_title || "General Service",
         service_description: service_description,
         reported_mileage: reported_mileage || null,
         status: "NEW",
         created_by_role: "CUSTOMER",
-        // market_id: "SAN_ANTONIO"  <-- ❌ DELETE OR COMMENT THIS LINE
       })
       .select()
       .single();
-
-// ... rest of file
 
     if (reqError) throw new Error(reqError.message);
 
@@ -111,7 +118,7 @@ export async function POST(req: Request) {
       const imageRows = photo_urls.map((url) => ({
         request_id: request.id,
         url_full: url,
-        uploaded_by: user.id
+        uploaded_by: scope.uid
       }));
 
       await supabase.from("request_images").insert(imageRows);

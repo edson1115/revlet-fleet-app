@@ -1,245 +1,158 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import clsx from "clsx";
-
+import { useState, useEffect, useMemo } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { TeslaSection } from "@/components/tesla/TeslaSection";
-import { TeslaRequestCard } from "@/components/tesla/TeslaRequestCard";
+import { TeslaStatusBadge } from "@/components/tesla/TeslaStatusBadge";
 
-type Request = {
-  id: string;
-  status: string;
-  type: string;
-  urgent?: boolean;
-  po?: string | null;
-  created_at: string;
-
-  customer_notes?: string | null;
-  service?: string | null;
-
-  created_by_role?: string;
-  technician_id?: string | null;
-  scheduled_start_at?: string | null;
-
-  customer?: {
-    id: string;
-    name?: string | null;
-  } | null;
-
-  vehicle?: {
-    year?: number | null;
-    make?: string | null;
-    model?: string | null;
-    plate?: string | null;
-    unit_number?: string | null;
-  } | null;
-};
+// Helper for title formatting
+function formatTitle(t: string) {
+  if (!t) return "Service Request";
+  return t.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase());
+}
 
 export default function OfficeRequestsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const filterStatus = searchParams.get("status"); // e.g. "NEW"
 
-  const [rows, setRows] = useState<Request[]>([]);
+  const [requests, setRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // View State
-  const [groupByCustomer, setGroupByCustomer] = useState(false);
-  const [showWalkInsOnly, setShowWalkInsOnly] = useState(false);
-  const [expandedView, setExpandedView] = useState(false);
-
-  async function load() {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/office/requests", {
-        cache: "no-store",
-        credentials: "include",
-      });
-
-      const js = await res.json();
-      setRows(js.ok ? js.requests ?? [] : []);
-    } catch (err) {
-      console.error("Failed to load office requests", err);
-      setRows([]);
-    } finally {
-      setLoading(false);
-    }
-  }
-
   useEffect(() => {
-    load();
+    fetch("/api/office/requests", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((js) => setRequests(js.requests || []))
+      .finally(() => setLoading(false));
   }, []);
 
-  /* --------------------------------
-      WALK-IN FILTER
-   -------------------------------- */
-  const filteredRows = useMemo(() => {
-    if (!showWalkInsOnly) return rows;
+  // Filter Logic: Split into "Action Required" vs "Others"
+  const { inbox, pipeline } = useMemo(() => {
+    const inbox: any[] = [];
+    const pipeline: any[] = [];
 
-    return rows.filter(
-      (r) =>
-        r.created_by_role === "OFFICE" &&
-        !r.technician_id &&
-        !r.scheduled_start_at
-    );
-  }, [rows, showWalkInsOnly]);
+    requests.forEach(r => {
+      // If URL filter is active (e.g. ?status=NEW), only show that
+      if (filterStatus && r.status !== filterStatus) return;
 
-  /* --------------------------------
-      GROUPING
-   -------------------------------- */
-  const grouped = useMemo(() => {
-    if (!groupByCustomer) return { All: filteredRows };
+      // Otherwise, use smart grouping
+      if (['NEW', 'WAITING'].includes(r.status)) {
+        inbox.push(r);
+      } else {
+        pipeline.push(r);
+      }
+    });
 
-    return filteredRows.reduce<Record<string, Request[]>>((acc, r) => {
-      const key = r.customer?.name || "Unknown Customer";
-      acc[key] = acc[key] || [];
-      acc[key].push(r);
-      return acc;
-    }, {});
-  }, [filteredRows, groupByCustomer]);
+    return { inbox, pipeline };
+  }, [requests, filterStatus]);
 
-  return (
-    <div className="max-w-6xl mx-auto space-y-8 pb-20">
-      {/* 1. PROFESSIONAL HEADER */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-gray-100 pb-6">
+  // Reusable Card Component (Matches Customer Portal Look)
+  const RequestRow = ({ r }: { r: any }) => (
+    <div 
+      key={r.id}
+      onClick={() => router.push(`/office/requests/${r.id}`)}
+      className="group flex items-center justify-between p-5 hover:bg-gray-50 cursor-pointer transition border-l-4 border-transparent hover:border-black"
+    >
+      <div className="flex items-center gap-5">
+        {/* Status Indicator Dot */}
+        <div className={`w-3 h-3 rounded-full shadow-sm ${r.status === 'NEW' ? 'bg-blue-600 animate-pulse' : r.status === 'WAITING' ? 'bg-amber-500' : 'bg-gray-300'}`} />
+        
         <div>
-          <div className="flex items-center gap-2 text-sm text-gray-500 mb-2 font-medium">
-            <button 
-              onClick={() => router.push("/office")} 
-              className="hover:text-black hover:underline transition"
-            >
-              &larr; Back to Dashboard
-            </button>
-            <span className="text-gray-300">/</span>
-            <span className="text-black">Incoming Requests</span>
+          <div className="flex items-center gap-3 mb-1">
+             <h4 className="font-bold text-gray-900 text-lg">
+                {formatTitle(r.service_title)}
+             </h4>
+             {r.created_by_role === 'CUSTOMER' && (
+                <span className="bg-purple-100 text-purple-700 text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider">
+                  Portal
+                </span>
+             )}
           </div>
-          <h1 className="text-3xl font-bold tracking-tight text-black">Office Queue</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Review, prioritize, and prepare requests for dispatch.
-          </p>
-        </div>
-
-        {/* 2. VIEW CONTROLS (PILL STYLE) */}
-        <div className="flex items-center gap-2 bg-gray-100 p-1 rounded-lg self-start md:self-auto">
-          <button
-            onClick={() => setShowWalkInsOnly((v) => !v)}
-            className={clsx(
-              "text-xs font-bold uppercase tracking-wider px-3 py-2 rounded-md transition-all",
-              showWalkInsOnly ? "bg-white shadow text-black" : "text-gray-500 hover:text-black"
-            )}
-          >
-            Walk-Ins Only
-          </button>
-          <div className="w-px h-4 bg-gray-300 mx-1" />
-          <button
-            onClick={() => setGroupByCustomer((v) => !v)}
-            className={clsx(
-              "text-xs font-bold uppercase tracking-wider px-3 py-2 rounded-md transition-all",
-              groupByCustomer ? "bg-white shadow text-black" : "text-gray-500 hover:text-black"
-            )}
-          >
-            Group by Customer
-          </button>
-          <div className="w-px h-4 bg-gray-300 mx-1" />
-          <button
-            onClick={() => setExpandedView((v) => !v)}
-            className={clsx(
-              "text-xs font-bold uppercase tracking-wider px-3 py-2 rounded-md transition-all",
-              expandedView ? "bg-white shadow text-black" : "text-gray-500 hover:text-black"
-            )}
-          >
-            {expandedView ? "Expanded" : "Compact"}
-          </button>
+          
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+             <span className="font-semibold text-gray-900">{r.customer?.name || "Unknown Customer"}</span>
+             <span className="text-gray-300">|</span>
+             <span>{r.vehicle?.year} {r.vehicle?.model}</span>
+             <span className="text-gray-300">•</span>
+             <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-xs text-gray-600 border border-gray-200">
+                {r.vehicle?.unit_number ? `Unit ${r.vehicle.unit_number}` : r.vehicle?.plate || "NO ID"}
+             </span>
+          </div>
         </div>
       </div>
 
-      {/* 3. REQUEST LIST */}
-      <TeslaSection>
-        {loading && (
-            <div className="p-12 text-center text-gray-400 animate-pulse">
-                Loading requests...
-            </div>
-        )}
-
-        {!loading && filteredRows.length === 0 && (
-          <div className="p-12 text-center border-2 border-dashed border-gray-100 rounded-xl">
-            <p className="text-gray-500 font-medium">
-              {showWalkInsOnly
-                ? "No active walk-in requests found."
-                : "No pending requests found."}
-            </p>
-            <button 
-                onClick={() => setShowWalkInsOnly(false)} 
-                className="mt-2 text-sm text-green-600 hover:underline"
-            >
-                View all requests
-            </button>
-          </div>
-        )}
-
-        <div className="space-y-10">
-          {Object.entries(grouped).map(([groupName, groupRows]) => (
-            <div key={groupName} className="space-y-3">
-              {groupByCustomer && (
-                <div className="flex items-center gap-2 mb-2">
-                    <h3 className="text-sm font-bold text-black uppercase tracking-wide">
-                        {groupName}
-                    </h3>
-                    <span className="bg-gray-100 text-gray-600 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                        {groupRows.length}
-                    </span>
-                </div>
-              )}
-
-              {groupRows.map((r) => {
-                const v = r.vehicle;
-                // Priority: Office Title -> Service Type -> Fallback
-                const title = r.service || r.type || "Service Request";
-
-                const vehicleLine = v
-                  ? `${v.year ?? ""} ${v.make ?? ""} ${v.model ?? ""}`.trim()
-                  : null;
-
-                const unitOrPlate = v?.unit_number
-                  ? `Unit ${v.unit_number}`
-                  : v?.plate
-                  ? `Plate ${v.plate}`
-                  : null;
-
-                // Subtitle Logic based on View Mode
-                const subtitleParts = expandedView 
-                    ? [!groupByCustomer ? r.customer?.name : null, vehicleLine, unitOrPlate]
-                    : [vehicleLine, unitOrPlate];
-
-                const subtitle = subtitleParts.filter(Boolean).join(" • ");
-
-                const isWalkIn =
-                  r.created_by_role === "OFFICE" &&
-                  !r.technician_id &&
-                  !r.scheduled_start_at;
-
-                return (
-                  <TeslaRequestCard
-                    key={r.id}
-                    title={title}
-                    subtitle={subtitle}
-                    status={r.status}
-                    urgent={r.urgent}
-                    po={r.po}
-                    createdAt={r.created_at}
-                    // In expanded view, show notes right on the card if supported
-                    customer={expandedView && !groupByCustomer ? undefined : undefined} 
-                    notePreview={expandedView ? r.customer_notes : undefined}
-                    isWalkIn={isWalkIn}
-                    onClick={() => {
-                      router.push(`/office/requests/${r.id}`);
-                    }}
-                  />
-                );
-              })}
-            </div>
-          ))}
+      <div className="flex items-center gap-6">
+        <div className="text-right hidden sm:block">
+           <p className="text-xs text-gray-400 font-medium uppercase mb-1">Status</p>
+           <TeslaStatusBadge status={r.status} />
         </div>
-      </TeslaSection>
+        <span className="text-gray-300 group-hover:text-black transition text-2xl">›</span>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="max-w-5xl mx-auto space-y-10 pb-20">
+      
+      {/* HEADER */}
+      <div className="flex items-center justify-between pt-4 pb-2 border-b border-gray-100">
+        <div>
+            <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
+               <span className="hover:text-black cursor-pointer" onClick={() => router.push('/office')}>Dashboard</span>
+               <span>/</span>
+               <span className="text-black">Queue</span>
+            </div>
+            <h1 className="text-3xl font-bold tracking-tight text-black">
+                {filterStatus ? `${filterStatus.replace(/_/g, ' ')} Requests` : 'Incoming Requests'}
+            </h1>
+        </div>
+        
+        {!filterStatus && (
+            <button 
+                onClick={() => router.push("/office/requests/new")}
+                className="bg-black text-white px-6 py-2.5 rounded-lg text-sm font-bold hover:bg-gray-800 transition shadow-lg flex items-center gap-2"
+            >
+                <span>+</span> Create Request
+            </button>
+        )}
+        {filterStatus && (
+            <button 
+                onClick={() => router.push("/office/requests")}
+                className="text-gray-500 hover:text-black text-sm font-bold underline"
+            >
+                Clear Filter
+            </button>
+        )}
+      </div>
+
+      {loading && <div className="p-12 text-center text-gray-400">Loading requests...</div>}
+
+      {/* SECTION 1: INBOX (The Priority Stuff) */}
+      {!loading && (inbox.length > 0 || !filterStatus) && (
+        <TeslaSection label={filterStatus ? "Requests" : `⚠️ Action Required (${inbox.length})`}>
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 divide-y divide-gray-100 overflow-hidden">
+             {inbox.length === 0 ? (
+                <div className="p-10 text-center bg-gray-50">
+                   <p className="text-gray-500 font-medium">No new requests pending.</p>
+                   <p className="text-sm text-gray-400">Great job! You're all caught up.</p>
+                </div>
+             ) : (
+                inbox.map(r => <RequestRow key={r.id} r={r} />)
+             )}
+          </div>
+        </TeslaSection>
+      )}
+
+      {/* SECTION 2: PIPELINE (Everything Else) */}
+      {!loading && pipeline.length > 0 && !filterStatus && (
+        <TeslaSection label="🗄️ In Pipeline & History">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 divide-y divide-gray-100 overflow-hidden opacity-90">
+             {pipeline.map(r => <RequestRow key={r.id} r={r} />)
+             }
+          </div>
+        </TeslaSection>
+      )}
+
     </div>
   );
 }

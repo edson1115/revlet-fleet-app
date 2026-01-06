@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import clsx from "clsx";
 
 import { TeslaSection } from "@/components/tesla/TeslaSection";
-
 import { TeslaStatusChip } from "@/components/tesla/TeslaStatusChip";
 
 const STATUS_FLOW = [

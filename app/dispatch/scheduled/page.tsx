@@ -1,88 +1,49 @@
-"use client";
+import { redirect } from "next/navigation";
+import { supabaseServer } from "@/lib/supabase/server";
+import { resolveUserScope } from "@/lib/api/scope";
+import DispatchBoardClient from "./DispatchBoardClient";
 
-import { useEffect, useState } from "react";
-import TeslaLayoutShell from "@/components/tesla/layout/TeslaLayoutShell";
-import { TeslaHeroBar } from "@/components/tesla/TeslaHeroBar";
-import { TeslaSection } from "@/components/tesla/TeslaSection";
-import { TeslaListRow } from "@/components/tesla/TeslaListRow";
-import { TeslaStatusChip } from "@/components/tesla/TeslaStatusChip";
+export const dynamic = "force-dynamic";
 
-export default function DispatchScheduledPage() {
-  const [rows, setRows] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+export default async function DispatchPage() {
+  const scope = await resolveUserScope();
+  if (!scope.uid) redirect("/login");
 
-  async function load() {
-    setLoading(true);
-    const res = await fetch("/api/dispatch/scheduled", { cache: "no-store" });
-    const js = await res.json();
-
-    if (js.ok) setRows(js.rows || []);
-    setLoading(false);
+  if (!["ADMIN", "DISPATCH", "OFFICE", "SUPERADMIN"].includes(scope.role)) {
+    return <div className="p-10">Access Denied</div>;
   }
 
-  useEffect(() => {
-    load();
-  }, []);
+  const supabase = await supabaseServer();
 
-  return (
-    <TeslaLayoutShell>
-      <TeslaHeroBar
-        title="Scheduled Jobs"
-        subtitle="All approved + assigned jobs for your markets"
-      />
+  // ✅ 1. FETCH REQUESTS WITH PARTS & BOTH TECHS
+  const { data: requests, error } = await supabase
+    .from("service_requests")
+    .select(`
+      id,
+      status,
+      service_title,
+      created_at,
+      scheduled_start_at,
+      technician_id,
+      second_technician_id,  
+      office_notes,
+      customer:customers(name, address),
+      vehicle:vehicles(year, make, model, plate, unit_number),
+      tech:profiles!technician_id(full_name),
+      buddy:profiles!second_technician_id(full_name),
+      request_parts(id, part_name, part_number, quantity)
+    `)
+    .neq("status", "COMPLETED") 
+    .order("created_at", { ascending: false });
 
-      <div className="max-w-6xl mx-auto p-6 space-y-10">
+  if (error) console.error("Dispatch Load Error:", error);
 
-        <TeslaSection label="Scheduled Work">
-          <div className="bg-white rounded-xl divide-y">
+  // ✅ 2. FETCH TECH LIST
+  const { data: techs } = await supabase
+    .from("profiles")
+    .select("id, full_name")
+    .eq("role", "TECH")
+    .eq("active", true);
 
-            {loading && (
-              <div className="text-center text-gray-500 py-8">
-                Loading scheduled jobs…
-              </div>
-            )}
-
-            {!loading && rows.length === 0 && (
-              <div className="text-center text-gray-400 py-8">
-                No scheduled jobs yet.
-              </div>
-            )}
-
-            {rows.map((req) => (
-              <TeslaListRow
-                key={req.id}
-                title={`${req.vehicle?.year} ${req.vehicle?.make} ${req.vehicle?.model}`}
-                subtitle={`${req.vehicle?.plate} — ${req.vehicle?.vin}`}
-                right={
-                  <div className="flex items-center gap-3">
-                    {/* Technician */}
-                    {req.tech && (
-                      <span className="text-xs px-2 py-1 rounded-full bg-black text-white">
-                        {req.tech.full_name}
-                      </span>
-                    )}
-
-                    {/* ETA */}
-                    {req.eta_start && req.eta_end && (
-                      <span className="text-xs px-2 py-1 bg-gray-100 rounded-md border border-gray-300 text-gray-700">
-                        ETA {req.eta_start}–{req.eta_end}
-                      </span>
-                    )}
-
-                    <TeslaStatusChip status={req.status} />
-                  </div>
-                }
-                onClick={() => {
-                  // Open request detail
-                  window.location.href = `/dispatch/requests/${req.id}`;
-                }}
-              />
-            ))}
-
-          </div>
-        </TeslaSection>
-
-      </div>
-    </TeslaLayoutShell>
-  );
+  return <DispatchBoardClient initialRequests={requests || []} technicians={techs || []} />;
 }

@@ -1,22 +1,31 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
-import { getUserAndRole } from "@/lib/supabase/server-helpers";
 
 export async function GET() {
-  const { user, role } = await getUserAndRole();
-  if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-  if (role !== "TECH") return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  try {
+    const supabase = await supabaseServer();
 
-  const supabase = await supabaseServer();
+    // 1. Get Current User
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
-  const { data, error } = await supabase
-    .from("service_requests")
-    .select("*")
-    .eq("tech_id", user.id)
-    .in("status", ["SCHEDULED", "IN_PROGRESS"])
-    .order("created_at", { ascending: false });
+    // 2. Fetch Requests for the Tech Queue
+    // (Fetches all jobs that are In Progress)
+    const { data: requests, error } = await supabase
+      .from("service_requests")
+      .select(`
+        *,
+        vehicle:vehicles (*),
+        customer:customers (*)
+      `)
+      .eq("status", "IN_PROGRESS")
+      .order("created_at", { ascending: false });
 
-  if (error) return NextResponse.json({ ok: false, error }, { status: 500 });
+    if (error) throw error;
 
-  return NextResponse.json({ ok: true, rows: data });
+    return NextResponse.json({ ok: true, queue: requests || [] });
+
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
+  }
 }

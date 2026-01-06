@@ -1,4 +1,3 @@
-// app/dispatch/scheduled/ui/ScheduledClient.tsx
 "use client";
 
 import { useEffect, useState } from "react";

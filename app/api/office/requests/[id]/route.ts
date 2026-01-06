@@ -60,6 +60,15 @@ export async function PATCH(
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
+  // 👉 LOCK: Dispatch cannot modify service details
+  const role = user.user_metadata?.role;
+  if (role === "DISPATCH") {
+    return NextResponse.json(
+      { error: "Dispatch cannot modify service details" },
+      { status: 403 }
+    );
+  }
+
   // 2. Parse Body
   const body = await req.json();
 

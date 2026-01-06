@@ -1,87 +1,49 @@
-"use client";
+import { redirect } from "next/navigation";
+import { supabaseServer } from "@/lib/supabase/server";
+import { resolveUserScope } from "@/lib/api/scope";
+import DispatchBoardClient from "./DispatchBoardClient";
 
-import { useEffect, useState } from "react";
-import TeslaLayoutShell from "@/components/tesla/layout/TeslaLayoutShell";
-import { TeslaHeroBar } from "@/components/tesla/TeslaHeroBar";
-import { TeslaSection } from "@/components/tesla/TeslaSection";
-import { TeslaStatCard } from "@/components/tesla/TeslaStatCard";
-import { TeslaTechAvailability } from "@/components/tesla/dispatch/TeslaTechAvailability";
+export const dynamic = "force-dynamic";
 
-export default function DispatchDashboardPage() {
-  const [stats, setStats] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+export default async function DispatchPage() {
+  const scope = await resolveUserScope();
+  if (!scope.uid) redirect("/login");
 
-  async function load() {
-    setLoading(true);
-
-    const res = await fetch("/api/dispatch/dashboard", { cache: "no-store" });
-    const js = await res.json();
-
-    if (js.ok) {
-      setStats(js);
-    }
-
-    setLoading(false);
+  if (!["ADMIN", "DISPATCH", "OFFICE", "SUPERADMIN"].includes(scope.role)) {
+    return <div className="p-10">Access Denied</div>;
   }
 
-  useEffect(() => {
-    load();
-  }, []);
+  const supabase = await supabaseServer();
 
-  if (loading || !stats) {
-    return (
-      <TeslaLayoutShell>
-        <div className="p-10 text-center text-gray-500">Loading dispatch dashboard…</div>
-      </TeslaLayoutShell>
-    );
-  }
+  // ✅ FETCH REQUESTS WITH PARTS & BOTH TECHS
+  const { data: requests, error } = await supabase
+    .from("service_requests")
+    .select(`
+      id,
+      status,
+      service_title,
+      created_at,
+      scheduled_start_at,
+      technician_id,
+      second_technician_id,  
+      office_notes,
+      customer:customers(name, address),
+      vehicle:vehicles(year, make, model, plate, unit_number),
+      tech:profiles!technician_id(full_name),
+      buddy:profiles!second_technician_id(full_name),
+      request_parts(id, part_name, part_number, quantity)
+    `)
+    .neq("status", "COMPLETED") 
+    .order("created_at", { ascending: false });
 
-  return (
-    <TeslaLayoutShell>
-      {/* HEADER BAR */}
-      <TeslaHeroBar
-        title="Dispatch Dashboard"
-        subtitle="Real-time overview of all active jobs across markets"
-      />
+  if (error) console.error("Dispatch Load Error:", error);
 
-      <div className="max-w-6xl mx-auto p-6 space-y-10">
-        {/* STATS */}
-        <TeslaSection label="Current Status">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+  // ✅ FETCH TECH LIST
+  const { data: techs } = await supabase
+    .from("profiles")
+    .select("id, full_name")
+    .eq("role", "TECH")
+    .eq("active", true);
 
-            <TeslaStatCard
-              label="Unassigned"
-              value={stats.unassigned}
-              color="red"
-            />
-
-            <TeslaStatCard
-              label="Scheduled Today"
-              value={stats.scheduled_today}
-              color="blue"
-            />
-
-            <TeslaStatCard
-              label="In Progress"
-              value={stats.in_progress}
-              color="amber"
-            />
-
-            <TeslaStatCard
-              label="Active Techs"
-              value={stats.active_techs}
-              color="green"
-            />
-
-          </div>
-        </TeslaSection>
-
-        {/* TECH AVAILABILITY */}
-        <TeslaSection label="Technician Availability">
-          <TeslaTechAvailability techs={stats.techs} />
-        </TeslaSection>
-
-      </div>
-    </TeslaLayoutShell>
-  );
+  return <DispatchBoardClient initialRequests={requests || []} technicians={techs || []} />;
 }

@@ -38,7 +38,7 @@ export default function OfficeAddVehiclePage() {
 
     try {
       const res = await fetch(
-  `/api/office/customers/${customerId}/vehicles`,
+         `/api/office/customers/${customerId}/vehicles`,
 
         {
           method: "POST",

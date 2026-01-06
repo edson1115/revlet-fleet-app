@@ -7,7 +7,7 @@ export default function SignOutButton() {
         className="px-3 py-1 rounded border hover:bg-gray-50"
         title="Sign out"
       >
-        Sign out
+        Sign out 
       </button>
     </form>
   );

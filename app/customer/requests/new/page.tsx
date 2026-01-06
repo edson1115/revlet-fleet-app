@@ -2,233 +2,243 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { TeslaSection } from "@/components/tesla/TeslaSection";
+import clsx from "clsx";
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
-export default function CustomerCreateRequestPage() {
+// --- ICONS ---
+const IconCheck = () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>;
+const IconCar = () => <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>;
+
+export default function NewRequestPage() {
   const router = useRouter();
+  const supabase = createClientComponentClient();
   
-  // Data State
-  const [vehicles, setVehicles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  
-  // UI State
   const [submitting, setSubmitting] = useState(false);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [uploading, setUploading] = useState(false);
-
+  const [vehicles, setVehicles] = useState<any[]>([]);
+  
   // Form State
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
-  const [serviceType, setServiceType] = useState("General Inspection");
-  const [mileage, setMileage] = useState("");
-  const [notes, setNotes] = useState("");
-  const [photos, setPhotos] = useState<string[]>([]); // ✅ Restored Photo State
+  const [serviceType, setServiceType] = useState("");
+  const [description, setDescription] = useState("");
 
-  // 1. Load Vehicles
   useEffect(() => {
-    fetch("/api/customer/vehicles")
-      .then((res) => res.json())
-      .then((js) => {
-        setVehicles(js.vehicles || []);
-        if (js.vehicles?.length === 1) setSelectedVehicleId(js.vehicles[0].id);
-      })
-      .finally(() => setLoading(false));
-  }, []);
+    async function loadVehicles() {
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) {
+                console.error("No user found");
+                setLoading(false);
+                return;
+            }
 
-  // 2. Real AI Analysis
-  async function runAiAnalysis() {
-    if (!notes) return alert("Please describe the issue first.");
-    
-    setAnalyzing(true);
-    try {
-        const res = await fetch("/api/ai/analyze-draft", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ notes })
-        });
-        const js = await res.json();
-        
-        if (js.ok) {
-            setServiceType(js.prediction.title);
-            // Optional: You could show a "Priority: Urgent" badge if returned
+            // 1. Get Profile -> Customer ID
+            const { data: profile } = await supabase.from("profiles").select("customer_id").eq("id", user.id).single();
+            
+            if (!profile?.customer_id) {
+                console.error("No customer ID linked");
+                setLoading(false);
+                return;
+            }
+
+            // 2. Get Vehicles
+            const { data: vehs, error } = await supabase
+                .from("vehicles")
+                .select("*")
+                .eq("customer_id", profile.customer_id);
+
+            if (vehs) {
+                setVehicles(vehs);
+                // If only one vehicle, auto-select it
+                if (vehs.length === 1) setSelectedVehicleId(vehs[0].id);
+            }
+        } catch (e) {
+            console.error("Error loading fleet:", e);
+        } finally {
+            // ✅ CRITICAL FIX: Always turn off loading, no matter what happens
+            setLoading(false);
         }
-    } catch (e) {
-        console.error(e);
-    } finally {
-        setAnalyzing(false);
     }
-  }
+    loadVehicles();
+  }, [supabase]);
 
-  // 3. Handle Photo Upload
-  async function handlePhotoUpload(files: FileList | null) {
-    if (!files || files.length === 0) return;
-    setUploading(true);
-
-    const fd = new FormData();
-    fd.append("file", files[0]); // Upload one at a time for simplicity
-
-    try {
-        // Reuse your existing upload endpoint
-        const res = await fetch("/api/uploads/vehicle-health", { method: "POST", body: fd });
-        const js = await res.json();
-        if (js.ok && js.url) {
-            setPhotos(prev => [...prev, js.url]);
-        } else {
-            alert("Upload failed");
-        }
-    } catch (e) {
-        console.error(e);
-        alert("Upload error");
-    } finally {
-        setUploading(false);
-    }
-  }
-
-  // 4. Submit Request
   async function handleSubmit() {
-    if (!selectedVehicleId) return alert("Please select a vehicle");
-    
-    setSubmitting(true);
-    try {
-      const res = await fetch("/api/customer/requests", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      if (!selectedVehicleId || !serviceType) return;
+      setSubmitting(true);
+
+      const { data: { user } } = await supabase.auth.getUser();
+      const vehicle = vehicles.find(v => v.id === selectedVehicleId);
+      
+      const { error } = await supabase.from("service_requests").insert({
+          customer_id: vehicle.customer_id,
           vehicle_id: selectedVehicleId,
           service_title: serviceType,
-          service_description: notes,
-          reported_mileage: mileage ? parseInt(mileage) : null,
-          photo_urls: photos // ✅ Pass photos array to API
-        }),
+          description: description,
+          status: "NEW",
+          created_by: user?.id,
+          created_by_role: "CUSTOMER"
       });
 
-      if (res.ok) {
-        router.push("/customer/requests");
-        router.refresh();
+      if (!error) {
+          router.push("/customer"); // Go back to dashboard
       } else {
-        alert("Failed to create request");
+          alert("Error creating request");
+          setSubmitting(false);
       }
-    } catch (e) {
-      console.error(e);
-      alert("Error submitting request");
-    } finally {
-      setSubmitting(false);
-    }
   }
 
+  // --- SERVICE TYPES ---
+  const SERVICES = [
+      { id: "Oil Change", label: "Oil Change", icon: "🛢️" },
+      { id: "Tire Rotation", label: "Tire Service", icon: "🛞" },
+      { id: "Brakes", label: "Brakes", icon: "🛑" },
+      { id: "Battery", label: "Battery", icon: "🔋" },
+      { id: "Check Engine", label: "Check Engine", icon: "⚠️" },
+      { id: "Other", label: "Other / General", icon: "🔧" }
+  ];
+
+  if (loading) return <div className="p-10 text-center text-gray-400 font-bold animate-pulse">Loading fleet data...</div>;
+
   return (
-    <div className="max-w-3xl mx-auto space-y-8 pb-20 pt-6">
-      <div className="flex items-center gap-2">
-         <button onClick={() => router.back()} className="text-sm text-gray-500 hover:text-black">&larr; Cancel</button>
-         <h1 className="text-3xl font-bold tracking-tight">New Service Request</h1>
-      </div>
-
-      <TeslaSection label="1. Select Vehicle">
-        {loading ? (
-            <div className="text-gray-400">Loading vehicles...</div>
-        ) : vehicles.length === 0 ? (
-            <div className="text-red-500">No vehicles found. Add a vehicle first.</div>
-        ) : (
-            <select 
-                className="w-full p-3 bg-gray-50 rounded-lg border border-gray-200 outline-none text-lg"
-                value={selectedVehicleId}
-                onChange={(e) => setSelectedVehicleId(e.target.value)}
-            >
-                <option value="">-- Choose Vehicle --</option>
-                {vehicles.map(v => (
-                    <option key={v.id} value={v.id}>
-                        {v.year} {v.make} {v.model} {v.plate ? `(${v.plate})` : ''}
-                    </option>
-                ))}
-            </select>
-        )}
-      </TeslaSection>
-
-      <TeslaSection label="2. Issue Details">
-         <div className="space-y-4">
-            <div>
-                <label className="text-xs font-bold text-gray-500 uppercase">Describe Issue</label>
-                <textarea 
-                    className="w-full mt-1 p-3 bg-gray-50 rounded-lg outline-none focus:ring-1 focus:ring-black min-h-[100px]"
-                    placeholder="e.g. My car is making a weird noise when braking..."
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                />
-            </div>
-
-            {/* AI BUTTON */}
-            <div className="flex justify-end">
-                <button
-                    onClick={runAiAnalysis}
-                    disabled={analyzing || !notes}
-                    className="flex items-center gap-2 text-xs font-bold bg-purple-100 text-purple-700 px-3 py-2 rounded hover:bg-purple-200 transition disabled:opacity-50"
-                >
-                    {analyzing ? "Thinking..." : "✨ Auto-Detect Service Type"}
+    <div className="flex flex-col md:flex-row h-full">
+        
+        {/* LEFT: FORM AREA */}
+        <div className="flex-1 p-8 md:p-12 overflow-y-auto">
+            <div className="max-w-2xl mx-auto">
+                <button onClick={() => router.back()} className="text-gray-400 text-sm font-bold hover:text-black mb-6 flex items-center gap-2 transition">
+                    &larr; Cancel & Back
                 </button>
-            </div>
 
-            <div className="grid grid-cols-2 gap-4">
-                <div>
-                    <label className="text-xs font-bold text-gray-500 uppercase">Service Type</label>
-                    <select 
-                        className="w-full mt-1 p-3 bg-white border-b border-gray-300 outline-none focus:border-black"
-                        value={serviceType}
-                        onChange={(e) => setServiceType(e.target.value)}
+                <h1 className="text-4xl font-black text-gray-900 mb-2 tracking-tight">New Service Request</h1>
+                <p className="text-gray-500 mb-10 text-lg">Let's get your vehicle back on the road.</p>
+
+                <div className="space-y-10">
+                    
+                    {/* STEP 1: VEHICLE */}
+                    <section>
+                        <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4">1. Select Vehicle Asset</h3>
+                        {vehicles.length === 0 ? (
+                            <div className="p-6 bg-red-50 border border-red-100 rounded-xl text-red-600 text-sm font-bold">
+                                No vehicles found. Please add a vehicle to your fleet first.
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {vehicles.map(v => (
+                                    <div 
+                                        key={v.id}
+                                        onClick={() => setSelectedVehicleId(v.id)}
+                                        className={clsx(
+                                            "p-4 rounded-xl border-2 cursor-pointer transition-all relative group",
+                                            selectedVehicleId === v.id 
+                                                ? "border-black bg-gray-50 shadow-md" 
+                                                : "border-gray-100 hover:border-gray-300 bg-white"
+                                        )}
+                                    >
+                                        {selectedVehicleId === v.id && (
+                                            <div className="absolute top-3 right-3 bg-black text-white p-1 rounded-full shadow-lg">
+                                                <IconCheck />
+                                            </div>
+                                        )}
+                                        <div className="flex items-center gap-4">
+                                            <div className={clsx("p-3 rounded-lg", selectedVehicleId === v.id ? "bg-white text-black" : "bg-gray-100 text-gray-400")}>
+                                                <IconCar />
+                                            </div>
+                                            <div>
+                                                <div className="font-bold text-gray-900">{v.year} {v.model}</div>
+                                                <div className="text-xs font-mono text-gray-500 mt-0.5">{v.plate}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        <button 
+                            onClick={() => router.push('/customer/vehicles/new')}
+                            className="mt-4 text-xs font-bold text-gray-400 hover:text-black transition flex items-center gap-1"
+                        >
+                            + Add another vehicle
+                        </button>
+                    </section>
+
+                    {/* STEP 2: SERVICE */}
+                    <section>
+                        <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4">2. Service Required</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                            {SERVICES.map(s => (
+                                <button
+                                    key={s.id}
+                                    onClick={() => setServiceType(s.id)}
+                                    className={clsx(
+                                        "p-4 rounded-xl border-2 font-bold text-sm transition-all flex flex-col items-center gap-2 text-center",
+                                        serviceType === s.id 
+                                            ? "border-black bg-black text-white shadow-lg transform scale-105" 
+                                            : "border-gray-100 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50"
+                                    )}
+                                >
+                                    <span className="text-2xl">{s.icon}</span>
+                                    {s.label}
+                                </button>
+                            ))}
+                        </div>
+                    </section>
+
+                    {/* STEP 3: DETAILS */}
+                    <section>
+                        <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4">3. Notes / Issues</h3>
+                        <textarea 
+                            className="w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-black focus:bg-white outline-none transition font-medium min-h-[120px]"
+                            placeholder="Describe the issue or request specific maintenance..."
+                            value={description}
+                            onChange={e => setDescription(e.target.value)}
+                        />
+                    </section>
+
+                    {/* SUBMIT */}
+                    <button 
+                        onClick={handleSubmit}
+                        disabled={!selectedVehicleId || !serviceType || submitting}
+                        className="w-full py-5 bg-blue-600 text-white font-black text-lg rounded-2xl shadow-xl hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none transition transform active:scale-[0.98]"
                     >
-                        <option value="General Inspection">General Inspection</option>
-                        <option value="Oil Change">Oil Change</option>
-                        <option value="Tire Service">Tire Service</option>
-                        <option value="Battery Service">Battery Service</option>
-                        <option value="Brake Service">Brake Service</option>
-                    </select>
-                </div>
-                <div>
-                    <label className="text-xs font-bold text-gray-500 uppercase">Current Mileage</label>
-                    <input 
-                        type="number" 
-                        className="w-full mt-1 p-2 border-b border-gray-300 outline-none focus:border-black"
-                        placeholder="e.g. 45000"
-                        value={mileage}
-                        onChange={(e) => setMileage(e.target.value)}
-                    />
+                        {submitting ? "Processing..." : "Submit Service Request"}
+                    </button>
+
                 </div>
             </div>
-         </div>
-      </TeslaSection>
+        </div>
 
-      {/* ✅ RESTORED PHOTO UPLOAD */}
-      <TeslaSection label="3. Photos (Optional)">
-         <div className="space-y-4">
-            <div className="flex items-center gap-4 overflow-x-auto pb-2">
-                {photos.map((url, i) => (
-                    <div key={i} className="relative w-20 h-20 flex-shrink-0 bg-gray-100 rounded-lg overflow-hidden border border-gray-200">
-                        <img src={url} alt="Issue" className="w-full h-full object-cover" />
+        {/* RIGHT: INFO PANEL (Hidden on Mobile) */}
+        <div className="hidden md:flex w-96 bg-gray-900 text-white p-10 flex-col justify-between sticky top-0 h-screen">
+            <div>
+                <div className="bg-white/10 w-12 h-12 rounded-xl flex items-center justify-center text-2xl mb-6">🛡️</div>
+                <h2 className="text-2xl font-bold mb-4">Revlet Guarantee</h2>
+                <p className="text-gray-400 leading-relaxed mb-8">
+                    Our certified technicians arrive fully equipped. Most requests are scheduled within 24 hours of submission.
+                </p>
+
+                <div className="space-y-6">
+                    <div className="flex items-start gap-4">
+                        <div className="bg-green-500/20 text-green-400 p-2 rounded-lg">✓</div>
+                        <div>
+                            <div className="font-bold">Transparent Pricing</div>
+                            <div className="text-sm text-gray-500">No hidden fees or upcharges.</div>
+                        </div>
                     </div>
-                ))}
-                
-                <label className="w-20 h-20 flex-shrink-0 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-black hover:bg-gray-50 transition">
-                    <span className="text-2xl text-gray-400">+</span>
-                    <input 
-                        type="file" 
-                        accept="image/*" 
-                        className="hidden" 
-                        onChange={(e) => handlePhotoUpload(e.target.files)}
-                        disabled={uploading}
-                    />
-                </label>
+                    <div className="flex items-start gap-4">
+                        <div className="bg-blue-500/20 text-blue-400 p-2 rounded-lg">✓</div>
+                        <div>
+                            <div className="font-bold">Real-time Tracking</div>
+                            <div className="text-sm text-gray-500">Watch your technician arrive.</div>
+                        </div>
+                    </div>
+                </div>
             </div>
-            {uploading && <p className="text-xs text-blue-600 animate-pulse">Uploading photo...</p>}
-         </div>
-      </TeslaSection>
 
-      <div className="flex justify-end">
-        <button
-            onClick={handleSubmit}
-            disabled={submitting || !selectedVehicleId}
-            className="bg-black text-white px-8 py-3 rounded-xl font-bold hover:bg-gray-800 transition disabled:opacity-50 shadow-lg"
-        >
-            {submitting ? "Creating..." : "Create Request"}
-        </button>
-      </div>
+            <div className="text-xs text-gray-600 font-mono">
+                Support: (555) 123-4567 <br/>
+                ID: REF-{Math.floor(Math.random() * 10000)}
+            </div>
+        </div>
+
     </div>
   );
 }

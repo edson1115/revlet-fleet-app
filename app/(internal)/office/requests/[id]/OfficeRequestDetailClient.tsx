@@ -1,37 +1,34 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import clsx from "clsx";
-import Image from "next/image";
-
-import { TeslaSection } from "@/components/tesla/TeslaSection";
-import { TeslaStatusChip } from "@/components/tesla/TeslaStatusChip";
 import { RequestPartsSection } from "@/components/office/RequestPartsSection";
 import { OfficeFieldsSection } from "@/components/office/OfficeFieldsSection";
 
-const STATUS_FLOW = [
-  "NEW",
-  "WAITING",
-  "READY_TO_SCHEDULE",
-  "SCHEDULED",
-  "IN_PROGRESS",
-  "COMPLETED",
-];
+/* ===============================
+   Icons
+================================ */
+const IconCar = () => (
+  <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+  </svg>
+);
 
-const SERVICE_EDITABLE_STATUSES = ["NEW", "WAITING"];
+const IconUser = () => (
+  <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+  </svg>
+);
 
-function formatWindow(start?: string | null, end?: string | null) {
-  if (!start && !end) return "—";
-  try {
-    const s = start ? new Date(start).toLocaleString() : "—";
-    const e = end ? new Date(end).toLocaleString() : "—";
-    return start && end ? `${s} → ${e}` : start || end || "—";
-  } catch {
-    return "—";
-  }
-}
+const IconGauge = () => (
+  <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 3a9 9 0 100 18 9 9 0 000-18zm0 9l3-3" />
+  </svg>
+);
 
+/* ===============================
+   Component
+================================ */
 export default function OfficeRequestDetailClient({
   request: initialRequest,
 }: {
@@ -40,365 +37,215 @@ export default function OfficeRequestDetailClient({
   const router = useRouter();
 
   const [request, setRequest] = useState(initialRequest);
+  const [serviceTitle, setServiceTitle] = useState(initialRequest.service_title || "");
+  const [serviceDescription, setServiceDescription] = useState(initialRequest.service_description || "");
   const [saving, setSaving] = useState(false);
-  const [statusUpdating, setStatusUpdating] = useState(false);
-  const [completing, setCompleting] = useState(false);
 
-  /* -------------------------------------------
-     SERVICE DEFINITION STATE
-   -------------------------------------------- */
-  const [serviceTitle, setServiceTitle] = useState(
-    initialRequest?.service_title ?? ""
-  );
-  const [serviceDescription, setServiceDescription] = useState(
-    initialRequest?.service_description ?? ""
-  );
-  const [completionNote, setCompletionNote] = useState("");
-
-  if (!request) return <div>Loading...</div>;
-
-  const serviceLocked = !SERVICE_EDITABLE_STATUSES.includes(request.status);
-  const currentIndex = STATUS_FLOW.indexOf(request.status);
-
-  // Walk-in Logic
-  const isWalkIn =
-    request?.created_by_role === "OFFICE" &&
-    !request?.technician_id &&
-    !request?.scheduled_start_at;
-  const canOfficeComplete = isWalkIn && request.status !== "COMPLETED";
-
-  // Helpers
   const v = request.vehicle;
   const c = request.customer;
-  const images = request.request_images || [];
-  
-  // ✅ FIX: Safely extract FMC Name
-  const fmcName = v?.provider_companies?.name || "None";
 
-  const assignedTechName = useMemo(
-    () =>
-      request?.tech?.full_name ||
-      request?.assigned_tech?.full_name ||
-      "Unassigned",
-    [request]
-  );
+  const assignedTechs: string[] = request.assigned_techs || [];
+  const displayMileage = request.display_mileage;
 
-  const scheduledWindow = useMemo(
-    () => formatWindow(request?.scheduled_start_at, request?.scheduled_end_at),
-    [request]
-  );
+  /* ===============================
+     EDIT LOCK LOGIC
+  =============================== */
+  const isEditable = ["NEW", "WAITING"].includes(request.status);
 
-  /* -------------------------------------------
-     ACTIONS
-   -------------------------------------------- */
-  async function updateStatus(newStatus: string) {
-    if (statusUpdating) return;
-    if (!confirm(`Change status to ${newStatus.replace(/_/g, " ")}?`)) return;
+  /* ===============================
+     SAVE CHANGES
+  =============================== */
+  async function handleSave() {
+    if (!isEditable) return;
 
-    setStatusUpdating(true);
-    const res = await fetch(`/api/office/requests/${request.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: newStatus }),
-    });
-
-    setStatusUpdating(false);
-    if (res.ok) {
-      setRequest({ ...request, status: newStatus });
-    } else {
-      alert("Failed to update status");
-    }
-  }
-
-  async function saveServiceOverride() {
-    if (saving || serviceLocked) return;
     setSaving(true);
 
     const res = await fetch(`/api/office/requests/${request.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        service_title: serviceTitle || null,
-        service_description: serviceDescription || null,
+        service_title: serviceTitle,
+        service_description: serviceDescription,
       }),
     });
 
-    setSaving(false);
-    if (res.ok) {
-      setRequest({ ...request, service_title: serviceTitle, service_description: serviceDescription });
-      alert("Service definition updated.");
+    const json = await res.json();
+
+    if (json.ok) {
+      setRequest(json.request);
+    } else {
+      alert("Failed to save changes");
     }
+
+    setSaving(false);
   }
 
-  async function markComplete() {
-    if (!completionNote.trim()) return alert("Note required.");
-    if (!confirm("Complete this request?")) return;
-    setCompleting(true);
+  /* ===============================
+     SEND TO DISPATCH
+  =============================== */
+  async function handleSendToDispatch() {
+    if (!isEditable) return;
 
     const res = await fetch(`/api/office/requests/${request.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        status: "COMPLETED",
-        completed_by_role: "OFFICE",
-        completed_at: new Date().toISOString(),
-        completion_note: completionNote,
+        status: "READY_TO_SCHEDULE",
       }),
     });
 
-    const js = await res.json();
-    setCompleting(false);
-    if (res.ok) {
-        setRequest({ ...request, status: "COMPLETED", completed_at: js.completed_at });
+    const json = await res.json();
+
+    if (json.ok) {
+      setRequest(json.request);
+      router.push("/office");
+    } else {
+      alert("Failed to send to dispatch");
     }
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 pb-20">
-      {/* 1. HEADER NAV */}
-      <div className="flex items-center justify-between py-4 border-b border-gray-100">
-        <div className="flex items-center gap-4 text-sm text-gray-500 font-medium">
-          <button onClick={() => router.push("/office")} className="hover:text-black transition">
-            &larr; Dashboard
-          </button>
-          <span className="text-gray-300">/</span>
-          <button onClick={() => router.push("/office/requests")} className="hover:text-black transition">
-            Requests Queue
-          </button>
-          <span className="text-gray-300">/</span>
-          <span className="text-black">Ref #{request.id.slice(0, 8)}</span>
+    <div className="min-h-screen bg-gray-50/50 pb-20">
+
+      {/* ===============================
+         TOP BAR
+      =============================== */}
+      <div className="bg-white border-b sticky top-0 z-20 px-6 py-4 flex justify-between items-center">
+        <div>
+          <div
+            onClick={() => router.push("/office")}
+            className="text-xs font-bold text-gray-400 uppercase cursor-pointer hover:text-black"
+          >
+            ← Return to Dashboard
+          </div>
+          <h1 className="text-xl font-bold mt-1 flex items-center gap-2">
+            {request.service_title}
+            <span className="text-xs px-2 py-1 rounded-full bg-gray-100 border">
+              {request.status}
+            </span>
+          </h1>
         </div>
-        <div className="flex items-center gap-3">
-            <TeslaStatusChip status={request.status} />
+
+        <div className="flex gap-2">
+          <button
+            onClick={handleSave}
+            disabled={!isEditable || saving}
+            className="px-4 py-2 text-xs font-bold rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-40"
+          >
+            Save Changes
+          </button>
+
+          <button
+            onClick={handleSendToDispatch}
+            disabled={!isEditable}
+            className="px-4 py-2 text-xs font-bold rounded-lg bg-black text-white hover:bg-gray-800 disabled:opacity-40"
+          >
+            Send to Dispatch
+          </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
-        {/* LEFT COLUMN: CONTEXT & CUSTOMER DATA */}
-        <div className="space-y-6 lg:col-span-2">
-            
-            {/* 2. CUSTOMER INTAKE DATA (READ ONLY) */}
-            <TeslaSection label="Vehicle & Customer Intake">
-                <div className="grid grid-cols-2 gap-6 mb-6">
-                    <div>
-                        <p className="text-xs text-gray-500 uppercase tracking-wide">Vehicle</p>
-                        <div className="text-lg font-semibold">{v?.year} {v?.make} {v?.model}</div>
-                        <div className="text-sm text-gray-600">Unit: {v?.unit_number || "—"}</div>
-                        <div className="text-xs text-gray-400 mt-1">VIN: {v?.vin || "—"}</div>
-                    </div>
-                    <div>
-                        <p className="text-xs text-gray-500 uppercase tracking-wide">Plate</p>
-                        <div className="text-lg font-medium font-mono">{v?.plate || "NO PLATE"}</div>
-                    </div>
-                </div>
-                
-                <div className="grid grid-cols-3 gap-4 border-t border-gray-100 pt-4">
-                      <div>
-                        <p className="text-xs text-gray-500">Reported Mileage</p>
-                        {/* ✅ FIX: Display Correct Mileage Column */}
-                        <p className="font-medium">
-                           {request.reported_mileage 
-                                ? `${request.reported_mileage.toLocaleString()} mi` 
-                                : "—"}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500">FMC / Fleet Co.</p>
-                        {/* ✅ FIX: Display fetched FMC Name */}
-                        <p className="font-medium">{fmcName}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500">Customer</p>
-                        <p className="font-medium">{c?.name || "Unknown"}</p>
-                      </div>
-                </div>
+      <div className="max-w-7xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-8">
 
-                {/* ORIGINAL CUSTOMER REQUEST */}
-                <div className="mt-6 bg-gray-50 p-4 rounded-lg">
-                    <p className="text-xs text-gray-500 uppercase mb-1">Customer's Original Note</p>
-                    <p className="text-sm text-gray-800 italic">"{request.notes || "No notes provided."}"</p>
-                </div>
-            </TeslaSection>
+        {/* ===============================
+           LEFT COLUMN
+        =============================== */}
+        <div className="lg:col-span-4 space-y-6">
 
-            {/* 3. CUSTOMER IMAGES */}
-            {images.length > 0 && (
-                <TeslaSection label={`Customer Images (${images.length})`}>
-                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
-                        {images.map((img: any) => (
-                            <a key={img.id} href={img.url_full} target="_blank" rel="noreferrer" className="block group relative aspect-square bg-gray-100 rounded-lg overflow-hidden border border-gray-200">
-                                <Image src={img.url_full} alt="Request" fill className="object-cover group-hover:scale-105 transition" />
-                            </a>
-                        ))}
-                    </div>
-                </TeslaSection>
+          {/* CUSTOMER */}
+          <div className="bg-white rounded-xl p-5 border flex gap-4">
+            <IconUser />
+            <div>
+              <p className="text-xs font-bold text-gray-400 uppercase">Customer</p>
+              <p className="font-bold">{c?.name}</p>
+            </div>
+          </div>
+
+          {/* VEHICLE */}
+          <div className="bg-white rounded-xl border p-5">
+            <div className="flex gap-4">
+              <IconCar />
+              <div>
+                <p className="font-bold">
+  {v?.year} {v?.make} {v?.model}
+</p>
+
+<p className="text-xs text-gray-500">
+  VIN: {v?.vin}
+</p>
+
+{v?.plate && (
+  <p className="text-xs text-gray-500">
+    Plate: <span className="font-medium">{v.plate}</span>
+  </p>
+)}
+
+              </div>
+            </div>
+          </div>
+
+          {/* MILEAGE */}
+          <div className="bg-white rounded-xl border p-5 flex gap-4">
+            <IconGauge />
+            <div>
+              <p className="text-xs font-bold text-gray-400 uppercase">Mileage</p>
+              <p className="font-bold">
+                {displayMileage ? `${displayMileage.toLocaleString()} mi` : "—"}
+              </p>
+            </div>
+          </div>
+
+          {/* TECHNICIANS (READ ONLY) */}
+          <div className="bg-gray-900 text-white rounded-xl p-5">
+            <p className="text-xs uppercase text-gray-400 mb-1">Assigned Technician(s)</p>
+            {assignedTechs.length > 0 ? (
+              <ul className="space-y-1">
+                {assignedTechs.map((t, idx) => (
+                  <li key={idx} className="font-bold">{t}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-gray-400 italic">Unassigned</p>
             )}
-
-            {/* 4. SERVICE DEFINITION (OFFICE OVERRIDE) */}
-            <TeslaSection label="Service Definition (Office)">
-                <div className="space-y-4">
-                    <div>
-                        <label className="text-xs text-gray-500 font-semibold">Service Title</label>
-                        <input
-                            disabled={serviceLocked}
-                            value={serviceTitle}
-                            onChange={(e) => setServiceTitle(e.target.value)}
-                            className="w-full mt-1 border-b border-gray-300 focus:border-black py-2 outline-none text-lg font-medium bg-transparent disabled:text-gray-400"
-                            placeholder="e.g. 50k Mile Service"
-                        />
-                    </div>
-                    <div>
-                        <label className="text-xs text-gray-500 font-semibold">Details / Instructions</label>
-                        <textarea
-                            disabled={serviceLocked}
-                            value={serviceDescription}
-                            onChange={(e) => setServiceDescription(e.target.value)}
-                            rows={3}
-                            className="w-full mt-1 p-3 bg-gray-50 rounded-lg text-sm outline-none focus:ring-1 focus:ring-black disabled:text-gray-400"
-                            placeholder="Internal notes for the technician..."
-                        />
-                    </div>
-                    {!serviceLocked && (
-                          <div className="flex justify-end">
-                            <button 
-                                onClick={saveServiceOverride} 
-                                disabled={saving}
-                                className="text-xs font-bold text-green-600 uppercase tracking-wider hover:underline"
-                            >
-                                {saving ? "Saving..." : "Save Definition"}
-                            </button>
-                          </div>
-                    )}
-                </div>
-            </TeslaSection>
-            
-            {/* 5. PARTS REQUIRED */}
-            <RequestPartsSection request={request} />
-
+          </div>
         </div>
 
-        {/* RIGHT COLUMN: STATUS & OPS */}
-        <div className="space-y-6">
-            
-            {/* 🆕 WORKFLOW ACTIONS (STATUS CONTROLS) */}
-            <TeslaSection label="Workflow Actions">
-                <div className="space-y-3">
-                    {request.status === "NEW" && (
-                        <>
-                            <button 
-                                onClick={() => updateStatus("WAITING")}
-                                disabled={statusUpdating}
-                                className="w-full py-3 bg-amber-100 text-amber-900 font-bold rounded-xl hover:bg-amber-200 transition text-sm"
-                            >
-                                ⏳ Mark as Waiting (Parts/Approval)
-                            </button>
-                            <button 
-                                onClick={() => updateStatus("READY_TO_SCHEDULE")}
-                                disabled={statusUpdating}
-                                className="w-full py-3 bg-black text-white font-bold rounded-xl hover:bg-gray-800 transition text-sm"
-                            >
-                                🚀 Send to Dispatch (Ready)
-                            </button>
-                        </>
-                    )}
+        {/* ===============================
+           RIGHT COLUMN
+        =============================== */}
+        <div className="lg:col-span-8 space-y-8">
 
-                    {request.status === "WAITING" && (
-                        <>
-                             <button 
-                                onClick={() => updateStatus("NEW")}
-                                disabled={statusUpdating}
-                                className="w-full py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition text-sm"
-                            >
-                                ↩ Revert to New
-                            </button>
-                            <button 
-                                onClick={() => updateStatus("READY_TO_SCHEDULE")}
-                                disabled={statusUpdating}
-                                className="w-full py-3 bg-black text-white font-bold rounded-xl hover:bg-gray-800 transition text-sm"
-                            >
-                                🚀 Send to Dispatch (Ready)
-                            </button>
-                        </>
-                    )}
+          <div className="bg-white rounded-xl border p-6">
+            <h3 className="text-sm font-bold uppercase mb-4">Service Requirement</h3>
 
-                    {request.status === "READY_TO_SCHEDULE" && (
-                         <div className="p-4 bg-green-50 border border-green-100 rounded-xl text-center">
-                            <p className="text-green-800 font-bold mb-2">Ready for Dispatch</p>
-                            <p className="text-green-700 text-xs mb-4">This request is now visible on the Dispatch board.</p>
-                            <button 
-                                onClick={() => updateStatus("WAITING")}
-                                disabled={statusUpdating}
-                                className="text-xs font-bold text-green-700 hover:underline"
-                            >
-                                Undo (Recall to Waiting)
-                            </button>
-                         </div>
-                    )}
+            <input
+              value={serviceTitle}
+              disabled={!isEditable}
+              onChange={(e) => setServiceTitle(e.target.value)}
+              className={`w-full text-2xl font-bold border-b outline-none mb-4 ${
+                !isEditable ? "bg-gray-100 cursor-not-allowed" : ""
+              }`}
+            />
 
-                    {["SCHEDULED", "IN_PROGRESS"].includes(request.status) && (
-                        <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl text-center">
-                            <p className="text-gray-500 font-bold text-sm">Under Dispatch Control</p>
-                            <p className="text-gray-400 text-xs mt-1">Status managed by Dispatch/Tech</p>
-                        </div>
-                    )}
-                </div>
-            </TeslaSection>
+            <textarea
+              value={serviceDescription}
+              disabled={!isEditable}
+              onChange={(e) => setServiceDescription(e.target.value)}
+              rows={4}
+              className={`w-full p-4 rounded-lg ${
+                !isEditable ? "bg-gray-100 cursor-not-allowed" : "bg-gray-50"
+              }`}
+              placeholder="Internal notes, instructions..."
+            />
+          </div>
 
-            {/* STATUS TIMELINE */}
-            <TeslaSection label="Progression">
-                <div className="space-y-6 relative pl-2">
-                      <div className="absolute left-[19px] top-2 bottom-2 w-0.5 bg-gray-100" />
-                      {STATUS_FLOW.map((s, i) => {
-                          const active = i <= currentIndex;
-                          const current = i === currentIndex;
-                          return (
-                            <div key={s} className="relative flex items-center gap-3">
-                                <div className={clsx(
-                                    "w-3 h-3 rounded-full z-10",
-                                    current ? "bg-green-500 ring-4 ring-green-100" : active ? "bg-black" : "bg-gray-200"
-                                )} />
-                                <span className={clsx("text-xs font-bold tracking-wide", active ? "text-black" : "text-gray-400")}>
-                                    {s.replace(/_/g, " ")}
-                                </span>
-                            </div>
-                          );
-                      })}
-                </div>
-            </TeslaSection>
+          <RequestPartsSection
+            requestId={request.id}
+            vehicleContext={v}
+            serviceContext={serviceTitle}
+          />
 
-            {/* DISPATCH INFO */}
-            <TeslaSection label="Dispatch">
-                <div className="space-y-3">
-                    <div>
-                        <p className="text-xs text-gray-500">Technician</p>
-                        <p className="font-medium text-lg">{assignedTechName}</p>
-                    </div>
-                    <div>
-                         <p className="text-xs text-gray-500">Schedule</p>
-                         <p className="text-sm">{scheduledWindow}</p>
-                    </div>
-                </div>
-            </TeslaSection>
-
-            {/* OFFICE FIELDS (PO, INVOICE) */}
-            <OfficeFieldsSection request={request} />
-
-            {/* COMPLETION (WALK-IN ONLY) */}
-            {canOfficeComplete && (
-                <div className="p-4 bg-gray-100 rounded-xl">
-                    <h3 className="text-sm font-bold mb-2">Complete Walk-In</h3>
-                    <textarea
-                        value={completionNote}
-                        onChange={(e) => setCompletionNote(e.target.value)}
-                        placeholder="Completion notes..."
-                        className="w-full text-sm p-2 rounded mb-2"
-                    />
-                    <button onClick={markComplete} disabled={completing} className="w-full bg-black text-white py-2 rounded-lg text-sm font-bold">
-                        {completing ? "..." : "Mark Complete"}
-                    </button>
-                </div>
-            )}
-
+          <OfficeFieldsSection request={request} />
         </div>
       </div>
     </div>

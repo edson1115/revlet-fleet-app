@@ -1,129 +1,50 @@
-// app/api/tech/dashboard/route.ts
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
     const supabase = await supabaseServer();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
-    // ---------------------------------------------------
-    // 1) GET CURRENT USER
-    // ---------------------------------------------------
-    const {
-      data: { user },
-      error: userErr,
-    } = await supabase.auth.getUser();
+    // Filter for today's completed jobs
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStr = today.toISOString();
 
-    if (userErr || !user) {
-      return NextResponse.json(
-        { ok: false, error: "Not authenticated" },
-        { status: 401 }
-      );
-    }
-
-    const techId = user.id;
-
-    // ---------------------------------------------------
-    // 2) GET TODAY'S DATE RANGE
-    // ---------------------------------------------------
-    const now = new Date();
-    const startOfDay = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      0,
-      0,
-      0
-    ).toISOString();
-
-    // Only counting jobs created today or in-progress/completed today
-    const todayFilter = `created_at.gte.${startOfDay}`;
-
-    // ---------------------------------------------------
-    // 3) LOAD TECH'S JOBS — assigned_tech_id
-    // ---------------------------------------------------
-    const { data: jobs, error: jobsErr } = await supabase
+    const { data: jobs, error } = await supabase
       .from("service_requests")
-      .select(
-        `
-        id,
-        status,
-        service,
-        scheduled_start_at,
-        scheduled_end_at,
-        started_at,
-        completed_at,
+      .select(`*, vehicle:vehicles (*), customer:customers (*)`)
+      .or(`status.in.(SCHEDULED,IN_PROGRESS),and(status.eq.COMPLETED,completed_at.gte.${todayStr})`)
+      .order("scheduled_date", { ascending: true });
 
-        vehicle:vehicles (
-          id,
-          year,
-          make,
-          model,
-          unit_number,
-          plate
-        ),
+    if (error) throw error;
 
-        customer:customers (
-          id,
-          name
-        )
-      `
-      )
-      .eq("assigned_tech_id", techId)
-      .order("scheduled_start_at", { ascending: true });
+    // 🌟 THE FIX: Construct the name from parts
+    const safeJobs = (jobs || []).map((job) => {
+      const v = job.vehicle;
+      const vehicleName = v ? `${v.year} ${v.make} ${v.model}` : "Unknown Vehicle";
 
-    if (jobsErr) {
-      return NextResponse.json(
-        { ok: false, error: "Failed loading jobs", details: jobsErr.message },
-        { status: 500 }
-      );
-    }
-
-    // ---------------------------------------------------
-    // 4) COUNT TODAY'S STATS
-    // ---------------------------------------------------
-    const { data: todayStats, error: statsErr } = await supabase.rpc(
-      "tech_dashboard_stats",
-      { tech_uid: techId, start_ts: startOfDay }
-    );
-
-    if (statsErr) {
-      // Fallback if RPC not created yet
-      const totalToday = jobs.filter(
-        (j) => j.created_at >= startOfDay
-      ).length;
-
-      const inProgress = jobs.filter(
-        (j) => j.status === "IN_PROGRESS"
-      ).length;
-
-      const completedToday = jobs.filter(
-        (j) => j.completed_at && j.completed_at >= startOfDay
-      ).length;
-
-      return NextResponse.json({
-        ok: true,
-        stats: {
-          total_today: totalToday,
-          in_progress: inProgress,
-          completed_today: completedToday,
+      return {
+        ...job,
+        vehicle: { 
+          ...v, 
+          name: vehicleName, // Format: "2023 Ford F-150"
+          vin: v?.vin || "N/A"
         },
-        jobs,
-      });
-    }
-
-    // ---------------------------------------------------
-    // 5) SUCCESS
-    // ---------------------------------------------------
-    return NextResponse.json({
-      ok: true,
-      stats: todayStats,
-      jobs,
+        customer: job.customer || { name: "Unknown Customer" }
+      };
     });
+
+    const active = safeJobs.filter(j => j.status === "IN_PROGRESS");
+    const scheduled = safeJobs.filter(j => j.status === "SCHEDULED");
+    const completed = safeJobs.filter(j => j.status === "COMPLETED");
+
+    return NextResponse.json({ ok: true, active, scheduled, completed });
+
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e.message || "Unexpected error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
   }
 }

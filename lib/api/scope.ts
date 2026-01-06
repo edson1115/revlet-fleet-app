@@ -1,21 +1,26 @@
 import { supabaseServer } from "@/lib/supabase/server";
 
 export async function resolveUserScope() {
+  // 1. Get the client (which now has the correct cookieOptions)
   const supabase = await supabaseServer();
 
   /* ---------------------------
-     AUTH
+      AUTH
   ---------------------------- */
+  // 2. Explicitly get the user
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser();
 
-  if (!user) {
+  // DEBUG: If this logs "Auth Error" in your terminal, we know why it fails
+  if (authError || !user) {
+    if (authError) console.log("Scope Auth Error:", authError.message);
     return emptyScope();
   }
 
   /* ---------------------------
-     PROFILE (SAFE)
+      PROFILE (SAFE)
   ---------------------------- */
   let profile = null;
 

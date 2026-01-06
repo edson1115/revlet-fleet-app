@@ -1,18 +1,13 @@
-// components/Nav.tsx
 import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase/server";
 import SignOutButton from "@/components/SignOutButton";
-
-function normRole(role: string | null | undefined) {
-  return (role ?? "").trim().toUpperCase();
-}
 
 export default async function Nav() {
   const supabase = await supabaseServer();
   const { data: auth } = await supabase.auth.getUser();
 
   const email = auth.user?.email ?? "";
-  let role = "";
+  let role = "GUEST";
 
   if (auth.user?.id) {
     const { data: prof } = await supabase
@@ -20,41 +15,49 @@ export default async function Nav() {
       .select("role")
       .eq("id", auth.user.id)
       .maybeSingle();
-    role = normRole(prof?.role);
+    role = (prof?.role || "CUSTOMER").toUpperCase();
   }
 
-  const canSeeOffice = role === "ADMIN" || role === "OFFICE";
-  const isAdmin = role === "ADMIN";
+  // Permissions
+  const isOffice = ["ADMIN", "OFFICE", "SUPERADMIN"].includes(role);
+  const isDispatch = ["ADMIN", "DISPATCH", "SUPERADMIN"].includes(role);
+  const isTech = ["ADMIN", "TECH", "SUPERADMIN"].includes(role);
+  const isAdmin = ["ADMIN", "SUPERADMIN"].includes(role);
 
   return (
-    <header className="border-b bg-white">
+    <header className="border-b bg-white sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between gap-4">
-        {/* Left: Brand + primary links */}
+        
+        {/* LEFT: Logo & Links */}
         <div className="flex items-center gap-6">
-          <Link href="/" className="font-semibold tracking-tight hover:opacity-80">
-            Revlet Fleet
+          <Link href="/" className="font-bold text-xl tracking-tight">
+            Revlet
           </Link>
 
-          <nav className="flex items-center gap-5 text-sm">
-            <Link href="/" className="hover:opacity-80">Home</Link>
-            <Link href="/fm/requests/new" className="hover:opacity-80">Create Request</Link>
-            {canSeeOffice && (
-              <Link href="/office/queue" className="hover:opacity-80">Office</Link>
-            )}
-            <Link href="/dispatch/scheduled" className="hover:opacity-80">Dispatch</Link>
-            <Link href="/tech/queue" className="hover:opacity-80">Tech</Link>
-            <Link href="/reports" className="hover:opacity-80">Reports</Link>
-            {isAdmin && <Link href="/admin" className="hover:opacity-80">Admin</Link>}
-          </nav>
+          {role !== "GUEST" && (
+              <nav className="hidden md:flex items-center gap-1 text-sm font-medium text-gray-600">
+                {/* 1. Everyone (except Guests) goes to their Dashboard */}
+                {role === "CUSTOMER" && <NavLink href="/customer" label="Dashboard" />}
+                
+                {/* 2. Role Based Links (Point to NEW Roots) */}
+                {isOffice && <NavLink href="/office" label="Office" />}
+                {isDispatch && <NavLink href="/dispatch" label="Dispatch" />}
+                {isTech && <NavLink href="/tech" label="Tech App" />}
+                
+                {/* 3. Shared Tools */}
+                {(isOffice || isDispatch) && <NavLink href="/reports" label="Reports" />}
+                {isAdmin && <NavLink href="/admin" label="Admin" />}
+              </nav>
+          )}
         </div>
 
-        {/* Right: user/email + role + sign out */}
-        <div className="flex items-center gap-3 text-sm">
-          {email && <span className="text-gray-600">{email}</span>}
-          {role && (
-            <span className="px-2 py-0.5 rounded-full border text-xs bg-gray-50">
-              {role}
-            </span>
+        {/* RIGHT: User Profile */}
+        <div className="flex items-center gap-4 text-sm">
+          {email && (
+             <div className="hidden sm:flex flex-col items-end leading-tight">
+                <span className="font-bold text-gray-900">{email.split('@')[0]}</span>
+                <span className="text-[10px] text-gray-500 uppercase tracking-wider">{role}</span>
+             </div>
           )}
           <SignOutButton />
         </div>
@@ -63,5 +66,14 @@ export default async function Nav() {
   );
 }
 
-
-
+// Helper Component for styling
+function NavLink({ href, label }: { href: string; label: string }) {
+    return (
+        <Link 
+            href={href} 
+            className="px-3 py-2 rounded-lg hover:bg-gray-100 hover:text-black transition"
+        >
+            {label}
+        </Link>
+    );
+}

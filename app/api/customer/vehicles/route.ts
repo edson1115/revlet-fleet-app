@@ -11,40 +11,36 @@ export const runtime = "nodejs";
 export async function GET() {
   try {
     const scope = await resolveUserScope();
-
     if (!scope.uid || !scope.isCustomer) {
-      return NextResponse.json(
-        { ok: false, error: "Unauthorized" },
-        { status: 401 }
-      );
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
 
     const supabase = await supabaseServer();
 
+    // 🔥 HARD ENFORCEMENT
+    if (scope.role === "CUSTOMER") {
+      const { data: customer } = await supabase
+        .from("customers")
+        .select("status")
+        .eq("id", scope.customer_id)
+        .single();
+
+      if (customer?.status !== "ACTIVE") {
+        return NextResponse.json({ error: "Account pending approval" }, { status: 403 });
+      }
+    }
+
     const { data: rows, error } = await supabase
       .from("vehicles")
       .select(`
-        id,
-        customer_id,
-        year,
-        make,
-        model,
-        plate,
-        unit_number,
-        vin,
-        market,
-        health_photo_1,
-        health_photo_2,
-        health_photo_3,
-        provider_company_id,
-        provider_company:provider_companies(id, name)
+        id, customer_id, year, make, model, plate, unit_number, vin, market,
+        health_photo_1, health_photo_2, health_photo_3,
+        provider_company_id, provider_company:provider_companies(id, name)
       `)
       .eq("customer_id", scope.customer_id)
       .order("created_at", { ascending: false });
 
-    if (error) {
-      return NextResponse.json({ ok: false, error: error.message });
-    }
+    if (error) return NextResponse.json({ ok: false, error: error.message });
 
     const vehicles = (rows || []).map((v) => ({
       id: v.id,
@@ -55,21 +51,15 @@ export async function GET() {
       unit_number: v.unit_number,
       vin: v.vin,
       market: v.market,
-
-      // ⭐ ADDED HEALTH PHOTOS
       health_photo_1: v.health_photo_1 || null,
       health_photo_2: v.health_photo_2 || null,
       health_photo_3: v.health_photo_3 || null,
-
       provider_name: v.provider_company?.name ?? null,
     }));
 
     return NextResponse.json({ ok: true, vehicles });
   } catch (err: any) {
-    return NextResponse.json(
-      { ok: false, error: "Server error", detail: err.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: "Server error", detail: err.message }, { status: 500 });
   }
 }
 
@@ -79,15 +69,25 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const scope = await resolveUserScope();
-
     if (!scope.uid || !scope.isCustomer) {
-      return NextResponse.json(
-        { ok: false, error: "Unauthorized" },
-        { status: 401 }
-      );
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
 
     const supabase = await supabaseServer();
+
+    // 🔥 HARD ENFORCEMENT
+    if (scope.role === "CUSTOMER") {
+      const { data: customer } = await supabase
+        .from("customers")
+        .select("status")
+        .eq("id", scope.customer_id)
+        .single();
+
+      if (customer?.status !== "ACTIVE") {
+        return NextResponse.json({ error: "Account pending approval" }, { status: 403 });
+      }
+    }
+
     const body = await req.json();
 
     const newVehicle = {
@@ -99,12 +99,9 @@ export async function POST(req: Request) {
       plate: body.plate || null,
       vin: body.vin || null,
       unit_number: body.unit_number || null,
-
-      // ⭐ HEALTH PHOTOS SAVED
       health_photo_1: body.health_photo_1 || null,
       health_photo_2: body.health_photo_2 || null,
       health_photo_3: body.health_photo_3 || null,
-
       provider_company_id: body.provider_company_id || null,
     };
 
@@ -114,16 +111,10 @@ export async function POST(req: Request) {
       .select()
       .maybeSingle();
 
-    if (error) {
-      return NextResponse.json({ ok: false, error: error.message });
-    }
+    if (error) return NextResponse.json({ ok: false, error: error.message });
 
     return NextResponse.json({ ok: true, vehicle: data });
   } catch (err: any) {
-    return NextResponse.json(
-      { ok: false, error: "Server error", detail: err.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: "Server error", detail: err.message }, { status: 500 });
   }
 }
-
