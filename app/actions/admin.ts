@@ -4,41 +4,84 @@ import { createClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 
-// --- HELPER 1: Get Client with User's Auth Token (For Standard DB Operations) ---
+// --- HELPERS ---
+
+/**
+ * Enhanced Auth Helper: Standardizes token retrieval for Next.js 15.
+ */
 async function getSupabaseAuth() {
-  const cookieStore = await cookies();
-  const authCookie = cookieStore.getAll().find(c => c.name.includes("-auth-token"));
-  if (!authCookie) return null;
-  
-  let val = authCookie.value;
-  if (val.startsWith("base64-")) val = Buffer.from(val.replace("base64-", ""), 'base64').toString('utf-8');
-  
-  const token = JSON.parse(decodeURIComponent(val)).access_token;
-  
+  try {
+    const cookieStore = await cookies();
+    const allCookies = cookieStore.getAll();
+    const authCookie = allCookies.find(c => c.name.includes("-auth-token"));
+    
+    if (!authCookie) {
+      console.error("❌ Auth Error: No session cookie found.");
+      return null;
+    }
+    
+    let val = authCookie.value;
+    if (val.startsWith("base64-")) {
+      val = Buffer.from(val.replace("base64-", ""), 'base64').toString('utf-8');
+    }
+    
+    const parsed = JSON.parse(decodeURIComponent(val));
+    const token = parsed.access_token;
+    
+    if (!token) return null;
+    
+    return createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { 
+        global: { 
+          headers: { Authorization: `Bearer ${token}` } 
+        } 
+      }
+    );
+  } catch (err) {
+    console.error("❌ Auth Helper Crash:", err);
+    return null;
+  }
+}
+
+function getServiceSupabase() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { global: { headers: { Authorization: `Bearer ${token}` } } }
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
 }
 
-// --- HELPER 2: Get Service Client (For Creating/Deleting Users) ---
-// This uses the SERVICE_ROLE_KEY to bypass security for Admin tasks
-function getServiceSupabase() {
-    return createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
+async function logFleetEvent(entityId: string, type: string, payload: any) {
+  const supabase = getServiceSupabase();
+  await supabase.from("fleet_events").insert({
+    entity_type: "user",
+    entity_id: entityId,
+    event_type: type,
+    event_payload: payload,
+  });
 }
 
 // ==========================================
-// 1. LEAD CONVERSION (The New Feature)
+// 1. LEAD & REPORT MANAGEMENT
 // ==========================================
+
+export async function generateShareLink(requestId: string) {
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+  const shareUrl = `${baseUrl}/admin/reports/${requestId}`;
+
+  await logFleetEvent(requestId, "REPORT_SHARED_SMS", {
+    url: shareUrl,
+    timestamp: new Date().toISOString()
+  });
+
+  return { shareUrl };
+}
+
 export async function convertLeadToCustomer(lead: any) {
   const supabase = await getSupabaseAuth();
   if (!supabase) return { error: "Unauthorized" };
 
-  // 1. Create Customer
   const { data: newCustomer, error: createError } = await supabase
     .from("customers")
     .insert({
@@ -47,129 +90,230 @@ export async function convertLeadToCustomer(lead: any) {
       phone: lead.phone,
       email: lead.email,
       billing_address: lead.address,
-      source_lead_id: lead.id
+      market: lead.market || "San Antonio",
+      source_lead_id: lead.id,
+      status: "ACTIVE"
     })
     .select()
     .single();
 
-  if (createError) {
-    console.error("Create Customer Error:", createError);
-    return { error: createError.message };
-  }
+  if (createError) return { error: createError.message };
 
-  // 2. Update Lead Status
-  const { error: updateError } = await supabase
+  await supabase
     .from("sales_leads")
     .update({ customer_status: "CONVERTED", status: "APPROVED" })
     .eq("id", lead.id);
 
-  if (updateError) console.error("Update Lead Error:", updateError);
-
   revalidatePath("/admin/leads");
+  revalidatePath("/admin/customers");
+  
   return { success: true, customerId: newCustomer.id };
 }
 
 // ==========================================
-// 2. USER MANAGEMENT (Restored Functions)
+// 2. USER MANAGEMENT
 // ==========================================
 
 export async function inviteUser(formData: FormData) {
-    const supabase = getServiceSupabase();
-    const email = formData.get("email") as string;
-    const role = formData.get("role") as string;
-    const password = "TempPassword123!"; // Default temp password
+  const supabase = getServiceSupabase();
+  const email = formData.get("email") as string;
+  const role = formData.get("role") as string;
+  const fullName = formData.get("fullName") as string;
+  const customerId = formData.get("customerId") as string;
 
-    // 1. Create Auth User
-    const { data, error } = await supabase.auth.admin.createUser({
-        email: email,
-        password: password,
-        email_confirm: true,
-        user_metadata: { role: role }
+  const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, {
+    data: { role, full_name: fullName, customer_id: customerId || null },
+    redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/login`
+  });
+
+  if (error) return { error: error.message };
+
+  if (data.user) {
+    await supabase.from("profiles").upsert({
+      id: data.user.id,
+      email: email,
+      role: role,
+      full_name: fullName,
+      customer_id: customerId || null
     });
+    await logFleetEvent(data.user.id, "USER_INVITED", { role, email });
+  }
 
-    if (error) {
-        console.error("Invite Error:", error);
-        return { error: error.message };
-    }
-
-    // 2. Add to Profiles Table
-    if (data.user) {
-        await supabase.from("profiles").insert({
-            id: data.user.id,
-            email: email,
-            role: role,
-            full_name: email.split("@")[0] // Default name
-        });
-    }
-
-    revalidatePath("/admin/users");
-    return { success: true };
+  revalidatePath("/admin/users");
+  return { success: true };
 }
 
 export async function deleteUser(formData: FormData) {
-    const supabase = getServiceSupabase();
-    const userId = formData.get("userId") as string;
+  const supabase = getServiceSupabase();
+  const userId = formData.get("userId") as string;
 
-    // 1. Delete from Auth (Profiles will auto-delete via Cascade usually, but we can be safe)
-    const { error } = await supabase.auth.admin.deleteUser(userId);
-    
-    if (error) {
-        console.error("Delete Error:", error);
-        return { error: error.message };
-    }
+  await logFleetEvent(userId, "ACCESS_REMOVED", {
+    reason: "Manual admin removal",
+    timestamp: new Date().toISOString()
+  });
 
-    revalidatePath("/admin/users");
-    return { success: true };
+  const { error } = await supabase.auth.admin.deleteUser(userId);
+  if (error) return { error: error.message };
+
+  await supabase.from("profiles").delete().eq("id", userId);
+
+  revalidatePath("/admin/users");
+  return { success: true };
 }
 
-// ... (keep existing imports and functions)
+// ==========================================
+// 3. REPAIR & SYNC
+// ==========================================
 
-// --- CUSTOMER MANAGEMENT ---
+export async function repairFleetLinks() {
+  const supabase = getServiceSupabase();
+  const { data: customer } = await supabase.from("customers")
+    .select("id")
+    .ilike("company_name", "M Group")
+    .single();
+
+  if (!customer) return { error: "M Group account not found." };
+
+  await supabase.from("profiles").update({ customer_id: customer.id }).eq("email", "customer@test.com");
+  const { count: vehCount } = await supabase.from("vehicles").update({ customer_id: customer.id }).is("customer_id", null);
+
+  const { data: techProfiles } = await supabase.from("profiles")
+    .select("id, full_name, email, phone")
+    .in("role", ["TECH", "TECHNICIAN"]);
+  
+  if (techProfiles) {
+    for (const profile of techProfiles) {
+      await supabase.from("technicians").upsert({
+        profile_id: profile.id,
+        name: profile.full_name || "New Technician",
+        email: profile.email,
+        phone: profile.phone,
+        is_active: true
+      }, { onConflict: 'email' });
+    }
+  }
+
+  revalidatePath("/admin/users");
+  revalidatePath("/admin/techs");
+  
+  return { 
+    success: true, 
+    repairedVehicles: vehCount || 0,
+    syncedTechs: techProfiles?.length || 0 
+  };
+}
+
+// ==========================================
+// 4. CUSTOMER & MARKET MANAGEMENT
+// ==========================================
 
 export async function getCustomers() {
   const supabase = await getSupabaseAuth();
   if (!supabase) return [];
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("customers")
-    .select("*")
+    .select(`*, service_requests(completed_at, service_title)`)
     .order("created_at", { ascending: false });
-    
-  return data || [];
+
+  if (error) return [];
+
+  return (data || []).map(cust => {
+    const sortedJobs = (cust.service_requests || [])
+      .filter((r: any) => r.completed_at)
+      .sort((a: any, b: any) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime());
+
+    return {
+      ...cust,
+      last_service: sortedJobs[0]?.completed_at || null,
+      last_service_title: sortedJobs[0]?.service_title || null
+    };
+  });
+}
+
+export async function updateCustomer(formData: FormData) {
+  const supabase = await getSupabaseAuth();
+  if (!supabase) return { error: "Unauthorized" };
+
+  const customerId = formData.get("id") as string;
+  const { error } = await supabase.from("customers").update({
+      company_name: formData.get("company") as string,
+      contact_name: formData.get("contact") as string,
+      email: formData.get("email") as string,
+      phone: formData.get("phone") as string,
+      billing_address: formData.get("billingAddress") as string,
+      market: formData.get("market") as string,
+    }).eq("id", customerId);
+
+  if (error) return { error: error.message };
+  revalidatePath("/admin/customers");
+  return { success: true };
+}
+
+export async function getMarketPerformance() {
+  const supabase = await getSupabaseAuth();
+  if (!supabase) return [];
+
+  const { data, error } = await supabase
+    .from("service_requests")
+    .select(`total_price, status, customers (market)`)
+    .eq("status", "COMPLETED");
+
+  if (error) return [];
+
+  const stats: Record<string, { revenue: number; jobs: number }> = {};
+  data.forEach((req: any) => {
+    const market = req.customers?.market || "Unknown";
+    if (!stats[market]) stats[market] = { revenue: 0, jobs: 0 };
+    stats[market].revenue += req.total_price || 0;
+    stats[market].jobs += 1;
+  });
+
+  return Object.entries(stats).map(([name, val]) => ({ name, ...val }));
 }
 
 export async function addManualCustomer(formData: FormData) {
   const supabase = await getSupabaseAuth();
   if (!supabase) return { error: "Unauthorized" };
 
-  const company = formData.get("company") as string;
-  const contact = formData.get("contact") as string;
-  const email = formData.get("email") as string;
-  const phone = formData.get("phone") as string;
-  const market = formData.get("market") as string;
-
-  // Check for duplicates first!
-  const { data: existing } = await supabase
-    .from("customers")
-    .select("id")
-    .ilike("company_name", company)
-    .single();
-
-  if (existing) {
-      return { error: "Customer with this name already exists!" };
-  }
-
   const { error } = await supabase.from("customers").insert({
-      company_name: company,
-      contact_name: contact,
-      email: email,
-      phone: phone,
-      market: market || "San Antonio",
+      company_name: formData.get("company") as string,
+      contact_name: formData.get("contact") as string,
+      email: formData.get("email") as string,
+      phone: formData.get("phone") as string,
+      market: (formData.get("market") as string) || "San Antonio",
+      billing_address: formData.get("address") as string,
       status: "ACTIVE"
   });
 
   if (error) return { error: error.message };
-
   revalidatePath("/admin/customers");
+  return { success: true };
+}
+
+/**
+ * Saves AI Configuration to the persistent database
+ * Updated to use standard keys: openai_api_key, ai_model, ai_temperature
+ */
+export async function saveAISettings(config: { 
+  openai_api_key: string, 
+  ai_model: string, 
+  ai_temperature: string 
+}) {
+  const supabase = await getSupabaseAuth();
+  if (!supabase) return { error: "Unauthorized" };
+
+  const { error } = await supabase
+    .from("system_settings")
+    .upsert({
+      key: "ai_config",
+      value: config,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'key' });
+
+  if (error) return { error: error.message };
+  
+  // Revalidate both the AI page and any components using this config
+  revalidatePath("/admin/ai");
   return { success: true };
 }

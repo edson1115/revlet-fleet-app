@@ -4,140 +4,107 @@ import { cookies } from "next/headers";
 
 export const dynamic = "force-dynamic";
 
-// Helper to reliably extract the token using Next.js cookies()
 async function getAccessToken() {
   const cookieStore = await cookies();
   const allCookies = cookieStore.getAll();
   const authCookie = allCookies.find(c => c.name.includes("-auth-token"));
-
   if (!authCookie) return null;
-
   try {
-    let rawValue = authCookie.value;
-    
-    // Handle the "base64-" prefix we added in the Session Bridge
-    if (rawValue.startsWith("base64-")) {
-      rawValue = rawValue.replace("base64-", "");
-      rawValue = Buffer.from(rawValue, 'base64').toString('utf-8');
-    }
-    
-    // standard decode
-    rawValue = decodeURIComponent(rawValue);
-    
-    // Parse the JSON object
-    const sessionData = JSON.parse(rawValue);
-    return sessionData.access_token;
-  } catch (e) {
-    console.error("API Token Parse Error:", e);
-    return null;
-  }
+    let val = authCookie.value;
+    if (val.startsWith("base64-")) val = Buffer.from(val.replace("base64-", ""), 'base64').toString('utf-8');
+    return JSON.parse(decodeURIComponent(val)).access_token;
+  } catch (e) { return null; }
 }
 
-// GET: List all Technicians
+// GET: List all San Antonio Technicians
 export async function GET(request: Request) {
   try {
-    // 1. Verify Authentication
     const accessToken = await getAccessToken();
+    if (!accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
     
-    if (!accessToken) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    // 2. Use Service Role to fetch profiles
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-
-    // 3. Fetch profiles where role is TECHNICIAN
     const { data: techs, error } = await supabaseAdmin
       .from("profiles")
-      .select("id, full_name, email, active")
-      .eq("role", "TECHNICIAN")
+      .select("id, full_name, email, active, phone")
+      .in("role", ["TECHNICIAN", "TECH"])
+      .eq("active_market", "San Antonio")
       .order("full_name", { ascending: true });
 
     if (error) throw error;
-
-    const rows = techs.map(t => ({
-      id: t.id,
+    return NextResponse.json({ rows: (techs || []).map(t => ({
+      id: t.id, 
       name: t.full_name || t.email, 
-      active: t.active
-    }));
-
-    return NextResponse.json({ rows });
-
-  } catch (error: any) {
-    console.error("Tech API Error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+      email: t.email, 
+      phone: t.phone || "—", 
+      active: t.active ?? true
+    }))});
+  } catch (error: any) { return NextResponse.json({ error: error.message }, { status: 500 }); }
 }
 
-// POST: Create a new Technician (Invite)
+// POST: Invite Technician
 export async function POST(request: Request) {
   try {
     const accessToken = await getAccessToken();
     if (!accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const { name, email, phone } = await request.json(); 
+    const targetEmail = email || `${name.replace(/\s+/g, '.').toLowerCase()}@revlet.com`;
+    const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-    const body = await request.json();
-    const { name } = body;
-    // We generate a fake email if one isn't provided, or use the name to make one
-    // But usually you'd want an email input. For now, assuming the UI sends 'name'
-    // Let's assume the user enters a name and we generate a dummy email or the UI sends an email.
-    // Looking at your UI code, it only sends { name, active }.
-    // We'll generate a placeholder email for now so the invite works.
-    
-    const email = `${name.replace(/\s+/g, '.').toLowerCase()}@revlet.com`;
-
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-
-    // 1. Invite User
-    const { data: user, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
-        data: { full_name: name, role: "TECHNICIAN" }
+    const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(targetEmail, {
+        data: { full_name: name, role: "TECHNICIAN" },
+        redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/login`
     });
+    if (inviteError) return NextResponse.json({ error: inviteError.message }, { status: 400 });
 
-    if (inviteError) throw inviteError;
-
-    // 2. Ensure Profile Role is Set
-    // (The trigger should handle this, but we force update to be safe)
-    if (user.user) {
-        await supabaseAdmin
-            .from("profiles")
-            .update({ role: "TECHNICIAN", full_name: name })
-            .eq("id", user.user.id);
+    if (inviteData.user) {
+      await supabaseAdmin.from("profiles").upsert({
+        id: inviteData.user.id,
+        email: targetEmail,
+        full_name: name,
+        role: "TECHNICIAN",
+        phone: phone || null,
+        active_market: "San Antonio",
+        active: true
+      });
     }
-
     return NextResponse.json({ success: true });
-
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+  } catch (error: any) { return NextResponse.json({ error: error.message }, { status: 500 }); }
 }
 
-// DELETE: Remove a Technician
-export async function DELETE(request: Request) {
+// PATCH: EDIT Technician - Read ID from searchParams
+export async function PATCH(request: Request) {
   try {
     const accessToken = await getAccessToken();
     if (!accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
-
+    
     if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 });
 
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    const { name, phone, active } = await request.json();
+    const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-    const { error } = await supabaseAdmin.auth.admin.deleteUser(id);
+    const { error } = await supabaseAdmin
+      .from("profiles")
+      .update({ full_name: name, phone: phone, active: active })
+      .eq("id", id);
+
     if (error) throw error;
-
     return NextResponse.json({ success: true });
+  } catch (error: any) { return NextResponse.json({ error: error.message }, { status: 500 }); }
+}
 
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+// DELETE: Remove Technician
+export async function DELETE(request: Request) {
+  try {
+    const accessToken = await getAccessToken();
+    if (!accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const id = new URL(request.url).searchParams.get("id");
+    const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    await supabaseAdmin.from("profiles").delete().eq("id", id);
+    const { error } = await supabaseAdmin.auth.admin.deleteUser(id!);
+    if (error) throw error;
+    return NextResponse.json({ success: true });
+  } catch (error: any) { return NextResponse.json({ error: error.message }, { status: 500 }); }
 }

@@ -11,7 +11,15 @@ const IconTire = () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" 
 const IconSearch = () => <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>;
 const IconBox = () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>;
 
-export default function CustomerDashboardClient({ requests, customerName }: { requests: any[], customerName: string }) {
+export default function CustomerDashboardClient({ 
+  requests, 
+  customerName, 
+  stats 
+}: { 
+  requests: any[], 
+  customerName: string,
+  stats: { inProgress: number, pending: number, completed: number }
+}) {
   const router = useRouter();
   const [search, setSearch] = useState("");
 
@@ -29,7 +37,7 @@ export default function CustomerDashboardClient({ requests, customerName }: { re
           <div className="bg-white px-8 py-5 flex justify-between items-center border-b border-gray-200 sticky top-0 z-20 shadow-sm backdrop-blur-md bg-white/90">
              <div>
                 <h1 className="font-bold text-gray-900 leading-none text-xl">{customerName}</h1>
-                <p className="text-xs font-bold text-gray-400 uppercase mt-1">Overview</p>
+                <p className="text-xs font-bold text-gray-400 uppercase mt-1">Fleet Command</p>
              </div>
              
              <button 
@@ -42,12 +50,28 @@ export default function CustomerDashboardClient({ requests, customerName }: { re
 
           {/* DASHBOARD CONTENT */}
           <div className="p-8 max-w-6xl mx-auto w-full">
+
+              {/* 📊 LIVE FLEET STATS */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+                    <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Active in Shop</p>
+                    <div className="text-4xl font-black mt-1 text-gray-900">{stats.inProgress}</div>
+                </div>
+                <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+                    <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Scheduled</p>
+                    <div className="text-4xl font-black mt-1 text-gray-900">{stats.pending}</div>
+                </div>
+                <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+                    <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Done / Ready</p>
+                    <div className="text-4xl font-black mt-1 text-gray-900">{stats.completed}</div>
+                </div>
+              </div>
               
               {/* QUICK ACTIONS GRID */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
                  <div onClick={() => router.push('/customer/requests/new')} className="bg-blue-600 text-white p-6 rounded-2xl shadow-lg cursor-pointer hover:bg-blue-700 transition transform hover:-translate-y-1 group">
                     <div className="bg-white/20 w-10 h-10 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition"><IconPlus /></div>
-                    <div className="font-black text-xl">New Request</div>
+                    <div className="font-black text-xl leading-tight">New Request</div>
                     <div className="text-blue-200 text-sm font-medium mt-1">Schedule service for a vehicle.</div>
                  </div>
 
@@ -80,17 +104,16 @@ export default function CustomerDashboardClient({ requests, customerName }: { re
 
               <div className="space-y-4">
                   {filteredRequests.length === 0 && (
-                      <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-gray-300">
-                          <p className="text-gray-400 font-bold">No matching records found.</p>
-                      </div>
+                    <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-gray-300">
+                        <p className="text-gray-400 font-bold">No matching records found.</p>
+                    </div>
                   )}
 
                   {filteredRequests.map((r) => {
-                      // ✨ LOGIC FIX: Handle missing vehicles (Bulk Orders)
                       const hasVehicle = !!r.vehicle;
                       const title = hasVehicle 
                           ? `${r.vehicle.year} ${r.vehicle.model}` 
-                          : r.service_title; // e.g. "Tire Purchase"
+                          : r.service_title; 
                       
                       const subtitle = hasVehicle 
                           ? r.vehicle.plate 
@@ -115,7 +138,7 @@ export default function CustomerDashboardClient({ requests, customerName }: { re
                                       <div className="flex items-center gap-3 mb-1">
                                           <h3 className="font-bold text-gray-900 text-base">{title}</h3>
                                           <span className={clsx(
-                                              "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border",
+                                              "px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wide border",
                                               r.status === 'COMPLETED' ? "bg-green-50 text-green-700 border-green-100" : 
                                               r.status === 'IN_PROGRESS' ? "bg-blue-50 text-blue-700 border-blue-100" : "bg-gray-50 text-gray-600 border-gray-200"
                                           )}>
@@ -125,7 +148,7 @@ export default function CustomerDashboardClient({ requests, customerName }: { re
                                       <div className="text-sm text-gray-500 font-medium flex items-center gap-2">
                                           <span>{displayService}</span>
                                           <span className="text-gray-300">•</span>
-                                          <span className="font-mono text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded text-xs">
+                                          <span className="font-mono text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded text-xs uppercase">
                                               {subtitle || "N/A"}
                                           </span>
                                       </div>
@@ -133,7 +156,7 @@ export default function CustomerDashboardClient({ requests, customerName }: { re
                               </div>
 
                               <div className="text-right">
-                                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">Date</div>
+                                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">Service Date</div>
                                   <div className="font-bold text-gray-900 text-sm font-mono">{new Date(r.created_at).toLocaleDateString()}</div>
                               </div>
                           </div>

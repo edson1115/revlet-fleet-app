@@ -1,119 +1,154 @@
 "use client";
 
 import { useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { useRouter } from "next/navigation";
+import { createBrowserClient } from "@supabase/ssr";
+
+// --- ICONS ---
+const IconLock = () => <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>;
+const IconMail = () => <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>;
+const IconArrowRight = () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>;
 
 export default function LoginPage() {
+  const router = useRouter();
+
+  const supabase = createBrowserClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  {
+    cookieOptions: {
+      name: "sb-revlet-auth-token",
+      path: "/",
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+    },
+    // Adding this helps Supabase keep LocalStorage and Cookies in sync
+    auth: {
+      persistSession: true,
+      detectSessionInUrl: true,
+      autoRefreshToken: true,
+    }
+  }
+);
+
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setMessage("");
+    setError(null);
 
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
-
-    const { error } = await supabase.auth.signInWithOtp({
+    const { error: authError } = await supabase.auth.signInWithPassword({
       email,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-      },
+      password,
     });
 
-    setLoading(false);
-
-    if (error) {
-      setMessage("Error: " + error.message);
-    } else {
-      setMessage("Magic Link sent! Check your email.");
+    if (authError) {
+      setError(authError.message);
+      setLoading(false);
+      return;
     }
+
+    const { data: { user } } = await supabase.auth.getUser();
+    const role = user?.user_metadata?.role;
+
+    console.log("REVLET AUTH: Authenticated as", role);
+
+    // 🚥 THE TRAFFIC CONTROLLER
+    let targetPath = '/office'; // Default fallback
+    
+    if (role === 'SUPERADMIN' || role === 'ADMIN' || role === 'SUPER_ADMIN') {
+      targetPath = '/admin/users';
+    } else if (role === 'TECH' || role === 'TECHNICIAN') {
+      targetPath = '/tech';
+    } else if (role === 'CUSTOMER') {
+      targetPath = '/customer'; // 👈 Sends customers to app/customer/page.tsx
+    }
+
+    router.prefetch(targetPath);
+
+    // ⏳ Cookie Settlement Delay
+    setTimeout(() => {
+      router.push(targetPath);
+      router.refresh();
+    }, 100);
   };
 
   return (
-    <div className="min-h-screen flex bg-white">
-      
-      {/* LEFT: BRANDING & FORM */}
-      <div className="flex-1 flex flex-col justify-center px-8 sm:px-12 lg:px-24 xl:px-32 relative z-10">
-        <div className="max-w-md w-full mx-auto">
-          
-          {/* LOGO */}
-          <div className="mb-12">
-            <h1 className="text-4xl font-black tracking-tighter italic">
-              REVLET<span className="text-blue-600">FLEET</span>
-            </h1>
-            <p className="text-gray-400 text-sm font-bold tracking-widest uppercase mt-1">
-              Enterprise Operations
-            </p>
+    <div className="min-h-screen bg-black text-white font-sans flex flex-col relative overflow-hidden">
+      <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-purple-900/20 rounded-full blur-[120px] pointer-events-none"></div>
+      <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-blue-900/20 rounded-full blur-[120px] pointer-events-none"></div>
+
+      <nav className="p-6 absolute top-0 left-0 w-full z-10 flex justify-between items-center">
+        <div onClick={() => router.push("/")} className="text-xl font-black italic tracking-tighter flex items-center gap-2 cursor-pointer hover:opacity-80 transition">
+          <span className="bg-white text-black px-2 py-0.5 rounded">R</span>
+          REVLET
+        </div>
+      </nav>
+
+      <div className="flex-1 flex items-center justify-center p-4 relative z-10">
+        <div className="w-full max-w-md">
+          <div className="text-center mb-10">
+            <h1 className="text-4xl font-black mb-2 tracking-tight uppercase italic leading-none">Identity Access</h1>
+            <p className="text-gray-500 font-medium">Secure login for Revlet Fleet OS.</p>
           </div>
 
-          <h2 className="text-3xl font-bold text-gray-900 mb-2">Welcome back.</h2>
-          <p className="text-gray-500 mb-10">Sign in to manage your fleet and service requests.</p>
+          <div className="bg-zinc-900/50 border border-white/10 backdrop-blur-xl p-8 rounded-[2.5rem] shadow-2xl">
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Email Address</label>
+                <div className="relative group">
+                  <div className="absolute left-4 top-3.5 text-zinc-500 group-focus-within:text-white transition-colors">
+                    <IconMail />
+                  </div>
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="name@company.com"
+                    className="w-full bg-black/50 border border-white/10 text-white pl-12 pr-4 py-4 rounded-2xl focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition placeholder:text-zinc-700 font-medium"
+                  />
+                </div>
+              </div>
 
-          <form onSubmit={handleLogin} className="space-y-5">
-            <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase mb-2 ml-1">Work Email</label>
-              <input
-                type="email"
-                placeholder="name@company.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-lg font-medium focus:outline-none focus:ring-2 focus:ring-black focus:bg-white transition"
-              />
-            </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Password</label>
+                <div className="relative group">
+                  <div className="absolute left-4 top-3.5 text-zinc-500 group-focus-within:text-white transition-colors">
+                    <IconLock />
+                  </div>
+                  <input
+                    type="password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full bg-black/50 border border-white/10 text-white pl-12 pr-4 py-4 rounded-2xl focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition placeholder:text-zinc-700 font-medium"
+                  />
+                </div>
+              </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-black text-white py-4 rounded-xl text-lg font-bold hover:bg-gray-900 transition shadow-xl hover:shadow-2xl hover:-translate-y-1 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? "Sending Magic Link..." : "Send Magic Link →"}
-            </button>
-          </form>
+              {error && (
+                <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-black uppercase p-4 rounded-2xl text-center tracking-widest">
+                  {error}
+                </div>
+              )}
 
-          {message && (
-            <div className={`mt-6 p-4 rounded-xl text-center font-bold text-sm animate-in slide-in-from-bottom-2 ${message.includes("Error") ? "bg-red-50 text-red-600" : "bg-green-50 text-green-700 border border-green-100"}`}>
-              {message}
-            </div>
-          )}
-
-          <div className="mt-12 pt-8 border-t border-gray-100 text-center">
-            <p className="text-xs text-gray-400">
-              Need access? Contact your System Administrator.
-            </p>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-white text-black font-black text-lg py-5 rounded-2xl hover:bg-zinc-200 active:scale-[0.98] transition flex items-center justify-center gap-2 mt-4 shadow-xl disabled:opacity-50"
+              >
+                {loading ? "Authenticating..." : <>Log In <IconArrowRight /></>}
+              </button>
+            </form>
           </div>
         </div>
       </div>
-
-      {/* RIGHT: VISUAL SIDE */}
-      <div className="hidden lg:block w-[55%] relative overflow-hidden bg-gray-900">
-        {/* Abstract Background Shapes */}
-        <div className="absolute inset-0 bg-gradient-to-br from-gray-800 to-black"></div>
-        <div className="absolute top-0 right-0 w-[800px] h-[800px] bg-blue-600 rounded-full blur-3xl opacity-20 -translate-y-1/2 translate-x-1/2"></div>
-        <div className="absolute bottom-0 left-0 w-[600px] h-[600px] bg-purple-600 rounded-full blur-3xl opacity-10 translate-y-1/2 -translate-x-1/4"></div>
-        
-        <div className="relative z-10 h-full flex flex-col justify-end p-20 text-white">
-          <blockquote className="space-y-4 max-w-lg">
-             <div className="text-6xl font-serif text-blue-500 opacity-50">"</div>
-             <p className="text-2xl font-medium leading-relaxed">
-               The most reliable fleet management platform we've ever used. Simple, fast, and built for scale.
-             </p>
-             <footer className="flex items-center gap-4 pt-4">
-               <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center font-bold">R</div>
-               <div>
-                 <div className="font-bold">Revlet System</div>
-                 <div className="text-gray-400 text-sm">v2.0 Command Center</div>
-               </div>
-             </footer>
-          </blockquote>
-        </div>
-      </div>
-
     </div>
   );
 }

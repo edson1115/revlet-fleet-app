@@ -3,191 +3,188 @@
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
+import { createBrowserClient } from "@supabase/ssr";
 
 // --- ICONS ---
+const IconClock = () => <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
 const IconLogout = () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>;
-const IconBox = () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>;
-const IconChevron = () => <svg className="w-5 h-5 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>;
-const IconCheck = () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>;
+const IconBox = () => <svg className="w-5 h-5 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>;
 
 export default function TechDashboardClient({ requests }: { requests: any[] }) {
   const router = useRouter();
-  const [showLoadout, setShowLoadout] = useState(false);
+  const [view, setView] = useState<"TODAY" | "UPCOMING">("TODAY");
 
-  const formatDate = (dateString?: string) => {
-    if (!dateString) return "No Date";
-    return new Date(dateString).toLocaleDateString("en-US", { weekday: 'short', month: 'short', day: 'numeric' });
-  };
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
 
-  async function handleLogout() {
-      await fetch("/api/auth/signout", { method: "POST" });
-      router.push("/login");
-  }
+  // 1. Logic (Unchanged from your version)
+  const { todayJobs, upcomingJobs } = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const _today: any[] = [];
+    const _upcoming: any[] = [];
 
-  // Smart Loadout Logic
-  const loadoutList = useMemo(() => {
-    const map = new Map<string, { name: string; number: string; qty: number; jobs: string[] }>();
     requests.forEach(r => {
-        if (r.request_parts) {
-            r.request_parts.forEach((p: any) => {
-                const key = `${p.part_name}-${p.part_number}`;
-                const existing = map.get(key);
-                if (existing) {
-                    existing.qty += (p.quantity || 1);
-                    if (!existing.jobs.includes(r.vehicle?.unit_number || r.vehicle?.plate)) {
-                        existing.jobs.push(r.vehicle?.unit_number || r.vehicle?.plate);
-                    }
-                } else {
-                    map.set(key, { name: p.part_name, number: p.part_number, qty: p.quantity || 1, jobs: [r.vehicle?.unit_number || r.vehicle?.plate] });
-                }
-            });
-        }
+      if (r.status === 'IN_PROGRESS') {
+        _today.push(r);
+        return;
+      }
+      if (!r.scheduled_start_at) {
+        _upcoming.push(r);
+        return;
+      }
+      const jobDate = new Date(r.scheduled_start_at);
+      jobDate.setHours(0, 0, 0, 0);
+      if (jobDate.getTime() === today.getTime() || jobDate.getTime() < today.getTime()) {
+        _today.push(r);
+      } else {
+        _upcoming.push(r);
+      }
     });
-    return Array.from(map.values());
+    return { todayJobs: _today, upcomingJobs: _upcoming };
   }, [requests]);
 
-  const totalPartsCount = loadoutList.reduce((acc, item) => acc + item.qty, 0);
+  const displayedJobs = view === "TODAY" ? todayJobs : upcomingJobs;
+
+  const loadoutCount = useMemo(() => {
+    return displayedJobs.reduce((acc, job) => acc + (job.request_parts?.length || 0), 0);
+  }, [displayedJobs]);
+
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    router.push("/login");
+  }
 
   return (
-    <div className="min-h-screen bg-[#f3f4f6] pb-20 font-sans">
+    <div className="min-h-screen bg-black text-white font-sans pb-24">
       
       {/* MOBILE HEADER */}
-      <div className="bg-white px-6 py-5 sticky top-0 z-20 shadow-sm border-b border-gray-100 flex justify-between items-center">
-        <div className="flex items-center gap-3">
-             <div className="bg-black text-white px-2 py-0.5 rounded text-lg font-black tracking-tighter italic">
-                R
-            </div>
-            <div>
-                <h1 className="font-bold text-gray-900 leading-none">Technician</h1>
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{requests.length} Jobs Today</p>
-            </div>
+      <div className="bg-zinc-900 border-b border-zinc-800 px-6 py-6 sticky top-0 z-30 flex justify-between items-center shadow-lg">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+             <div className="bg-white text-black text-[10px] font-black px-1.5 py-0.5 rounded italic">REVLET</div>
+             <span className="text-zinc-500 text-[10px] font-black uppercase tracking-widest">Technician</span>
+          </div>
+          <h1 className="text-2xl font-black tracking-tight">
+            {view === "TODAY" ? `${todayJobs.length} Jobs Today` : `${upcomingJobs.length} Upcoming`}
+          </h1>
         </div>
-        <button onClick={handleLogout} className="p-2 bg-gray-100 rounded-full text-gray-500 hover:text-black transition">
-            <IconLogout />
+        <button onClick={handleLogout} className="p-2 text-zinc-500 hover:text-white transition active:scale-90">
+          <IconLogout />
         </button>
       </div>
 
-      {/* LOADOUT BUTTON */}
-      {totalPartsCount > 0 && (
-          <div className="max-w-xl mx-auto px-4 mt-6">
-            <button 
-                onClick={() => setShowLoadout(true)}
-                className="w-full bg-amber-400 hover:bg-amber-500 text-black p-5 rounded-2xl shadow-lg shadow-amber-400/20 flex items-center justify-between transition active:scale-[0.98]"
-            >
-                <div className="flex items-center gap-4">
-                    <div className="bg-black/10 p-2 rounded-full"><IconBox /></div>
-                    <div className="text-left">
-                        <div className="font-black text-lg leading-none uppercase tracking-wide">Daily Loadout</div>
-                        <div className="text-xs font-bold text-black/60 mt-1">{totalPartsCount} Items to Grab</div>
-                    </div>
+      {/* VIEW TOGGLE */}
+      <div className="p-4 sticky top-[88px] z-20 bg-black/80 backdrop-blur-md">
+        <div className="bg-zinc-900 p-1 rounded-2xl flex gap-1 border border-zinc-800 shadow-xl">
+          <button 
+            onClick={() => setView("TODAY")}
+            className={clsx(
+              "flex-1 py-3 text-xs font-black uppercase tracking-wider rounded-xl transition-all",
+              view === "TODAY" ? "bg-white text-black shadow-lg" : "text-zinc-500"
+            )}
+          >
+            Today
+          </button>
+          <button 
+            onClick={() => setView("UPCOMING")}
+            className={clsx(
+              "flex-1 py-3 text-xs font-black uppercase tracking-wider rounded-xl transition-all",
+              view === "UPCOMING" ? "bg-white text-black shadow-lg" : "text-zinc-500"
+            )}
+          >
+            Upcoming
+          </button>
+        </div>
+      </div>
+
+      {/* DAILY LOADOUT BANNER */}
+      {displayedJobs.length > 0 && loadoutCount > 0 && (
+        <div className="px-4 mb-6">
+          <div className="bg-amber-400 rounded-2xl p-5 flex justify-between items-center active:scale-[0.98] transition shadow-lg shadow-amber-900/20">
+            <div className="flex items-center gap-4">
+              <div className="bg-black/10 p-2.5 rounded-xl">
+                <IconBox />
+              </div>
+              <div>
+                <div className="font-black text-black text-sm uppercase tracking-wider leading-none">
+                  {view === "TODAY" ? "Daily Loadout" : "Future Parts Prep"}
                 </div>
-                <div className="bg-white/20 px-4 py-1.5 rounded-lg font-bold text-sm backdrop-blur-sm">View &rarr;</div>
-            </button>
+                <div className="text-[11px] font-bold text-black/60 mt-1">
+                  {loadoutCount} Items to grab for this list
+                </div>
+              </div>
+            </div>
+            <div className="bg-black/80 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase">
+              View &rarr;
+            </div>
           </div>
+        </div>
       )}
 
       {/* JOB LIST */}
-      <div className="max-w-xl mx-auto p-4 space-y-4 mt-2">
-        {requests.length === 0 && (
-            <div className="text-center py-20 opacity-50">
-                <div className="text-4xl mb-4">☕️</div>
-                <h3 className="text-lg font-bold text-gray-900">All caught up!</h3>
-                <p className="text-sm text-gray-500">No jobs assigned to you.</p>
-            </div>
-        )}
-
-        {requests.map((r) => {
-          const isStarted = r.status === "IN_PROGRESS";
-          const hasParts = r.request_parts && r.request_parts.length > 0;
-
-          return (
+      <div className="px-4 space-y-4">
+        {displayedJobs.length === 0 ? (
+           <div className="text-center py-20 bg-zinc-900/30 rounded-3xl border border-dashed border-zinc-800">
+              <p className="text-zinc-500 font-bold uppercase tracking-widest text-xs">Bay is Clear</p>
+              <p className="text-zinc-700 text-sm mt-2">Check Upcoming for more work.</p>
+           </div>
+        ) : (
+          displayedJobs.map((r) => (
             <div 
               key={r.id}
               onClick={() => router.push(`/tech/requests/${r.id}`)}
-              className="bg-white rounded-2xl shadow-sm border border-gray-100 active:scale-[0.98] transition-transform duration-100 cursor-pointer overflow-hidden"
+              className="bg-zinc-900 p-5 rounded-3xl border border-zinc-800 active:scale-[0.98] transition relative overflow-hidden group shadow-sm"
             >
-              <div className="flex justify-between items-center px-5 py-3 border-b border-gray-50 bg-gray-50/50">
-                 <div className="flex items-center gap-2">
-                    <div className={clsx("w-2 h-2 rounded-full", isStarted ? "bg-green-500 animate-pulse" : "bg-blue-500")} />
-                    <span className={clsx("text-xs font-bold uppercase tracking-wider", isStarted ? "text-green-700" : "text-blue-600")}>
-                        {isStarted ? "In Progress" : "Scheduled"}
-                    </span>
-                 </div>
-                 <span className="text-xs font-mono font-bold text-gray-400">{formatDate(r.scheduled_start_at)}</span>
+              {/* Left Status Strip */}
+              <div className={clsx(
+                "absolute left-0 top-0 bottom-0 w-1.5",
+                r.status === 'IN_PROGRESS' ? "bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]" : "bg-blue-600"
+              )} />
+
+              <div className="flex justify-between items-start mb-3 pl-2">
+                 <h3 className="font-black text-xl text-white tracking-tight truncate pr-2">
+                    {r.customer?.name}
+                 </h3>
+                 
+                 {r.scheduled_start_at && (
+                    <div className="text-[9px] font-black bg-zinc-800 text-zinc-400 px-2 py-1 rounded-lg uppercase tracking-wider flex items-center gap-1">
+                       <IconClock />
+                       {new Date(r.scheduled_start_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                    </div>
+                 )}
               </div>
-              <div className="p-5">
-                 <div className="flex justify-between items-start mb-3">
-                    <div>
-                        <h3 className="text-lg font-black text-gray-900 leading-tight mb-1">{r.service_title}</h3>
-                        <div className="text-sm font-medium text-gray-500">{r.vehicle?.year} {r.vehicle?.model}</div>
-                        {r.vehicle?.unit_number && (
-                            <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-[10px] font-bold border border-gray-200 mt-2 inline-block">
-                                UNIT {r.vehicle.unit_number}
-                            </span>
-                        )}
-                    </div>
-                    <div className="bg-gray-50 p-2 rounded-full text-gray-400">
-                        <IconChevron />
-                    </div>
+
+              <div className="pl-2 mb-4 flex items-center gap-3">
+                 <div className="bg-white text-black px-3 py-1 rounded-lg text-sm font-mono font-black shadow-md">
+                    {r.plate || r.vehicle?.plate || "NO PLATE"}
+                 </div>
+                 <div className="text-sm font-bold text-zinc-400">
+                    {r.vehicle?.year} {r.vehicle?.model}
+                 </div>
+              </div>
+
+              <div className="pl-2 pt-4 border-t border-zinc-800/50 flex justify-between items-center">
+                 <div className="text-[10px] font-black text-zinc-600 uppercase tracking-widest truncate max-w-[70%]">
+                    {r.service_title}
                  </div>
                  
-                 <div className="flex gap-2 mt-4">
-                    <div className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-600 px-3 py-1.5 rounded-lg text-xs font-bold">
-                        {r.customer?.name}
+                 {r.status === 'IN_PROGRESS' && (
+                    <div className="flex items-center gap-2">
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                      </span>
+                      <span className="text-[10px] font-black text-green-500 uppercase tracking-tighter">Live</span>
                     </div>
-                    {hasParts && (
-                        <div className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 px-2 py-1.5 rounded-lg text-xs font-bold border border-amber-100">
-                           <IconBox /> Parts
-                        </div>
-                    )}
-                 </div>
+                 )}
               </div>
             </div>
-          );
-        })}
+          ))
+        )}
       </div>
-
-      {/* LOADOUT MODAL */}
-      {showLoadout && (
-          <div className="fixed inset-0 bg-black/80 z-50 overflow-y-auto pb-20 backdrop-blur-sm animate-in fade-in">
-              <div className="bg-amber-400 p-6 sticky top-0 flex justify-between items-center shadow-lg z-10">
-                 <div className="flex items-center gap-3 text-black">
-                    <div className="bg-black/10 p-2 rounded-full"><IconBox /></div>
-                    <h2 className="font-black text-xl uppercase tracking-wide">Daily Loadout</h2>
-                 </div>
-                 <button onClick={() => setShowLoadout(false)} className="text-sm font-bold bg-black/10 px-4 py-2 rounded-lg hover:bg-black/20 text-black">Close</button>
-              </div>
-              
-              <div className="max-w-lg mx-auto p-4 space-y-3 mt-4">
-                 {loadoutList.map((item, i) => (
-                    <div key={i} className="bg-white p-5 rounded-2xl shadow-lg flex justify-between items-center">
-                       <div>
-                          <div className="font-black text-lg text-gray-900">{item.name}</div>
-                          <div className="text-sm font-mono text-gray-500 mb-2">#{item.number || "N/A"}</div>
-                          <div className="flex flex-wrap gap-1">
-                             {item.jobs.map((unit, idx) => (
-                                 <span key={idx} className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded border border-gray-200 font-bold">
-                                     {unit}
-                                 </span>
-                             ))}
-                          </div>
-                       </div>
-                       <div className="bg-gray-50 h-14 w-14 rounded-xl flex flex-col items-center justify-center border border-gray-200 shrink-0 ml-4">
-                          <span className="text-2xl font-black text-black">{item.qty}</span>
-                       </div>
-                    </div>
-                 ))}
-
-                 <button 
-                    onClick={() => setShowLoadout(false)}
-                    className="w-full bg-white text-black py-4 rounded-xl font-bold text-lg mt-8 shadow-lg flex items-center justify-center gap-2"
-                 >
-                    <IconCheck /> I Have Everything
-                 </button>
-              </div>
-          </div>
-      )}
-
     </div>
   );
 }

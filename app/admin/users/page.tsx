@@ -5,83 +5,107 @@ import UserManagementClient from "./UserManagementClient";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminUsersPage() {
-  // 1. Manually Await Cookies
+interface PageProps {
+  searchParams: Promise<{ market?: string; role?: string; state?: string }>;
+}
+
+export default async function AdminUsersPage({ searchParams }: PageProps) {
   const cookieStore = await cookies();
   const allCookies = cookieStore.getAll();
+  const params = await searchParams;
   
-  // 2. Extract Token
-  let accessToken = null;
+  // 1. SESSION PARSING
+  let userId = null;
   const authCookie = allCookies.find(c => c.name.includes("-auth-token"));
 
   if (authCookie) {
     try {
       let rawValue = authCookie.value;
       if (rawValue.startsWith("base64-")) {
-        rawValue = rawValue.replace("base64-", "");
-        rawValue = Buffer.from(rawValue, 'base64').toString('utf-8');
+        rawValue = Buffer.from(rawValue.replace("base64-", ""), 'base64').toString('utf-8');
       }
       rawValue = decodeURIComponent(rawValue);
       const sessionData = JSON.parse(rawValue);
-      accessToken = sessionData.access_token;
+      userId = sessionData.user?.id; 
     } catch (e) {
-      console.error("Cookie Parse Error:", e);
+      console.error("Critical Session Parse Error:", e);
     }
   }
 
-  if (!accessToken) redirect("/login");
+  if (!userId) redirect("/login");
 
-  // 3. Verify User Identity (Standard Client)
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-
-  const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
-
-  if (authError || !user) redirect("/login");
-
-  // 4. CHECK ROLE (Using SERVICE KEY to bypass RLS)
-  // This is the fix. We force the server to tell us the role, ignoring policies.
   const adminClient = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
-  const { data: profile } = await adminClient
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  // 5. DEBUGGING (Optional: Remove later)
-  // If this still fails, you'll see exactly what the database thinks you are.
-  console.log(`User: ${user.email}, Role: ${profile?.role}`);
-
-  // 6. Strict Gatekeeping
-  if (!profile || (profile.role !== "SUPER_ADMIN" && profile.role !== "ADMIN")) {
-    return (
-        <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-4">
-            <div className="text-center bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
-                <h1 className="text-4xl mb-4">⛔</h1>
-                <h2 className="text-xl font-bold text-gray-900 mb-2">Access Denied</h2>
-                <p className="text-gray-500 mb-6">
-                  You are logged in as <strong>{user.email}</strong>,<br/>
-                  but your role is <strong>{profile?.role || "Unknown"}</strong>.
-                </p>
-                <a href="/login" className="px-6 py-2 bg-gray-200 rounded-lg font-bold text-gray-700 hover:bg-gray-300">
-                  Switch Account
-                </a>
-            </div>
-        </div>
-    );
+  // 2. BUILD DYNAMIC QUERY
+  // We filter by market and role at the database level to handle scale.
+  let profilesQuery = adminClient.from("profiles").select("*");
+  
+  if (params.market) {
+    profilesQuery = profilesQuery.eq("active_market", params.market);
+  } else {
+    // Default to San Antonio for your current testing
+    profilesQuery = profilesQuery.eq("active_market", "San Antonio");
   }
 
-  // 7. Fetch All Users (Admin Mode)
-  const { data: allUsers } = await adminClient
-    .from("profiles")
-    .select("*")
-    .order("created_at", { ascending: false });
+  if (params.role && params.role !== "ALL") {
+    profilesQuery = profilesQuery.eq("role", params.role.toUpperCase());
+  }
 
-  return <UserManagementClient users={allUsers || []} />;
+  // 3. FETCH DATA IN PARALLEL
+  const [profilesRes, customersRes, authUsersRes] = await Promise.all([
+    profilesQuery.order("full_name", { ascending: true }),
+    adminClient.from("customers").select("id, company_name"),
+    adminClient.auth.admin.listUsers()
+  ]);
+
+  const profiles = profilesRes.data || [];
+  const customers = customersRes.data || [];
+  const authUsers = authUsersRes.data?.users || [];
+
+  // 4. PERMISSION CHECK
+  // We fetch the current user's profile from the full database to check admin status
+  const { data: currentUserProfile } = await adminClient
+    .from("profiles")
+    .select("role")
+    .eq("id", userId)
+    .single();
+
+  const currentRole = (currentUserProfile?.role || "").toUpperCase();
+  const isAuthorized = ["SUPER_ADMIN", "SUPERADMIN", "ADMIN"].includes(currentRole);
+
+  if (!isAuthorized) {
+    redirect("/office");
+  }
+
+  // 5. MAP AUTH USERS TO FILTERED DATABASE PROFILES
+  // Only display users that match the current Market/Role selection.
+  const formattedUsers = profiles.map(dbProfile => {
+    const authUser = authUsers.find(u => u.id === dbProfile.id);
+    return {
+      id: dbProfile.id,
+      email: dbProfile.email || authUser?.email,
+      full_name: dbProfile.full_name || "New User",
+      role: dbProfile.role || "CUSTOMER",
+      customer_id: dbProfile.customer_id || null,
+      created_at: dbProfile.created_at,
+      active_market: dbProfile.active_market
+    };
+  });
+
+  // Extract unique markets for the UI filter buttons
+  // In the future, this could be a dedicated 'markets' table.
+  const availableMarkets = ["San Antonio", "Austin", "Houston", "Dallas"];
+
+  return (
+    <UserManagementClient 
+      users={formattedUsers} 
+      customers={customers} 
+      currentMarket={params.market || "San Antonio"}
+      currentRole={params.role || "ALL"}
+      availableMarkets={availableMarkets}
+    />
+  );
 }

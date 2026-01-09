@@ -1,7 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import AdminNavBar from "./AdminNavBar"; 
+import AdminSidebar from "@/app/components/admin/AdminSidebar";
+import { ToastProvider } from "@/components/Toaster"; 
 
 export default async function AdminLayout({
   children,
@@ -10,11 +11,13 @@ export default async function AdminLayout({
 }) {
   const cookieStore = await cookies();
 
-  // --- MANUAL TOKEN PARSING (The Fix) ---
-  // We manually extract the token because standard helpers sometimes fail locally
+  // --- 1. MANUAL TOKEN PARSING ---
+  // Ensures compatibility with local development session storage
   let accessToken = null;
   const allCookies = cookieStore.getAll();
-  const authCookie = allCookies.find(c => c.name.includes("-auth-token"));
+  const authCookie = allCookies.find(c => 
+    c.name.includes("sb-revlet-auth-token") || c.name.includes("-auth-token")
+  );
 
   if (authCookie) {
     try {
@@ -27,12 +30,11 @@ export default async function AdminLayout({
       const sessionData = JSON.parse(rawValue);
       accessToken = sessionData.access_token;
     } catch (e) {
-      // console.error("Layout Cookie Parse Error:", e);
+      // Silently fail parsing
     }
   }
-  // ---------------------------------------
 
-  // 1. Initialize Supabase
+  // --- 2. INITIALIZE SUPABASE ---
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -44,7 +46,7 @@ export default async function AdminLayout({
     }
   );
 
-  // 2. Check User (Using the manually found token)
+  // --- 3. CHECK USER ---
   let user = null;
   if (accessToken) {
     const { data } = await supabase.auth.getUser(accessToken);
@@ -53,33 +55,53 @@ export default async function AdminLayout({
 
   if (!user) redirect("/login");
 
-  // 3. Check Role (Using Service Key to ensure we can read it)
-  // We use a fresh admin client to bypass RLS for this role check
-  const adminSupabase = createServerClient(
+  // --- 4. CHECK ROLE ---
+  // We use the anon key with the existing cookie store to verify the profile
+  const roleCheckClient = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { cookies: { getAll() { return [] }, setAll() {} } }
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { cookies: { getAll() { return cookieStore.getAll() }, setAll() {} } }
   );
 
-  const { data: profile } = await adminSupabase
+  const { data: profile } = await roleCheckClient
     .from("profiles")
     .select("role")
     .eq("id", user.id)
     .single();
 
-  const allowedRoles = ["SUPER_ADMIN", "ADMIN", "OFFICE"];
+  const userRole = (profile?.role || "").toUpperCase();
   
-  if (!profile || !allowedRoles.includes(profile.role)) {
-     if (profile?.role === "SALES_REP") redirect("/sales");
-     return redirect("/login");
+  // Define access logic
+  const isAdmin = ["SUPER_ADMIN", "SUPERADMIN", "ADMIN", "OFFICE", "DISPATCHER"].includes(userRole);
+  const isTech = ["TECH", "TECHNICIAN"].includes(userRole);
+
+  // 🚪 REDIRECT LOGIC
+  // If the user is NOT an Admin, determine where they belong
+  if (!isAdmin) {
+      if (isTech) {
+          // Redirect to the tech root where app/tech/page.tsx handles the dashboard
+          return redirect("/tech"); 
+      }
+      if (userRole === "SALES_REP") return redirect("/sales");
+      
+      // Default fallback for customers or unauthorized access
+      return redirect("/login");
   }
 
+  // --- 5. RENDER PREMIUM LAYOUT ---
   return (
-    <div className="min-h-screen bg-gray-50">
-      <AdminNavBar userEmail={user.email || ""} />
-      <main>
-        {children}
-      </main>
+    <div className="flex min-h-screen bg-black font-sans">
+      {/* Persistent Sidebar for Admin users */}
+      <AdminSidebar />
+      
+      {/* Wrap content in ToastProvider to support notifications in tech management, etc. */}
+      <ToastProvider>
+        <main className="flex-1 overflow-y-auto bg-white md:rounded-l-[3rem] md:my-2 shadow-2xl relative">
+          <div className="p-4 md:p-8">
+              {children}
+          </div>
+        </main>
+      </ToastProvider>
     </div>
   );
 }

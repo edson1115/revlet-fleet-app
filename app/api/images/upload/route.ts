@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
 
   // Upload to Supabase Storage
   const { error: uploadErr } = await supabase.storage
-    .from("images")
+    .from("request-images")
     .upload(path, buffer, {
       contentType: mime,
       upsert: false,
@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
   // Generate public URL
   const {
     data: { publicUrl },
-  } = supabase.storage.from("images").getPublicUrl(path);
+  } = supabase.storage.from("request-images").getPublicUrl(path);
 
   // Insert into request_images (correct table)
   const { data: image, error: insertErr } = await supabase

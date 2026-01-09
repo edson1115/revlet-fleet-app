@@ -1,3 +1,4 @@
+// app/dispatch/page.tsx
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase/server";
 import { resolveUserScope } from "@/lib/api/scope";
@@ -15,7 +16,7 @@ export default async function DispatchPage() {
 
   const supabase = await supabaseServer();
 
-  // ✅ FETCH REQUESTS WITH PARTS & BOTH TECHS
+  // ✅ FETCH REQUESTS
   const { data: requests, error } = await supabase
     .from("service_requests")
     .select(`
@@ -25,15 +26,16 @@ export default async function DispatchPage() {
       created_at,
       scheduled_start_at,
       technician_id,
-      second_technician_id,  
+      second_technician_id,
       office_notes,
+      plate,
       customer:customers(name, address),
       vehicle:vehicles(year, make, model, plate, unit_number),
       tech:profiles!technician_id(full_name),
       buddy:profiles!second_technician_id(full_name),
       request_parts(id, part_name, part_number, quantity)
     `)
-    .neq("status", "COMPLETED") 
+    .neq("status", "COMPLETED")
     .order("created_at", { ascending: false });
 
   if (error) console.error("Dispatch Load Error:", error);

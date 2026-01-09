@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import { isValidTransition } from "@/lib/workflow/statusTransitions";
+import { logActivity } from "@/lib/audit/logActivity";
 
 export const dynamic = "force-dynamic";
 
@@ -72,6 +74,30 @@ export async function PATCH(
   // 2. Parse Body
   const body = await req.json();
 
+  // 🔴 VALIDATION: Check Status Transition
+  // We must fetch the current status first to validate the transition
+  const { data: currentRequest } = await supabase
+    .from("service_requests")
+    .select("status")
+    .eq("id", requestId)
+    .single();
+
+  if (!currentRequest) {
+    return NextResponse.json({ error: "Request not found" }, { status: 404 });
+  }
+
+  const currentStatus = currentRequest.status;
+  const nextStatus = body.status;
+
+  if (nextStatus && nextStatus !== currentStatus) {
+    if (!isValidTransition(currentStatus, nextStatus)) {
+      return NextResponse.json(
+        { error: `Invalid status transition: ${currentStatus} → ${nextStatus}` },
+        { status: 400 }
+      );
+    }
+  }
+
   // 3. Build Update Object (Only allow specific fields)
   const updates: any = {};
 
@@ -103,6 +129,18 @@ export async function PATCH(
   if (error) {
     console.error("PATCH Error:", error);
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  }
+
+  // 🔴 LOGGING: Log Status Change if successful
+  if (nextStatus && nextStatus !== currentStatus) {
+    await logActivity({
+      request_id: requestId,
+      actor_id: user.id,
+      actor_role: "OFFICE",
+      action: "STATUS_CHANGE",
+      from_value: currentStatus,
+      to_value: nextStatus,
+    });
   }
 
   return NextResponse.json({ ok: true, request: data });

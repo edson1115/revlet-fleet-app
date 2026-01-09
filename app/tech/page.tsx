@@ -11,8 +11,10 @@ export default async function TechPage() {
 
   const supabase = await supabaseServer();
 
-  // Fetch jobs WITH parts data
-  const { data: requests } = await supabase
+  // 1. Fetch Active Jobs (SCHEDULED or IN_PROGRESS)
+  // 2. Filter: Assigned as Lead OR Buddy
+  // 3. Include: Snapshot Plate & Parts
+  const { data: requests, error } = await supabase
     .from("service_requests")
     .select(`
       id,
@@ -20,12 +22,18 @@ export default async function TechPage() {
       created_at,
       service_title,
       scheduled_start_at,
+      plate, 
       customer:customers(name, address),
       vehicle:vehicles(year, make, model, plate, unit_number),
-      request_parts(id, part_name, part_number, quantity, vendor)  // <--- ADDED THIS
+      request_parts(id, part_name, part_number, quantity) 
     `)
-    .in("status", ["READY_TO_SCHEDULE", "SCHEDULED", "IN_PROGRESS"])
-    .order("created_at", { ascending: false });
+    .or(`technician_id.eq.${scope.uid},second_technician_id.eq.${scope.uid}`) // Check both columns
+    .in("status", ["SCHEDULED", "IN_PROGRESS"]) 
+    .order("scheduled_start_at", { ascending: true });
+
+  if (error) {
+    console.error("Tech Fetch Error:", error);
+  }
 
   return <TechDashboardClient requests={requests || []} />;
 }

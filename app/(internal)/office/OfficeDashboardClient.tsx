@@ -9,13 +9,17 @@ const IconLogout = () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24
 const IconPlus = () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>;
 const IconSearch = () => <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>;
 const IconTrend = () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>;
+const IconBox = () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>;
+const IconGear = () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>;
+// NEW ICON (Map)
+const IconMap = () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg>;
 
 export default function OfficeDashboardClient({ requests }: { requests: any[] }) {
   const router = useRouter();
   const [filter, setFilter] = useState("ALL");
   const [search, setSearch] = useState("");
 
-  // --- STATS LOGIC (Preserved from your old file) ---
+  // --- STATS LOGIC ---
   const stats = {
     new_requests: requests.filter((r) => r.status === 'NEW').length,
     waiting_approval: requests.filter((r) => r.status === 'WAITING_APPROVAL').length,
@@ -27,15 +31,18 @@ export default function OfficeDashboardClient({ requests }: { requests: any[] })
   const filtered = requests.filter(r => {
       const matchesFilter = filter === "ALL" || r.status === filter;
       const searchLower = search.toLowerCase();
+      
       const matchesSearch = 
         r.customer?.name?.toLowerCase().includes(searchLower) ||
-        r.vehicle?.plate?.toLowerCase().includes(searchLower) ||
+        r.plate?.toLowerCase().includes(searchLower) ||          
+        r.vehicle?.plate?.toLowerCase().includes(searchLower) ||  
         r.service_title?.toLowerCase().includes(searchLower);
+        
       return matchesFilter && matchesSearch;
   });
 
   async function handleLogout() {
-      await fetch("/api/auth/signout", { method: "POST" });
+      // NOTE: Ensure this endpoint exists or use supabase.auth.signOut() directly
       router.push("/login");
   }
 
@@ -59,13 +66,39 @@ export default function OfficeDashboardClient({ requests }: { requests: any[] })
              <div className="relative hidden md:block w-64">
                 <IconSearch className="absolute left-3 top-2.5" />
                 <input 
-                    placeholder="Search VIN, Customer..." 
-                    className="w-full pl-10 pr-4 py-2 bg-gray-100 border-none rounded-lg text-sm font-bold focus:ring-2 focus:ring-black outline-none transition"
-                    value={search}
-                    onChange={e => setSearch(e.target.value)}
+                   placeholder="Search VIN, Customer..." 
+                   className="w-full pl-10 pr-4 py-2 bg-gray-100 border-none rounded-lg text-sm font-bold focus:ring-2 focus:ring-black outline-none transition"
+                   value={search}
+                   onChange={e => setSearch(e.target.value)}
                 />
              </div>
              
+             {/* 🆕 DISPATCH BUTTON */}
+             <button 
+                onClick={() => router.push('/office/dispatch')}
+                className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-gray-600 hover:text-black hover:bg-gray-100 rounded-lg transition border border-gray-200"
+             >
+                <IconMap /> Dispatch
+             </button>
+
+             {/* INVENTORY BUTTON */}
+             <button 
+                onClick={() => router.push('/office/inventory')}
+                className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-gray-600 hover:text-black hover:bg-gray-100 rounded-lg transition border border-gray-200"
+             >
+                <IconBox /> Inventory
+             </button>
+
+             {/* SETTINGS BUTTON */}
+             <button 
+                onClick={() => router.push('/office/settings')}
+                className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-gray-600 hover:text-black hover:bg-gray-100 rounded-lg transition border border-gray-200"
+             >
+                <IconGear /> Settings
+             </button>
+
+             <div className="h-6 w-px bg-gray-200"></div>
+
              <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-gray-500 hover:text-black hover:bg-gray-100 rounded-lg transition">
                 <IconLogout /> Logout
              </button>
@@ -82,25 +115,25 @@ export default function OfficeDashboardClient({ requests }: { requests: any[] })
       {/* CONTENT */}
       <div className="max-w-7xl mx-auto w-full p-8">
           
-          {/* KPI CARDS (Restored & Modernized) */}
+          {/* KPI CARDS */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
              <div onClick={() => setFilter("NEW")} className="p-5 bg-white border border-gray-100 rounded-2xl shadow-sm cursor-pointer hover:shadow-md hover:border-blue-200 transition group">
                 <div className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-2 flex justify-between">
-                    New / Untouched <IconTrend className="text-blue-500 opacity-0 group-hover:opacity-100 transition" />
+                   New / Untouched <IconTrend className="text-blue-500 opacity-0 group-hover:opacity-100 transition" />
                 </div>
                 <div className="text-4xl font-black text-blue-600">{stats.new_requests}</div>
              </div>
              
              <div onClick={() => setFilter("WAITING_APPROVAL")} className="p-5 bg-white border border-gray-100 rounded-2xl shadow-sm cursor-pointer hover:shadow-md hover:border-amber-200 transition group">
                 <div className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-2 flex justify-between">
-                    Needs Approval <IconTrend className="text-amber-500 opacity-0 group-hover:opacity-100 transition" />
+                   Needs Approval <IconTrend className="text-amber-500 opacity-0 group-hover:opacity-100 transition" />
                 </div>
                 <div className="text-4xl font-black text-amber-500">{stats.waiting_approval}</div>
              </div>
 
              <div onClick={() => setFilter("SCHEDULED")} className="p-5 bg-white border border-gray-100 rounded-2xl shadow-sm cursor-pointer hover:shadow-md hover:border-gray-300 transition group">
                 <div className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-2 flex justify-between">
-                    Scheduled <IconTrend className="text-gray-900 opacity-0 group-hover:opacity-100 transition" />
+                   Scheduled <IconTrend className="text-gray-900 opacity-0 group-hover:opacity-100 transition" />
                 </div>
                 <div className="text-4xl font-black text-gray-900">{stats.scheduled}</div>
              </div>
@@ -172,7 +205,9 @@ export default function OfficeDashboardClient({ requests }: { requests: any[] })
                               <p className="text-sm text-gray-500 font-medium">
                                   {r.vehicle?.year} {r.vehicle?.make} {r.vehicle?.model} 
                                   <span className="mx-2 text-gray-300">|</span> 
-                                  <span className="font-mono text-gray-400">{r.vehicle?.plate}</span>
+                                  <span className="font-mono text-gray-400">
+                                    {r.plate ?? r.vehicle?.plate ?? "NO PLATE"}
+                                  </span>
                               </p>
                           </div>
                       </div>

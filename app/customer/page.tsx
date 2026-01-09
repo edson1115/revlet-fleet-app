@@ -33,7 +33,7 @@ export default async function CustomerPage() {
       );
   }
 
-  // 3. GET CUSTOMER NAME (Separate fetch to be safe)
+  // 3. GET CUSTOMER NAME
   const { data: customer } = await supabase
     .from("customers")
     .select("name")
@@ -55,10 +55,18 @@ export default async function CustomerPage() {
 
   if (reqError) console.error("Request Fetch Error:", reqError);
 
+  // 5. CALCULATE LIVE STATS
+  const stats = {
+    inProgress: requests?.filter(r => r.status === 'IN_PROGRESS').length || 0,
+    pending: requests?.filter(r => r.status === 'SCHEDULED' || r.status === 'NEW' || r.status === 'ATTENTION_REQUIRED').length || 0,
+    completed: requests?.filter(r => r.status === 'COMPLETED').length || 0
+  };
+
   return (
     <CustomerDashboardClient 
         requests={requests || []} 
         customerName={customer?.name || "Valued Client"} 
+        stats={stats}
     />
   );
 }

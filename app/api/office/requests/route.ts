@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { resolveUserScope } from "@/lib/api/scope";
+import { logActivity } from "@/lib/audit/logActivity";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +53,7 @@ export async function GET() {
 /* ============================================================
    POST — Create New Service Request (OFFICE ONLY)
    ✅ Snapshot vehicle plate at creation time
+   ✅ Log creation activity
 ============================================================ */
 export async function POST(req: Request) {
   const scope = await resolveUserScope();
@@ -104,6 +106,18 @@ export async function POST(req: Request) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  // ✅ LOG ACTIVITY
+  await logActivity({
+    request_id: data.id,
+    actor_id: scope.uid,
+    actor_role: "OFFICE",
+    action: "CREATE_REQUEST",
+    meta: {
+      plate: data.plate,
+      vehicle_id: body.vehicle_id,
+    },
+  });
 
   return NextResponse.json({ ok: true, request: data });
 }

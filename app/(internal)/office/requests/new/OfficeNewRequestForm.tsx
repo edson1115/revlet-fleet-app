@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
 
-// --- ICONS (Simple SVG helpers for that Pro look) ---
+// --- ICONS ---
 const IconCar = () => <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>;
 const IconUser = () => <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>;
 const IconPlus = () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>;
@@ -20,7 +20,7 @@ export default function OfficeNewRequestForm({
   // Data
   const [customers, setCustomers] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
-  const [fmcs, setFmcs] = useState<any[]>([]);
+  const [fmcs, setFmcs] = useState<any[]>([]); // Fleet Management Companies
 
   // Selection
   const [selectedCustomerId, setSelectedCustomerId] = useState(preselectedCustomer?.id || "");
@@ -28,29 +28,47 @@ export default function OfficeNewRequestForm({
   
   // States
   const [isAddingVehicle, setIsAddingVehicle] = useState(false);
-  const [newVehicle, setNewVehicle] = useState({ year: "", make: "", model: "", plate: "", vin: "", provider_id: "" });
+  const [newVehicle, setNewVehicle] = useState({ 
+    year: "", 
+    make: "", 
+    model: "", 
+    plate: "", 
+    vin: "", 
+    // provider_id: "" // ⚠️ Uncomment this when DB column exists
+  });
 
   // Job Details
   const [serviceTitle, setServiceTitle] = useState("");
   const [serviceDesc, setServiceDesc] = useState("");
   const [mileage, setMileage] = useState("");
 
-  // 1. Load Data
+  // 1. Load Data (Customers & FMCs)
   useEffect(() => {
     async function loadData() {
-      const [custRes, fmcRes] = await Promise.all([
-        fetch("/api/admin/customers?limit=500"),
-        fetch("/api/admin/fmc")
-      ]);
-      const custJs = await custRes.json();
-      const fmcJs = await fmcRes.json();
-      if (custJs.ok) setCustomers(custJs.rows || []);
-      if (fmcJs.ok) setFmcs(fmcJs.rows || []);
+      try {
+        // Fetch Customers
+        const custRes = await fetch("/api/admin/customers?limit=500");
+        const custJs = await custRes.json();
+        if (custJs.ok) setCustomers(custJs.rows || []);
+
+        // Fetch FMCs (Optional - only if endpoint exists)
+        try {
+            const fmcRes = await fetch("/api/admin/fmc");
+            if (fmcRes.ok) {
+                const fmcJs = await fmcRes.json();
+                if (fmcJs.ok) setFmcs(fmcJs.rows || []);
+            }
+        } catch (e) {
+            console.warn("FMC API not available yet");
+        }
+      } catch (e) {
+        console.error("Failed to load form data", e);
+      }
     }
     loadData();
   }, []);
 
-  // 2. Load Vehicles
+  // 2. Load Vehicles when Customer Changes
   useEffect(() => {
     if (!selectedCustomerId) {
       setVehicles([]);
@@ -80,10 +98,16 @@ export default function OfficeNewRequestForm({
                 setLoading(false);
                 throw new Error("Year, Make, and Model are required.");
             }
+            
+            const vehPayload = { 
+                ...newVehicle, 
+                customer_id: selectedCustomerId 
+            };
+
             const vehRes = await fetch("/api/admin/vehicles/create", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ ...newVehicle, customer_id: selectedCustomerId })
+                body: JSON.stringify(vehPayload)
             });
             const vehJs = await vehRes.json();
             if (!vehJs.ok) throw new Error(vehJs.error || "Failed to create vehicle");
@@ -201,7 +225,9 @@ export default function OfficeNewRequestForm({
                         <input placeholder="Make" className="p-2 border rounded text-sm font-medium" value={newVehicle.make} onChange={e => setNewVehicle({...newVehicle, make: e.target.value})} />
                         <input placeholder="Model" className="p-2 border rounded text-sm font-medium" value={newVehicle.model} onChange={e => setNewVehicle({...newVehicle, model: e.target.value})} />
                      </div>
-                     <select 
+                     
+                     {/* ⚠️ FMC DROPDOWN (Visual only until DB is updated) */}
+                     {/* <select 
                         className="w-full p-2 border rounded text-sm text-gray-600"
                         value={newVehicle.provider_id} 
                         onChange={e => setNewVehicle({...newVehicle, provider_id: e.target.value})}
@@ -209,6 +235,8 @@ export default function OfficeNewRequestForm({
                         <option value="">FMC / Provider (Optional)</option>
                         {fmcs.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                      </select>
+                     */}
+
                      <div className="grid grid-cols-2 gap-2">
                         <input placeholder="Plate (Optional)" className="p-2 border rounded text-sm" value={newVehicle.plate} onChange={e => setNewVehicle({...newVehicle, plate: e.target.value})} />
                         <input placeholder="VIN (Optional)" className="p-2 border rounded text-sm" value={newVehicle.vin} onChange={e => setNewVehicle({...newVehicle, vin: e.target.value})} />

@@ -1,18 +1,20 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import clsx from "clsx";
 
 // --- ICONS ---
 const IconCalendar = () => <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>;
+const IconAlert = () => <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>;
 const IconClock = () => <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
 const IconParts = () => <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>;
 const IconUser = () => <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>;
 const IconLogout = () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>;
-// New Bell Icon
 const IconBell = () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>;
+const IconTruck = () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0" /></svg>;
+const IconBox = () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>;
 
 // --- HELPERS ---
 function fmtDate(v: any) {
@@ -46,41 +48,66 @@ function getLifecycleBadge(r: any) {
   if (r.completed_at) {
     return { label: "Completed", cls: "bg-green-100 text-green-800" };
   }
+  
+  // 🚨 911 LOGIC: If it's READY_TO_SCHEDULE but has a scheduled_start_at date, it was kicked back!
+  if (r.status === 'READY_TO_SCHEDULE' && r.scheduled_start_at) {
+     return { label: "RESCHEDULED", cls: "bg-red-500 text-white animate-pulse shadow-md" };
+  }
 
   if (r.waiting_for_parts_at || r.waiting_for_approval_at) {
     return { label: "Waiting", cls: "bg-amber-100 text-amber-800" };
   }
-
   if (r.started_at) {
     return { label: "In Progress", cls: "bg-blue-100 text-blue-800" };
   }
-
   if (r.scheduled_start_at) {
     return { label: "Scheduled", cls: "bg-blue-50 text-blue-700" };
   }
-
   return { label: "New", cls: "bg-gray-100 text-gray-500" };
 }
 
 export default function DispatchBoardClient({ initialRequests, technicians }: { initialRequests: any[], technicians: any[] }) {
-  // ✅ LOCKED FIELDS CONSTANT
-  const DISPATCH_LOCKED_FIELDS = true;
-
   const router = useRouter();
   const [requests, setRequests] = useState<any[]>(initialRequests);
   const [selectedReq, setSelectedReq] = useState<any | null>(null);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [scheduleData, setScheduleData] = useState({ date: "", time: "", techId: "", buddyId: "" });
-
-  // --- LIFECYCLE STATE ---
   const [showLifecycleModal, setShowLifecycleModal] = useState(false);
   const [lifecycleLoading, setLifecycleLoading] = useState(false);
   const [lifecycleError, setLifecycleError] = useState<string | null>(null);
   const [lifecycle, setLifecycle] = useState<any | null>(null);
-
-  // --- ALERTS STATE & LOGIC ---
   const [alerts, setAlerts] = useState<any[]>([]);
   const [showAlerts, setShowAlerts] = useState(false);
+
+  // --- FILTERING & SORTING LOGIC ---
+  const { readyToSchedule, scheduled, inProgress } = useMemo(() => {
+    // 1. Base Filter
+    const _ready = requests.filter(r => r.status === 'READY_TO_SCHEDULE');
+    const _scheduled = requests.filter(r => r.status === 'SCHEDULED');
+    const _inProgress = requests.filter(r => r.status === 'IN_PROGRESS');
+
+    // 2. 🚨 PRIORITY SORTING FOR READY COLUMN
+    // Rescheduled jobs (have a date) must go to the TOP
+    _ready.sort((a, b) => {
+        const aRescheduled = !!a.scheduled_start_at;
+        const bRescheduled = !!b.scheduled_start_at;
+
+        if (aRescheduled && !bRescheduled) return -1; // A comes first
+        if (!aRescheduled && bRescheduled) return 1;  // B comes first
+        
+        // Secondary sort: Oldest created first
+        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    });
+
+    return { readyToSchedule: _ready, scheduled: _scheduled, inProgress: _inProgress };
+  }, [requests]);
+
+  // --- SIDEBAR DATA (LOADOUT MANIFEST) ---
+  const loadoutManifest = useMemo(() => {
+    const activeJobs = requests.filter(r => ['SCHEDULED', 'IN_PROGRESS'].includes(r.status));
+    return activeJobs.filter(job => job.request_parts && job.request_parts.length > 0)
+      .sort((a, b) => new Date(a.scheduled_start_at).getTime() - new Date(b.scheduled_start_at).getTime());
+  }, [requests]);
 
   async function loadAlerts() {
     try {
@@ -94,11 +121,10 @@ export default function DispatchBoardClient({ initialRequests, technicians }: { 
 
   useEffect(() => {
     loadAlerts();
-    const i = setInterval(loadAlerts, 30000); // Poll every 30s
+    const i = setInterval(loadAlerts, 30000); 
     return () => clearInterval(i);
   }, []);
 
-  // --- BRANDING LOGIC ---
   function getCustomerStyle(name: string = "") {
       const n = name.toLowerCase();
       if (n.includes("enterprise")) return { bg: "bg-green-100", text: "text-green-800", border: "border-green-200", tag: "Enterprise" };
@@ -108,7 +134,6 @@ export default function DispatchBoardClient({ initialRequests, technicians }: { 
       return { bg: "bg-gray-100", text: "text-gray-600", border: "border-gray-200", tag: name };
   }
 
-  // --- ACTIONS ---
   async function handleLogout() {
       await fetch("/api/auth/signout", { method: "POST" });
       router.push("/login");
@@ -119,8 +144,10 @@ export default function DispatchBoardClient({ initialRequests, technicians }: { 
     const { draggableId, destination } = result;
     const newStatus = destination.droppableId;
     
+    // Optimistic Update
     setRequests(prev => prev.map(r => r.id === draggableId ? { ...r, status: newStatus } : r));
 
+    // Server Update
     await fetch(`/api/dispatch/update-status`, {
        method: "POST",
        headers: { "Content-Type": "application/json" },
@@ -165,29 +192,20 @@ export default function DispatchBoardClient({ initialRequests, technicians }: { 
 
   async function confirmSchedule() {
     if (!selectedReq) return;
-
-    if (!scheduleData.date) {
-      alert("Please select a date");
-      return;
-    }
-
-    if (!scheduleData.techId) {
-      alert("Please select a lead technician");
-      return;
-    }
+    if (!scheduleData.date) { alert("Please select a date"); return; }
+    if (!scheduleData.techId) { alert("Please select a lead technician"); return; }
 
     const whenISO = new Date(
       `${scheduleData.date}T${scheduleData.time || "09:00"}`
     ).toISOString();
 
-    // Optimistic UI update
     setRequests(prev =>
       prev.map(r =>
         r.id === selectedReq.id
           ? {
               ...r,
               status: "SCHEDULED",
-              scheduled_at: whenISO,
+              scheduled_start_at: whenISO, // Important: Update the view model
               tech: technicians.find(t => t.id === scheduleData.techId) || null,
               buddy: technicians.find(t => t.id === scheduleData.buddyId) || null
             }
@@ -198,7 +216,6 @@ export default function DispatchBoardClient({ initialRequests, technicians }: { 
     setShowScheduleModal(false);
     setSelectedReq(null);
 
-    // Call backend API
     await fetch("/api/dispatch/assign", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -215,37 +232,27 @@ export default function DispatchBoardClient({ initialRequests, technicians }: { 
   }
 
   return (
-    <div className="min-h-screen bg-[#f8f9fa] flex flex-col font-sans">
+    <div className="min-h-screen bg-[#f8f9fa] flex flex-col font-sans h-screen overflow-hidden">
         
        {/* TOP HEADER */}
-       <div className="bg-white px-8 py-4 flex justify-between items-center border-b border-gray-200 sticky top-0 z-20 shadow-sm backdrop-blur-md bg-white/90">
+       <div className="bg-white px-8 py-4 flex justify-between items-center border-b border-gray-200 sticky top-0 z-20 shadow-sm backdrop-blur-md bg-white/90 shrink-0">
           <div className="flex items-center gap-4">
-            {/* APP NAME LOGO */}
-            <div className="bg-black text-white px-3 py-1 rounded text-xl font-black tracking-tighter italic">
-                REVLET
-            </div>
+            <div className="bg-black text-white px-3 py-1 rounded text-xl font-black tracking-tighter italic">REVLET</div>
             <div className="h-6 w-px bg-gray-200"></div>
             <div>
                 <h1 className="font-bold text-gray-900 leading-none">Dispatch</h1>
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">San Antonio Operations</p>
             </div>
           </div>
-          
           <div className="flex items-center gap-4">
-            
-             {/* ALERT BELL SYSTEM */}
              <div className="relative">
                 <button 
                   onClick={() => setShowAlerts(!showAlerts)}
                   className="relative p-2 rounded-full text-gray-400 hover:text-black hover:bg-gray-100 transition"
                 >
                    <IconBell />
-                   {alerts.length > 0 && (
-                      <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white"></span>
-                   )}
+                   {alerts.length > 0 && <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white"></span>}
                 </button>
-
-                {/* ALERT DROPDOWN */}
                 {showAlerts && (
                    <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden z-50 animate-in fade-in slide-in-from-top-2">
                        <div className="px-4 py-3 border-b bg-gray-50 flex justify-between items-center">
@@ -254,9 +261,7 @@ export default function DispatchBoardClient({ initialRequests, technicians }: { 
                        </div>
                        <div className="max-h-64 overflow-y-auto">
                           {alerts.length === 0 ? (
-                             <div className="p-8 text-center text-gray-400 text-sm italic">
-                                No new alerts at this time.
-                             </div>
+                             <div className="p-8 text-center text-gray-400 text-sm italic">No new alerts at this time.</div>
                           ) : (
                              alerts.map((a, i) => (
                                 <div key={i} className="p-4 border-b border-gray-50 hover:bg-gray-50 transition cursor-default">
@@ -275,199 +280,241 @@ export default function DispatchBoardClient({ initialRequests, technicians }: { 
                    </div>
                 )}
              </div>
-
              <div className="h-6 w-px bg-gray-200 mx-2"></div>
-
              <div className="text-right hidden md:block">
                 <div className="text-2xl font-black leading-none">{requests.length}</div>
                 <div className="text-[10px] font-bold text-gray-400 uppercase">Active Jobs</div>
              </div>
-             
-             <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-gray-500 hover:text-black hover:bg-gray-100 rounded-lg transition">
-                <IconLogout /> Logout
-             </button>
+             <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-gray-500 hover:text-black hover:bg-gray-100 rounded-lg transition"><IconLogout /> Logout</button>
           </div>
        </div>
 
-       {/* BOARD COLUMNS */}
-       <div className="flex-1 overflow-x-auto p-8">
-          <DragDropContext onDragEnd={onDragEnd}>
-             <div className="flex gap-8 h-full min-w-[1200px]">
-                {COLUMNS.map(col => (
-                   <div key={col.id} className={`flex-1 flex flex-col rounded-2xl border ${col.color} bg-white shadow-sm min-w-[350px]`}>
-                      
-                      {/* Column Header */}
-                      <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 rounded-t-2xl">
-                         <h2 className="font-extrabold text-sm text-gray-600 uppercase tracking-wide flex items-center gap-2">
-                            <div className={`w-2 h-2 rounded-full ${col.id === 'IN_PROGRESS' ? 'bg-green-500' : col.id === 'SCHEDULED' ? 'bg-blue-500' : 'bg-gray-400'}`}></div>
-                            {col.label}
-                         </h2>
-                         <span className={`${col.badge} px-2.5 py-0.5 rounded-full text-xs font-black shadow-sm`}>
-                            {requests.filter(r => r.status === col.id).length}
-                         </span>
-                      </div>
+       {/* === MAIN CONTENT AREA (FLEX ROW) === */}
+       <div className="flex flex-1 overflow-hidden">
+           
+           {/* LEFT: BOARD COLUMNS */}
+           <div className="flex-1 overflow-x-auto p-8 bg-[#f8f9fa]">
+              <DragDropContext onDragEnd={onDragEnd}>
+                 <div className="flex gap-8 h-full min-w-[1200px]">
+                    {COLUMNS.map(col => {
+                       // Select the correct list based on column ID
+                       const colRequests = col.id === 'READY_TO_SCHEDULE' ? readyToSchedule : 
+                                           col.id === 'SCHEDULED' ? scheduled : inProgress;
 
-                      {/* Drop Zone */}
-                      <Droppable droppableId={col.id}>
-                         {(provided, snapshot) => (
-                            <div 
-                               {...provided.droppableProps} 
-                               ref={provided.innerRef} 
-                               className={`flex-1 p-3 space-y-3 transition-colors ${snapshot.isDraggingOver ? 'bg-gray-50' : ''}`}
-                            >
-                               {requests.filter(r => r.status === col.id).map((r, index) => {
-                                   const hasParts = r.request_parts && r.request_parts.length > 0;
-                                   const scheduledDate = r.scheduled_start_at ? new Date(r.scheduled_start_at) : null;
-                                   const brand = getCustomerStyle(r.customer?.name);
-                                   
-                                   // Calculate Badge
-                                   const badge = getLifecycleBadge(r);
-                                   
-                                   return (
-                                   <Draggable key={r.id} draggableId={r.id} index={index}>
-                                      {(provided, snapshot) => (
-                                         <div 
-                                            ref={provided.innerRef}
-                                            {...provided.draggableProps}
-                                            {...provided.dragHandleProps}
-                                            onClick={() => setSelectedReq(r)}
-                                            className={clsx(
-                                                "bg-white p-4 rounded-xl border border-gray-100 shadow-sm cursor-pointer group relative overflow-hidden transition-all hover:shadow-md",
-                                                snapshot.isDragging ? "shadow-2xl rotate-2 scale-105 z-50 ring-2 ring-blue-500" : ""
-                                            )}
-                                         >
-                                            {/* Left Colored Strip (Status) */}
-                                            <div className={clsx(
-                                                "absolute left-0 top-0 bottom-0 w-1.5",
-                                                r.status === 'IN_PROGRESS' ? "bg-green-500" : r.status === 'SCHEDULED' ? "bg-blue-500" : "bg-gray-300"
-                                            )} />
+                       return (
+                       <div key={col.id} className={`flex-1 flex flex-col rounded-2xl border ${col.color} bg-white shadow-sm min-w-[350px]`}>
+                          
+                          {/* Column Header */}
+                          <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 rounded-t-2xl">
+                             <h2 className="font-extrabold text-sm text-gray-600 uppercase tracking-wide flex items-center gap-2">
+                                <div className={`w-2 h-2 rounded-full ${col.id === 'IN_PROGRESS' ? 'bg-green-500' : col.id === 'SCHEDULED' ? 'bg-blue-500' : 'bg-gray-400'}`}></div>
+                                {col.label}
+                             </h2>
+                             <span className={`${col.badge} px-2.5 py-0.5 rounded-full text-xs font-black shadow-sm`}>
+                                {colRequests.length}
+                             </span>
+                          </div>
 
-                                            {/* --- CARD CONTENT --- */}
-                                            <div className="pl-3">
-                                                
-                                                {/* Customer Brand Badge */}
-                                                <div className="flex justify-between items-start mb-2">
-                                                    <div className="flex items-center gap-2 flex-wrap">
-                                                      <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded ${brand.bg} ${brand.text} border ${brand.border}`}>
-                                                          {r.customer?.name || "Unknown Client"}
-                                                      </span>
-                                                      
-                                                      {/* Status Badge */}
-                                                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${badge.cls}`}>
-                                                        {badge.label}
-                                                      </span>
+                          {/* Drop Zone */}
+                          <Droppable droppableId={col.id}>
+                             {(provided, snapshot) => (
+                                <div 
+                                   {...provided.droppableProps} 
+                                   ref={provided.innerRef} 
+                                   className={`flex-1 p-3 space-y-3 transition-colors overflow-y-auto ${snapshot.isDraggingOver ? 'bg-gray-50' : ''}`}
+                                >
+                                   {colRequests.map((r, index) => {
+                                      const hasParts = r.request_parts && r.request_parts.length > 0;
+                                      const scheduledDate = r.scheduled_start_at ? new Date(r.scheduled_start_at) : null;
+                                      const brand = getCustomerStyle(r.customer?.name);
+                                      const badge = getLifecycleBadge(r);
+                                      const displayPlate = r.plate || r.vehicle?.plate || "NO PLATE"; 
+                                      
+                                      // 🚨 911 LOGIC FOR CARD BORDER
+                                      const isRescheduled = r.status === 'READY_TO_SCHEDULE' && r.scheduled_start_at;
+
+                                      return (
+                                      <Draggable key={r.id} draggableId={r.id} index={index}>
+                                         {(provided, snapshot) => (
+                                            <div 
+                                               ref={provided.innerRef}
+                                               {...provided.draggableProps}
+                                               {...provided.dragHandleProps}
+                                               onClick={() => setSelectedReq(r)}
+                                               className={clsx(
+                                                   "bg-white p-4 rounded-xl border shadow-sm cursor-pointer group relative overflow-hidden transition-all hover:shadow-md",
+                                                   snapshot.isDragging ? "shadow-2xl rotate-2 scale-105 z-50 ring-2 ring-blue-500" : "",
+                                                   // 🚨 RED BORDER FOR RESCHEDULED
+                                                   isRescheduled ? "border-red-400 ring-1 ring-red-100 bg-red-50/10" : "border-gray-100"
+                                               )}
+                                            >
+                                                {/* Left Colored Strip (Status) */}
+                                                <div className={clsx(
+                                                    "absolute left-0 top-0 bottom-0 w-1.5",
+                                                    isRescheduled ? "bg-red-500" :
+                                                    r.status === 'IN_PROGRESS' ? "bg-green-500" : 
+                                                    r.status === 'SCHEDULED' ? "bg-blue-500" : "bg-gray-300"
+                                                )} />
+
+                                                {/* --- CARD CONTENT --- */}
+                                                <div className="pl-3">
+                                                    
+                                                    {/* Customer Brand Badge */}
+                                                    <div className="flex justify-between items-start mb-2">
+                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                          <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded ${brand.bg} ${brand.text} border ${brand.border}`}>
+                                                              {r.customer?.name || "Unknown Client"}
+                                                          </span>
+                                                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${badge.cls}`}>
+                                                            {badge.label}
+                                                          </span>
+                                                        </div>
+
+                                                        {hasParts && (
+                                                            <div className="bg-amber-100 text-amber-700 p-1 rounded-md" title="Parts Attached">
+                                                                <IconParts />
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    
+                                                    {/* 🚨 MISSED TIME ALERT */}
+                                                    {isRescheduled && scheduledDate && (
+                                                        <div className="mb-2 flex items-center gap-1.5 text-[10px] font-bold text-red-600 bg-red-100 px-2 py-1 rounded-md border border-red-200">
+                                                            <IconAlert />
+                                                            <span>MISSED: {scheduledDate.toLocaleDateString()} @ {scheduledDate.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}</span>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Vehicle Info */}
+                                                    <h3 className="font-black text-gray-900 text-base leading-tight">
+                                                        {r.vehicle?.year} {r.vehicle?.make} {r.vehicle?.model}
+                                                    </h3>
+                                                    
+                                                    <div className="flex flex-col mt-1 mb-3">
+                                                        {r.vehicle?.unit_number && (
+                                                            <div className="mb-1">
+                                                                <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-[10px] font-bold border border-gray-200">
+                                                                    #{r.vehicle.unit_number}
+                                                                </span>
+                                                            </div>
+                                                        )}
+                                                        <span className="text-[10px] font-mono text-gray-400">
+                                                          {displayPlate}
+                                                        </span>
                                                     </div>
 
-                                                    {hasParts && (
-                                                        <div className="bg-amber-100 text-amber-700 p-1 rounded-md" title="Parts Attached">
-                                                            <IconParts />
-                                                        </div>
-                                                    )}
-                                                </div>
+                                                    {/* Service Description */}
+                                                    <p className="text-sm font-medium text-gray-600 line-clamp-2 mb-3">{r.service_title}</p>
 
-                                                {/* Vehicle Info with Plate */}
-                                                <h3 className="font-black text-gray-900 text-base leading-tight">
-                                                    {r.vehicle?.year} {r.vehicle?.make} {r.vehicle?.model}
-                                                </h3>
-                                                
-                                                <div className="flex flex-col mt-1 mb-3">
-                                                    {r.vehicle?.unit_number && (
-                                                        <div className="mb-1">
-                                                            <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-[10px] font-bold border border-gray-200">
-                                                                #{r.vehicle.unit_number}
-                                                            </span>
-                                                        </div>
-                                                    )}
-                                                    
-                                                    {/* PLATE INFO */}
-                                                    <span className="text-[10px] font-mono text-gray-400">
-                                                      {r.vehicle?.plate ? `Plate: ${r.vehicle.plate}` : "NO PLATE"}
-                                                    </span>
-                                                </div>
-
-                                                {/* Service Description */}
-                                                <p className="text-sm font-medium text-gray-600 line-clamp-2 mb-3">{r.service_title}</p>
-
-                                                {/* Footer: Date & Crew */}
-                                                <div className="pt-3 border-t border-gray-50 flex justify-between items-center">
-                                                    
-                                                    {/* Date Pill */}
-                                                    {scheduledDate ? (
-                                                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded-md">
-                                                            <IconCalendar />
-                                                            <span>{scheduledDate.toLocaleDateString(undefined, { month:'short', day:'numeric' })}</span>
-                                                            <span className="text-blue-300">|</span>
-                                                            <span>{scheduledDate.toLocaleTimeString(undefined, { hour:'numeric', minute:'2-digit' })}</span>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded-md">Unscheduled</div>
-                                                    )}
-
-                                                    {/* Completion Badge */}
-                                                    {r.completed_at && (
-                                                      <span className="ml-2 text-[10px] font-bold bg-black text-white px-2 py-0.5 rounded">
-                                                        Completed by {r.completed_by_role}
-                                                      </span>
-                                                    )}
-
-                                                    {/* Mini Lifecycle Button (Optional, keeping it functional) */}
-                                                    {!r.completed_at && (
-                                                      <button
-                                                        onClick={(e) => {
-                                                          e.stopPropagation();
-                                                          setSelectedReq(r);
-                                                          openLifecycle(r);
-                                                        }}
-                                                        className="text-[10px] font-black uppercase tracking-wider text-gray-400 hover:text-black ml-auto mr-2"
-                                                      >
-                                                        Lifecycle
-                                                      </button>
-                                                    )}
-
-                                                    {/* Crew Avatars */}
-                                                    <div className="flex -space-x-2">
-                                                        {r.tech ? (
-                                                          <div
-                                                            className="w-6 h-6 rounded-full bg-black text-white flex items-center justify-center text-[10px] font-bold ring-2 ring-white"
-                                                            title={`Lead: ${r.tech.full_name || "Unassigned"}`}
-                                                          >
-                                                            {r.tech?.full_name?.charAt(0) || "?"}
-                                                          </div>
-                                                        ) : (
-                                                          <div className="w-6 h-6 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center ring-2 ring-white border border-dashed border-gray-300">
-                                                            <IconUser />
-                                                          </div>
-                                                        )}
+                                                    {/* Footer: Date & Crew */}
+                                                    <div className="pt-3 border-t border-gray-50 flex justify-between items-center">
                                                         
-                                                        {r.buddy && (
-                                                          <div
-                                                            className="w-6 h-6 rounded-full bg-purple-600 text-white flex items-center justify-center text-[10px] font-bold ring-2 ring-white"
-                                                            title={`Buddy: ${r.buddy.full_name || "Unassigned"}`}
-                                                          >
-                                                            {r.buddy?.full_name?.charAt(0) || "?"}
-                                                          </div>
+                                                        {/* Date Pill (Show only if NOT rescheduled, to avoid clutter) */}
+                                                        {scheduledDate && !isRescheduled ? (
+                                                            <div className="flex items-center gap-1.5 text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded-md">
+                                                                <IconCalendar />
+                                                                <span>{scheduledDate.toLocaleDateString(undefined, { month:'short', day:'numeric' })}</span>
+                                                                <span className="text-blue-300">|</span>
+                                                                <span>{scheduledDate.toLocaleTimeString(undefined, { hour:'numeric', minute:'2-digit' })}</span>
+                                                            </div>
+                                                        ) : (
+                                                            !isRescheduled && <div className="text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded-md">Unscheduled</div>
                                                         )}
+
+                                                        {/* Crew Avatars */}
+                                                        <div className="flex -space-x-2 ml-auto">
+                                                            {r.tech ? (
+                                                              <div className="w-6 h-6 rounded-full bg-black text-white flex items-center justify-center text-[10px] font-bold ring-2 ring-white" title={`Lead: ${r.tech.full_name}`}>
+                                                                {r.tech?.full_name?.charAt(0) || "?"}
+                                                              </div>
+                                                            ) : (
+                                                              <div className="w-6 h-6 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center ring-2 ring-white border border-dashed border-gray-300"><IconUser /></div>
+                                                            )}
+                                                            {r.buddy && (
+                                                              <div className="w-6 h-6 rounded-full bg-purple-600 text-white flex items-center justify-center text-[10px] font-bold ring-2 ring-white" title={`Buddy: ${r.buddy.full_name}`}>
+                                                                {r.buddy?.full_name?.charAt(0) || "?"}
+                                                              </div>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
+                                         )}
+                                      </Draggable>
+                                   )})}
+                                   {provided.placeholder}
+                                </div>
+                             )}
+                          </Droppable>
+                       </div>
+                    )})}
+                 </div>
+              </DragDropContext>
+           </div>
 
-                                         </div>
-                                      )}
-                                   </Draggable>
-                                )})}
-                                {provided.placeholder}
-                             </div>
-                          )}
-                       </Droppable>
-                    </div>
-                 ))}
-             </div>
-          </DragDropContext>
+           {/* RIGHT: TECH LOADOUT SIDEBAR */}
+           <div className="w-80 bg-white border-l border-gray-200 overflow-y-auto hidden lg:block z-10 shadow-xl">
+               <div className="p-6 bg-gray-900 text-white sticky top-0 z-10">
+                 <div className="flex items-center gap-2 mb-1">
+                    <IconTruck />
+                    <h2 className="font-bold uppercase tracking-wider text-sm">Loadout Manifest</h2>
+                 </div>
+                 <p className="text-xs text-gray-400">Parts needed for active jobs.</p>
+               </div>
+
+               <div className="p-4 space-y-6">
+                 {loadoutManifest.length === 0 ? (
+                   <div className="text-center py-12 opacity-50">
+                      <IconBox />
+                      <p className="text-xs font-bold mt-2">No parts required yet.</p>
+                   </div>
+                 ) : (
+                   loadoutManifest.map((job) => {
+                     const jobPlate = job.plate || job.vehicle?.plate || "No Plate";
+                     return (
+                       <div key={job.id} className="border-b border-gray-100 pb-4 last:border-0">
+                         {/* Job Header */}
+                         <div className="mb-2 cursor-pointer hover:opacity-75" onClick={() => setSelectedReq(job)}>
+                           <div className="flex justify-between items-start">
+                             <span className={clsx(
+                               "text-[10px] font-bold px-1.5 py-0.5 rounded uppercase",
+                               job.status === 'IN_PROGRESS' ? "bg-green-100 text-green-700" : "bg-blue-50 text-blue-600"
+                             )}>
+                               {job.status === 'IN_PROGRESS' ? 'Active' : job.scheduled_start_at ? new Date(job.scheduled_start_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Scheduled'}
+                             </span>
+                             <span className="text-[10px] font-mono text-gray-400">{jobPlate}</span>
+                           </div>
+                           <h4 className="font-bold text-sm text-gray-800 leading-tight mt-1">{job.customer?.name}</h4>
+                           <p className="text-xs text-gray-500 truncate">{job.service_title}</p>
+                         </div>
+
+                         {/* Parts List */}
+                         <ul className="space-y-2 bg-gray-50 p-2 rounded-lg border border-gray-100">
+                           {job.request_parts.map((part: any) => (
+                             <li key={part.id} className="flex justify-between items-center text-xs">
+                               <div className="flex items-center gap-2 overflow-hidden">
+                                 <div className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-orange-500" />
+                                 <span className="truncate font-medium text-gray-700">
+                                    {part.part_name}
+                                 </span>
+                               </div>
+                               <span className="font-mono font-bold text-gray-600 whitespace-nowrap ml-2">
+                                 x{part.quantity}
+                               </span>
+                             </li>
+                           ))}
+                         </ul>
+                       </div>
+                     );
+                   })
+                 )}
+               </div>
+           </div>
        </div>
 
        {/* --- DETAILS MODAL --- */}
        {selectedReq && !showScheduleModal && (
-          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="fixed inset-0 bg-black/40 z-[50] flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in duration-200">
              <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden transform transition-all scale-100">
                 {/* Modal Header */}
                 <div className="bg-gray-50 px-8 py-6 border-b border-gray-100 flex justify-between items-start">
@@ -498,7 +545,10 @@ export default function DispatchBoardClient({ initialRequests, technicians }: { 
                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider block mb-2">Vehicle Asset</label>
                          <div className="font-bold text-lg text-gray-900">{selectedReq.vehicle?.year} {selectedReq.vehicle?.model}</div>
                          <div className="flex gap-2 mt-2">
-                            <span className="bg-white px-2 py-1 rounded border text-xs font-mono font-bold text-gray-600">{selectedReq.vehicle?.plate}</span>
+                            {/* SNAPSHOT PLATE PRIORITY */}
+                            <span className="bg-white px-2 py-1 rounded border text-xs font-mono font-bold text-gray-600">
+                              {selectedReq.plate || selectedReq.vehicle?.plate || "NO PLATE"}
+                            </span>
                             {selectedReq.vehicle?.unit_number && <span className="bg-black text-white px-2 py-1 rounded text-xs font-bold">UNIT {selectedReq.vehicle.unit_number}</span>}
                          </div>
                       </div>
@@ -622,7 +672,8 @@ export default function DispatchBoardClient({ initialRequests, technicians }: { 
                 <div>
                 <div className="text-xs font-black text-gray-400 uppercase tracking-wider">Lifecycle</div>
                 <div className="text-lg font-black text-gray-900">
-                    {selectedReq.vehicle?.plate || "NO PLATE"} • {selectedReq.service_title}
+                    {/* SNAPSHOT PRIORITY */}
+                    {selectedReq.plate || selectedReq.vehicle?.plate || "NO PLATE"} • {selectedReq.service_title}
                 </div>
                 </div>
 

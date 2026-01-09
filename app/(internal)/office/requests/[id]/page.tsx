@@ -9,6 +9,7 @@ export default function Page({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
   const [data, setData] = useState<any>(null);
+  const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -23,100 +24,59 @@ export default function Page({ params }: { params: Promise<{ id: string }> }) {
         }
       );
 
-      console.log("📡 Fetching Office request:", id);
-
-      const { data: request, error } = await supabase
+      // 1. Fetch Request + Images + Parts
+      const requestPromise = supabase
         .from("service_requests")
         .select(`
           *,
-          customer:customers (
-            id,
-            name,
-            email,
-            phone
-          ),
-          vehicle:vehicles (
-            id,
-            vin,
-            year,
-            make,
-            model,
-            unit_number,
-            plate
-          ),
-          technician:technician_id (
-            id,
-            full_name
-          ),
-          second_technician:second_technician_id (
-            id,
-            full_name
-          )
+          customer:customers (id, name, email, phone),
+          vehicle:vehicles (id, vin, year, make, model, unit_number, plate),
+          technician:technician_id (id, full_name),
+          second_technician:second_technician_id (id, full_name),
+          request_images (*),
+          request_parts (*)
         `)
         .eq("id", id)
         .single();
 
-      if (error) {
-        console.error("❌ SUPABASE ERROR:", error.message);
+      // 2. Fetch Audit Logs
+      const logsPromise = supabase
+        .from("activity_logs")
+        .select("*")
+        .eq("request_id", id)
+        .order("created_at", { ascending: false });
+
+      const [reqRes, logsRes] = await Promise.all([requestPromise, logsPromise]);
+
+      if (reqRes.error) {
+        console.error("❌ SUPABASE ERROR:", reqRes.error.message);
         setLoading(false);
         return;
       }
 
-      // ✅ Normalize tech assignments for OFFICE (read-only)
-      const assignedTechs: string[] = [];
-      if (request?.technician?.full_name) {
-        assignedTechs.push(request.technician.full_name);
-      }
-      if (request?.second_technician?.full_name) {
-        assignedTechs.push(request.second_technician.full_name);
-      }
+      const request = reqRes.data;
 
-      // ✅ Normalize mileage for display
-      const displayMileage =
-        request?.reported_mileage ??
-        request?.mileage ??
-        null;
+      // Normalize tech names
+      const assignedTechs: string[] = [];
+      if (request?.technician?.full_name) assignedTechs.push(request.technician.full_name);
+      if (request?.second_technician?.full_name) assignedTechs.push(request.second_technician.full_name);
 
       const normalizedRequest = {
         ...request,
         assigned_techs: assignedTechs,
-        display_mileage: displayMileage,
+        display_mileage: request?.reported_mileage ?? request?.mileage ?? null,
       };
 
-      console.log("✅ Office request loaded:", normalizedRequest);
       setData(normalizedRequest);
+      setLogs(logsRes.data || []);
       setLoading(false);
     };
 
     fetchData();
   }, [id, router]);
 
-  if (loading) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="text-gray-400 animate-pulse">
-          Loading Request...
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <div className="flex h-screen items-center justify-center text-gray-400 animate-pulse">Loading...</div>;
+  if (!data) return <div className="p-12 text-center"><h2 className="text-xl font-bold">Not Found</h2></div>;
 
-  if (!data) {
-    return (
-      <div className="p-12 text-center">
-        <h2 className="text-xl font-bold">Request Not Found</h2>
-        <p className="text-gray-500 mb-4">
-          You might need to enable RLS for <code>service_requests</code>.
-        </p>
-        <button
-          onClick={() => router.back()}
-          className="text-blue-600 hover:underline"
-        >
-          ← Go Back
-        </button>
-      </div>
-    );
-  }
-
-  return <OfficeRequestDetailClient request={data} />;
+  return <OfficeRequestDetailClient request={data} logs={logs} />;
 }

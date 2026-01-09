@@ -18,7 +18,7 @@ export default async function OfficeDashboardPage() {
     redirect("/login");
   }
 
-  // ✅ 3. Fetch Data (READ ONLY is perfect here)
+  // ✅ 3. Fetch Data
   const { data: requests, error: dbError } = await supabase
     .from("service_requests")
     .select(`
@@ -27,8 +27,9 @@ export default async function OfficeDashboardPage() {
       status,
       service_title,
       created_by_role,
+      plate,
       customer:customers(name),
-      vehicle:vehicles(year, make, model, plate)
+      vehicle:vehicles(year, make, model, plate, unit_number)
     `)
     .order("created_at", { ascending: false });
 
