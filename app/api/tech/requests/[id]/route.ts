@@ -1,127 +1,92 @@
 import { NextResponse } from "next/server";
-import { supabaseServer, supabaseService } from "@/lib/supabase/server";
+import { supabaseServer } from "@/lib/supabase/server";
 import { resolveUserScope } from "@/lib/api/scope";
 import { logActivity } from "@/lib/audit/logActivity";
 
-export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const scope = await resolveUserScope();
-  if (!scope.uid) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export const dynamic = "force-dynamic";
 
-  const supabase = await supabaseServer();
-  
-  const { data, error } = await supabase
-    .from("service_requests")
-    .select(`
-      *,
-      customer:customers(name, address, phone),
-      vehicle:vehicles(year, make, model, plate, unit_number, vin),
-      request_parts(*),
-      request_images(*)
-    `)
-    .eq("id", id)
-    .order("created_at", { referencedTable: "request_images", ascending: false })
-    .single();
+export async function PATCH(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const supabase = await supabaseServer();
+    const scope = await resolveUserScope();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true, request: data });
-}
+    // 1. Auth Check
+    if (!scope.uid) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const scope = await resolveUserScope();
-  
-  if (!scope.uid || !["TECH", "OFFICE", "ADMIN", "SUPERADMIN"].includes(scope.role)) {
-     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+    // 2. Fetch Job to Verify Assignment
+    // We use the standard client here (respecting RLS read rules)
+    const { data: job } = await supabase
+      .from("service_requests")
+      .select("technician_id, second_technician_id")
+      .eq("id", id)
+      .single();
 
-  const body = await req.json();
-  const supabase = await supabaseServer(); 
-  const adminDb = supabaseService();       
+    if (!job) {
+      return NextResponse.json({ error: "Job not found" }, { status: 404 });
+    }
 
-  const { data: current, error: loadError } = await supabase
-    .from("service_requests")
-    .select("status, technician_id, vehicle_id, office_notes")
-    .eq("id", id)
-    .single();
-
-  if (loadError || !current) {
-    return NextResponse.json({ error: "Request not found" }, { status: 404 });
-  }
-
-  let updates: any = {};
-  let logAction = "UPDATE"; 
-  let metaData: any = {};
-
-  if (scope.role === "TECH") {
+    // 3. Verify User is Assigned (or is Admin)
+    const isAssigned = 
+      job.technician_id === scope.uid || 
+      job.second_technician_id === scope.uid;
     
-    if (body.action === "START") {
-      if (current.status !== "SCHEDULED" && current.status !== "NEW" && current.status !== "ATTENTION_REQUIRED") {
-        return NextResponse.json({ error: "Job must be SCHEDULED before starting" }, { status: 400 });
-      }
-      updates.status = "IN_PROGRESS";
-      updates.started_at = new Date().toISOString();
-      updates.technician_id = scope.uid; 
-      logAction = "START_JOB";
+    const isAdmin = ["ADMIN", "DISPATCH", "SUPERADMIN"].includes(scope.role);
+
+    if (!isAssigned && !isAdmin) {
+      return NextResponse.json({ error: "You are not assigned to this job" }, { status: 403 });
     }
 
-    else if (body.action === "COMPLETE") {
-      if (current.status !== "IN_PROGRESS") {
-        return NextResponse.json({ error: "Job must be IN_PROGRESS before completing" }, { status: 400 });
-      }
-      updates.status = "COMPLETED";
-      updates.completed_at = new Date().toISOString();
-      updates.completed_by_role = "TECH";
-      logAction = "COMPLETE_JOB";
+    // 4. Parse Request Body
+    const body = await req.json();
+    if (!body.status) {
+      return NextResponse.json({ error: "Missing 'status' in request body" }, { status: 400 });
     }
 
-    else if (body.action === "REPORT_ISSUE") {
-       updates.status = "ATTENTION_REQUIRED"; 
-       updates.technician_id = null; 
-       
-       const reason = body.reason || "Unable to service";
-       const prevNotes = current.office_notes ? current.office_notes + "\n" : "";
-       updates.office_notes = `${prevNotes}[🚨 MISSED - ${new Date().toLocaleDateString()}]: ${reason}`; 
-       
-       logAction = "JOB_MISSED";
-       metaData.reason = reason;
-    }
-    
-    // Logic for technician notes update
-    else if (body.action === "UPDATE_NOTES") {
-      updates.technician_notes = body.notes;
-      logAction = "UPDATE_NOTES";
-    }
-  
-  } else {
-    const allowed = ["status", "technician_id", "service_scope", "description", "admin_notes", "price"];
-    allowed.forEach((field) => {
-      if (body[field] !== undefined) updates[field] = body[field];
+    // 5. CALL DATABASE FUNCTION (The Fix)
+    // We use the RPC function to bypass RLS write blocks safely.
+    // Note the "p_" prefixes to match the SQL function parameters.
+    const { data: result, error } = await supabase.rpc("update_job_status", {
+      p_request_id: id,
+      p_new_status: body.status,
+      p_notes: body.notes || null,
+      p_user_id: scope.uid,
+      p_user_role: scope.role
     });
+
+    if (error) {
+      console.error("RPC Error:", error);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    if (!result || !result.ok) {
+      return NextResponse.json({ 
+        error: result?.error || "Update failed. Database returned error." 
+      }, { status: 404 });
+    }
+
+    // 6. Log Activity
+    await logActivity({
+      request_id: id,
+      actor_id: scope.uid,
+      actor_role: scope.role,
+      action: "STATUS_CHANGE",
+      message: `Technician changed status to ${body.status}`,
+      meta: { 
+        status: body.status,
+        previous_status: result.data?.status 
+      }
+    });
+
+    return NextResponse.json({ ok: true, request: result.data });
+
+  } catch (e: any) {
+    console.error("Tech API Error:", e);
+    return NextResponse.json({ error: e.message }, { status: 500 });
   }
-
-  if (Object.keys(updates).length === 0) {
-    return NextResponse.json({ error: "No valid updates provided." }, { status: 400 });
-  }
-
-  const { data, error } = await adminDb
-    .from("service_requests")
-    .update(updates)
-    .eq("id", id)
-    .select()
-    .single(); 
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  await logActivity({
-    request_id: id,
-    actor_id: scope.uid,
-    actor_role: scope.role,
-    action: logAction,
-    from_status: current.status,
-    to_status: updates.status || current.status,
-    meta: { vehicle_id: current.vehicle_id, ...metaData }
-  });
-  
-  return NextResponse.json({ ok: true, request: data });
 }

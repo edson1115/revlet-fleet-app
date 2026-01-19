@@ -1,55 +1,51 @@
 import { NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase/server";
-import { getUserAndRole, INTERNAL } from "@/lib/supabase/server-helpers";
-import { logActivity } from "@/lib/audit/logActivity";
+import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
 
-export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function PATCH(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
+    // 1. Await params (Next.js 15 requirement)
     const { id } = await params;
-    const { user, role } = await getUserAndRole();
     
-    // 1. Auth Check
-    if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-    if (!role || !INTERNAL.has(role)) {
-      return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
-    }
-
-    const body = await req.json();
-    const supabase = await supabaseServer();
-
-    // 2. Perform Update
-    // Dispatch primarily updates scheduling info (tech, eta, status)
-    const { error } = await supabase
-      .from("service_requests")
-      .update({
-        technician_id: body.tech_id ?? null,
-        eta_start: body.eta_start ?? null,
-        eta_end: body.eta_end ?? null,
-        status: "SCHEDULED",
-      })
-      .eq("id", id);
-
-    if (error) throw new Error(error.message);
-
-    // 3. ✅ LOG ACTIVITY: Tech Assignment
-    if (body.tech_id) {
-      await logActivity({
-        request_id: id,
-        actor_id: user.id,
-        actor_role: "DISPATCH",
-        action: "ASSIGNED_TECH",
-        message: `Assigned technician ${body.tech_id}`,
-        meta: {
-          technician_id: body.tech_id,
-          eta_start: body.eta_start,
-          eta_end: body.eta_end
+    // 2. Setup Supabase
+    const cookieStore = await cookies();
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() { return cookieStore.getAll() },
+          setAll(cookiesToSet) { try { cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options)); } catch { } },
         },
-      });
+      }
+    );
+
+    // 3. Auth Check
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    return NextResponse.json({ ok: true });
+    // 4. Update Database
+    // We update whatever is passed in 'body' (status, technician_id, notes, etc.)
+    const body = await req.json();
+
+    const { data, error } = await supabase
+      .from("service_requests")
+      .update(body)
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return NextResponse.json({ ok: true, request: data });
+
   } catch (e: any) {
-    console.error("Dispatch Update Error:", e);
+    console.error("Dispatch API Error:", e);
     return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
   }
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { inviteUser, deleteUser, repairFleetLinks } from "@/app/actions/admin";
+import { inviteUser, repairFleetLinks } from "@/app/actions/admin";
 import { useRouter, useSearchParams } from "next/navigation";
 import clsx from "clsx";
 
@@ -12,6 +12,7 @@ const ROLES = [
   { value: "OFFICE", label: "💻 Office", color: "bg-indigo-100 text-indigo-800" },
   { value: "DISPATCHER", label: "🚚 Dispatcher", color: "bg-orange-100 text-orange-800" },
   { value: "TECHNICIAN", label: "🔧 Technician", color: "bg-gray-100 text-gray-800" },
+  { value: "SALES_REP", label: "💼 Outside Sales", color: "bg-pink-100 text-pink-800" },
   { value: "CUSTOMER", label: "👤 Customer", color: "bg-emerald-100 text-emerald-800" },
 ];
 
@@ -39,12 +40,14 @@ export default function UserManagementClient({
   const [searchTerm, setSearchTerm] = useState("");
   const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
 
+  // --- FILTERS ---
   const updateFilter = (key: string, value: string) => {
     const params = new URLSearchParams(searchParams.toString());
     params.set(key, value);
     router.push(`?${params.toString()}`);
   };
 
+  // --- ACTIONS ---
   async function handleInvite(formData: FormData) {
     setIsInviting(true);
     setMessage(null);
@@ -58,16 +61,36 @@ export default function UserManagementClient({
     }
   }
 
+  // 🔥 DELETE via API
   async function handleDelete(userId: string) {
-      if(!confirm("Are you sure? Access removal is logged for audit.")) return;
-      const formData = new FormData();
-      formData.append("userId", userId);
-      await deleteUser(formData);
-      window.location.reload();
+      if(!confirm("Are you sure? This effectively bans the user.")) return;
+      
+      const res = await fetch(`/api/admin/users?id=${userId}`, { method: "DELETE" });
+      
+      if (res.ok) {
+        window.location.reload();
+      } else {
+        alert("Failed to delete user. Check permissions.");
+      }
+  }
+
+  // 🔥 CHANGE ROLE via API
+  async function handleRoleUpdate(userId: string, newRole: string) {
+      const res = await fetch(`/api/admin/users`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, role: newRole })
+      });
+
+      if (res.ok) {
+        window.location.reload();
+      } else {
+        alert("Failed to update role.");
+      }
   }
 
   const filteredUsers = users.filter(u => 
-    u.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    u.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
     u.email?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -112,11 +135,17 @@ export default function UserManagementClient({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
+        {/* INVITE FORM */}
         <div className="lg:col-span-4 space-y-6">
           <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-200 sticky top-8">
             <h2 className="text-xl font-black mb-6 flex items-center gap-2 text-gray-900">
                 <div className="w-2 h-6 bg-blue-500 rounded-full"></div> Invite User
             </h2>
+            {message && (
+                <div className={clsx("p-3 rounded-lg text-xs font-bold mb-4", message.type === 'error' ? "bg-red-100 text-red-800" : "bg-green-100 text-green-800")}>
+                    {message.text}
+                </div>
+            )}
             <form action={handleInvite} className="space-y-4">
               <input name="fullName" required placeholder="Full Name" className="w-full p-4 bg-gray-50 rounded-2xl border border-gray-200 outline-none transition font-medium text-gray-900" />
               <input name="email" type="email" required placeholder="Email Address" className="w-full p-4 bg-gray-50 rounded-2xl border border-gray-200 outline-none transition font-medium text-gray-900" />
@@ -136,6 +165,7 @@ export default function UserManagementClient({
           </div>
         </div>
 
+        {/* USER LIST */}
         <div className="lg:col-span-8 space-y-6">
           <div className="relative group">
             <input type="text" placeholder={`Search ${currentMarket} users...`} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
@@ -150,18 +180,60 @@ export default function UserManagementClient({
                     const roleConfig = ROLES.find(r => r.value === user.role) || ROLES[6];
                     const linkedCompany = customers.find(c => c.id === user.customer_id)?.company_name;
 
+                    // 🔥 ROBUST STATUS CHECKS (This logic is correct, but the DATA is missing)
+                    const isAccountReady = 
+                        !!user.last_sign_in ||      // API mapped name
+                        !!user.last_sign_in_at ||   // Raw Supabase name
+                        user.email_confirmed ||     // API mapped name
+                        !!user.email_confirmed_at || // Raw Supabase name
+                        !!user.has_password;
+                    
+                    const isOrphan = user.role === 'CUSTOMER' && !linkedCompany;
+
                     return (
                         <tr key={user.id} className="hover:bg-gray-50 transition group">
                             <td className="p-6">
-                                <div className="font-black text-gray-900 text-lg leading-none">{user.full_name || "New User"}</div>
+                                <div className="font-black text-gray-900 text-lg leading-none">{user.name || "New User"}</div>
                                 <div className="text-sm text-gray-400 mt-1 font-medium">{user.email}</div>
                             </td>
                             <td className="p-6">
-                                <div className="flex flex-col gap-1">
-                                    <span className={clsx("w-fit px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider", roleConfig.color)}>
-                                        {roleConfig.label}
-                                    </span>
-                                    {linkedCompany && <span className="text-[10px] font-bold text-blue-500 uppercase tracking-widest pl-1">🏢 {linkedCompany}</span>}
+                                <div className="flex flex-col gap-2">
+                                    <select 
+                                        value={user.role || "CUSTOMER"} 
+                                        onChange={(e) => handleRoleUpdate(user.id, e.target.value)}
+                                        className={clsx(
+                                            "w-fit px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer outline-none border-none appearance-none hover:opacity-80 transition", 
+                                            roleConfig.color
+                                        )}
+                                    >
+                                        {ROLES.filter(r => r.value !== "ALL").map(r => (
+                                            <option key={r.value} value={r.value}>
+                                                {r.label.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, "")}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    
+                                    {linkedCompany ? (
+                                        <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest pl-1 flex items-center gap-1">
+                                            🏢 {linkedCompany}
+                                        </span>
+                                    ) : isOrphan ? (
+                                        <span className="text-[10px] font-bold text-red-500 uppercase tracking-widest pl-1 flex items-center gap-1 animate-pulse">
+                                            ⚠️ ORPHAN (No Fleet)
+                                        </span>
+                                    ) : null}
+
+                                    <div className="flex gap-2 mt-1">
+                                        {isAccountReady ? (
+                                            <span className="px-1.5 py-0.5 rounded border border-green-200 bg-green-50 text-green-700 text-[9px] font-bold uppercase tracking-wider">
+                                               🔐 Acct Ready
+                                            </span>
+                                        ) : (
+                                             <span className="px-1.5 py-0.5 rounded border border-amber-200 bg-amber-50 text-amber-700 text-[9px] font-bold uppercase tracking-wider">
+                                               ⏳ Invite Pending
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                             </td>
                             <td className="p-6 text-right">

@@ -1,24 +1,52 @@
 import { NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase/server";
+import { createServerClient } from "@supabase/ssr"; // Use explicit client
+import { cookies } from "next/headers";
 
-export async function GET(req: Request, ctx: any) {
+export async function GET(req: Request, context: any) {
+  // ✅ Next.js 15: Await the params
+  const { id } = await context.params;
+
+  // ✅ Next.js 15: Await the cookies
+  const cookieStore = await cookies();
+
+  // Create Client Directly (Bypassing potential helper issues)
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            );
+          } catch {
+            // Ignored in route handlers
+          }
+        },
+      },
+    }
+  );
+
   try {
-    const { id } = await ctx.params;
-    const supabase = await supabaseServer();
-
-    // AUTH
+    // 1. AUTH CHECK
     const {
       data: { user },
+      error: authError,
     } = await supabase.auth.getUser();
 
-    if (!user) {
+    if (authError || !user) {
+      console.error("API Auth Error:", authError); // Log the actual error
       return NextResponse.json(
         { ok: false, error: "Unauthorized" },
         { status: 401 }
       );
     }
 
-    // PROFILE → CUSTOMER
+    // 2. GET CUSTOMER ID
     const { data: profile } = await supabase
       .from("profiles")
       .select("customer_id")
@@ -27,12 +55,12 @@ export async function GET(req: Request, ctx: any) {
 
     if (!profile?.customer_id) {
       return NextResponse.json(
-        { ok: false, error: "Unauthorized" },
+        { ok: false, error: "Orphan User: No Linked Company" },
         { status: 403 }
       );
     }
 
-    // LOAD VEHICLE + HISTORY
+    // 3. LOAD VEHICLE + HISTORY
     const { data: vehicle, error } = await supabase
       .from("vehicles")
       .select(
@@ -44,29 +72,17 @@ export async function GET(req: Request, ctx: any) {
         unit_number,
         plate,
         vin,
-        notes_internal,
-
-        mileage_override,
-        last_reported_mileage,
-        last_mileage_at,
-
+        
         service_requests (
           id,
           status,
-          service,
+          service_title, 
+          description,
           mileage,
-          po,
-          ai_status,
-          ai_po_number,
-          notes,
-          dispatch_notes,
           created_at,
-          started_at,
+          scheduled_date,
           completed_at,
-          scheduled_start_at,
-          scheduled_end_at,
-          technician:technician_id ( id, full_name ),
-          location:location_id ( id, name )
+          technician_notes
         )
       `
       )
@@ -75,6 +91,7 @@ export async function GET(req: Request, ctx: any) {
       .maybeSingle();
 
     if (error) {
+      console.error("Fetch Error:", error);
       return NextResponse.json(
         { ok: false, error: error.message },
         { status: 400 }
@@ -88,33 +105,21 @@ export async function GET(req: Request, ctx: any) {
       );
     }
 
-    // ⭐⭐⭐ MILEAGE FIX STARTS HERE ⭐⭐⭐
-    let displayMileage = vehicle.mileage_override ?? vehicle.last_reported_mileage ?? null;
-
-    // Sort service requests newest → oldest
-    const sorted = [...(vehicle.service_requests || [])].sort(
-      (a, b) =>
-        new Date(b.created_at).getTime() -
-        new Date(a.created_at).getTime()
+    // 4. SORT HISTORY
+    const sortedRequests = (vehicle.service_requests || []).sort(
+      (a: any, b: any) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
 
-    // Find most recent request with mileage
-    const latestMileageRequest = sorted.find((r) => r.mileage !== null);
-
-    if (latestMileageRequest?.mileage) {
-      displayMileage = latestMileageRequest.mileage;
-    }
-
-    // Attach to returned vehicle
-    const vehicleWithDisplay = {
-      ...vehicle,
-      display_mileage: displayMileage,
-    };
-    // ⭐⭐⭐ MILEAGE FIX ENDS HERE ⭐⭐⭐
-
-    return NextResponse.json({ ok: true, vehicle: vehicleWithDisplay });
-
+    return NextResponse.json({
+      ok: true,
+      vehicle: {
+        ...vehicle,
+        service_requests: sortedRequests,
+      },
+    });
   } catch (err: any) {
+    console.error("Server Error:", err);
     return NextResponse.json(
       { ok: false, error: err.message },
       { status: 500 }

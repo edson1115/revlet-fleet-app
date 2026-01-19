@@ -40,13 +40,12 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
   );
 
   // 2. BUILD DYNAMIC QUERY
-  // We filter by market and role at the database level to handle scale.
   let profilesQuery = adminClient.from("profiles").select("*");
   
   if (params.market) {
     profilesQuery = profilesQuery.eq("active_market", params.market);
   } else {
-    // Default to San Antonio for your current testing
+    // Default to San Antonio
     profilesQuery = profilesQuery.eq("active_market", "San Antonio");
   }
 
@@ -66,7 +65,6 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
   const authUsers = authUsersRes.data?.users || [];
 
   // 4. PERMISSION CHECK
-  // We fetch the current user's profile from the full database to check admin status
   const { data: currentUserProfile } = await adminClient
     .from("profiles")
     .select("role")
@@ -81,22 +79,26 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
   }
 
   // 5. MAP AUTH USERS TO FILTERED DATABASE PROFILES
-  // Only display users that match the current Market/Role selection.
+  // 🔥 CRITICAL FIX: Pass the Auth data so the badges work!
   const formattedUsers = profiles.map(dbProfile => {
     const authUser = authUsers.find(u => u.id === dbProfile.id);
+    
     return {
       id: dbProfile.id,
       email: dbProfile.email || authUser?.email,
-      full_name: dbProfile.full_name || "New User",
+      name: dbProfile.full_name || "New User", // Rename to 'name' for Client compatibility
       role: dbProfile.role || "CUSTOMER",
       customer_id: dbProfile.customer_id || null,
       created_at: dbProfile.created_at,
-      active_market: dbProfile.active_market
+      active_market: dbProfile.active_market,
+      
+      // ✅ PASS THE LOGIN DATA (Previously Missing)
+      last_sign_in_at: authUser?.last_sign_in_at || null,
+      email_confirmed_at: authUser?.email_confirmed_at || null,
+      has_password: !!authUser?.encrypted_password
     };
   });
 
-  // Extract unique markets for the UI filter buttons
-  // In the future, this could be a dedicated 'markets' table.
   const availableMarkets = ["San Antonio", "Austin", "Houston", "Dallas"];
 
   return (
@@ -105,7 +107,6 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
       customers={customers} 
       currentMarket={params.market || "San Antonio"}
       currentRole={params.role || "ALL"}
-      availableMarkets={availableMarkets}
     />
   );
 }
