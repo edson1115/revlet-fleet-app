@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { resolveUserScope } from "@/lib/api/scope";
 import UserManagementClient from "./UserManagementClient";
 
 export const dynamic = "force-dynamic";
@@ -10,102 +10,79 @@ interface PageProps {
 }
 
 export default async function AdminUsersPage({ searchParams }: PageProps) {
-  const cookieStore = await cookies();
-  const allCookies = cookieStore.getAll();
   const params = await searchParams;
   
-  // 1. SESSION PARSING
-  let userId = null;
-  const authCookie = allCookies.find(c => c.name.includes("-auth-token"));
+  // 1. STABLE SESSION CHECK
+  const scope = await resolveUserScope();
+  if (!scope.uid) redirect("/login");
 
-  if (authCookie) {
-    try {
-      let rawValue = authCookie.value;
-      if (rawValue.startsWith("base64-")) {
-        rawValue = Buffer.from(rawValue.replace("base64-", ""), 'base64').toString('utf-8');
-      }
-      rawValue = decodeURIComponent(rawValue);
-      const sessionData = JSON.parse(rawValue);
-      userId = sessionData.user?.id; 
-    } catch (e) {
-      console.error("Critical Session Parse Error:", e);
-    }
+  // 2. CHECK PERMISSIONS
+  if (!scope.isSuperadmin && !scope.isAdmin) {
+    redirect("/");
   }
 
-  if (!userId) redirect("/login");
-
+  // 3. ADMIN CLIENT (Bypass RLS)
   const adminClient = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
-  // 2. BUILD DYNAMIC QUERY
-  let profilesQuery = adminClient.from("profiles").select("*");
-  
-  if (params.market) {
-    profilesQuery = profilesQuery.eq("active_market", params.market);
-  } else {
-    // Default to San Antonio
-    profilesQuery = profilesQuery.eq("active_market", "San Antonio");
-  }
-
-  if (params.role && params.role !== "ALL") {
-    profilesQuery = profilesQuery.eq("role", params.role.toUpperCase());
-  }
-
-  // 3. FETCH DATA IN PARALLEL
+  // 4. FETCH DATA IN PARALLEL
+  // We fetch ALL profiles and ALL auth users to merge them in memory.
   const [profilesRes, customersRes, authUsersRes] = await Promise.all([
-    profilesQuery.order("full_name", { ascending: true }),
+    adminClient.from("profiles").select("*"),
     adminClient.from("customers").select("id, company_name"),
-    adminClient.auth.admin.listUsers()
+    adminClient.auth.admin.listUsers({ perPage: 1000 }) // Ensure we catch everyone
   ]);
 
   const profiles = profilesRes.data || [];
   const customers = customersRes.data || [];
   const authUsers = authUsersRes.data?.users || [];
 
-  // 4. PERMISSION CHECK
-  const { data: currentUserProfile } = await adminClient
-    .from("profiles")
-    .select("role")
-    .eq("id", userId)
-    .single();
-
-  const currentRole = (currentUserProfile?.role || "").toUpperCase();
-  const isAuthorized = ["SUPER_ADMIN", "SUPERADMIN", "ADMIN"].includes(currentRole);
-
-  if (!isAuthorized) {
-    redirect("/office");
-  }
-
-  // 5. MAP AUTH USERS TO FILTERED DATABASE PROFILES
-  // 🔥 CRITICAL FIX: Pass the Auth data so the badges work!
-  const formattedUsers = profiles.map(dbProfile => {
-    const authUser = authUsers.find(u => u.id === dbProfile.id);
+  // 5. MAP DATA (Source of Truth = AUTH USERS)
+  // This ensures "Invisible Users" (Invited but never logged in) still show up.
+  const formattedUsers = authUsers.map(authUser => {
+    // Try to find a matching DB profile (Active users will have one)
+    const dbProfile = profiles.find(p => p.id === authUser.id);
+    const meta = authUser.user_metadata || {}; 
     
     return {
-      id: dbProfile.id,
-      email: dbProfile.email || authUser?.email,
-      name: dbProfile.full_name || "New User", // Rename to 'name' for Client compatibility
-      role: dbProfile.role || "CUSTOMER",
-      customer_id: dbProfile.customer_id || null,
-      created_at: dbProfile.created_at,
-      active_market: dbProfile.active_market,
+      id: authUser.id,
+      email: authUser.email,
+      // Name Priority: Profile -> Metadata -> Email Stub -> Fallback
+      name: dbProfile?.full_name || meta.full_name || authUser.email?.split('@')[0] || "Invited User",
+      role: dbProfile?.role || meta.role || "CUSTOMER",
+      customer_id: dbProfile?.customer_id || meta.company_id || null,
+      created_at: authUser.created_at,
+      active_market: dbProfile?.active_market || "Unassigned",
       
-      // ✅ PASS THE LOGIN DATA (Previously Missing)
-      last_sign_in_at: authUser?.last_sign_in_at || null,
-      email_confirmed_at: authUser?.email_confirmed_at || null,
-      has_password: !!authUser?.encrypted_password
+      // Contact Info (Fallback to metadata for pending users)
+      phone: dbProfile?.phone || meta.phone || "N/A",
+      company_name: dbProfile?.company_name || meta.company_name || null,
+      fleet_size: dbProfile?.fleet_size || meta.fleet_size || null,
+      
+      status: "ACTIVE", // Client component handles "Pending" visual based on login date
+      active: true,
+
+      // Auth Status (The Critical Part for detection)
+      last_sign_in_at: authUser.last_sign_in_at || null,
+      email_confirmed_at: authUser.email_confirmed_at || null,
+      // Note: 'encrypted_password' is not always exposed, relying on last_sign_in_at is safer for "Pending" status
+      has_password: !!authUser.email_confirmed_at 
     };
   });
 
-  const availableMarkets = ["San Antonio", "Austin", "Houston", "Dallas"];
+  // 6. OPTIONAL FILTERING
+  // If a specific market is requested via URL, filter the list now.
+  const filteredUsers = (params.market && params.market !== "ALL")
+    ? formattedUsers.filter(u => u.active_market === params.market)
+    : formattedUsers;
 
   return (
     <UserManagementClient 
-      users={formattedUsers} 
+      users={filteredUsers} 
       customers={customers} 
-      currentMarket={params.market || "San Antonio"}
+      currentMarket={params.market || "ALL"}
       currentRole={params.role || "ALL"}
     />
   );

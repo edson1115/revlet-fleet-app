@@ -9,14 +9,17 @@ import {
   Zap, 
   Settings, 
   LogOut,
-  ClipboardList
+  ClipboardList,
+  Rocket,
+  DollarSign // 👈 Added DollarSign Icon
 } from "lucide-react";
 
-// Find this section in AdminSidebar.tsx
 const NAV_ITEMS = [
   { label: "Dashboard", icon: BarChart3, path: "/admin/dashboard" },
-  { label: "User Control", icon: Users, path: "/admin/users" }, // 👈 FIXED: Use 'Users' component, not the string
+  { label: "User Control", icon: Users, path: "/admin/users" },
   { label: "Customers", icon: Building2, path: "/admin/customers" },
+  { label: "Sales Performance", icon: Rocket, path: "/admin/sales" }, 
+  { label: "Invoicing", icon: DollarSign, path: "/admin/invoices" }, // 👈 NEW INVOICING TAB
   { label: "Lead Inbox", icon: Zap, path: "/admin/leads" },
   { label: "Techs", icon: ClipboardList, path: "/admin/techs" },
   { label: "System AI", icon: Settings, path: "/admin/ai" },

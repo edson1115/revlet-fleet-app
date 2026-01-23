@@ -1,9 +1,11 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
+import LeadModal from "@/app/components/LeadModal";
 
-// --- ICONS (Inline for zero dependencies) ---
+// --- ICONS ---
 const IconCheck = () => <svg className="w-5 h-5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>;
 const IconUser = () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>;
 const IconCommand = () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>;
@@ -11,8 +13,77 @@ const IconSmartphone = () => <svg className="w-6 h-6" fill="none" viewBox="0 0 2
 const IconChart = () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2z" /></svg>;
 const IconTruck = () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0" /></svg>;
 
+// --- 1. WORD CYCLER ---
+const WordCycler = () => {
+  const words = ["Fleet", "Office", "Dispatch", "Sales", "Tech", "Schedule"];
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setIndex((prev) => (prev + 1) % words.length);
+    }, 2000); 
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="inline-grid grid-cols-1 grid-rows-1 h-[1.1em] overflow-hidden align-bottom">
+      {words.map((word, i) => (
+        <span
+          key={word}
+          className={clsx(
+            "col-start-1 row-start-1 transition-all duration-500 ease-[cubic-bezier(0.25,1,0.5,1)] block text-center",
+            index === i ? "translate-y-0 opacity-100" : 
+            index > i ? "-translate-y-full opacity-0" : "translate-y-full opacity-0"
+          )}
+          aria-hidden={index !== i}
+        >
+          {word}
+        </span>
+      ))}
+    </div>
+  );
+};
+
+// --- 2. HIGH-END "LIQUID SHIMMER" BUTTON ---
+const PrimaryCTA = ({ children, onClick }: { children: React.ReactNode, onClick: () => void }) => {
+    return (
+        <button 
+            onClick={onClick}
+            className="group relative inline-flex items-center justify-center overflow-hidden rounded-xl bg-blue-600 px-8 py-4 font-bold text-white transition-all duration-300 hover:bg-blue-600 hover:scale-105 active:scale-95 shadow-[0_0_40px_-10px_rgba(37,99,235,0.5)]"
+        >
+            <div className="absolute inset-0 flex h-full w-full justify-center [transform:skew(-12deg)_translateX(-100%)] group-hover:duration-1000 group-hover:[transform:skew(-12deg)_translateX(100%)]">
+                <div className="relative h-full w-8 bg-white/20"></div>
+            </div>
+            
+            <span className="relative flex items-center gap-2 text-lg">
+                {children}
+                <svg className="w-4 h-4 transition-transform duration-300 group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                </svg>
+            </span>
+        </button>
+    );
+};
+
+// --- 3. "GLASS SPOTLIGHT" BUTTON ---
+const SecondaryCTA = ({ children, onClick }: { children: React.ReactNode, onClick: () => void }) => {
+    return (
+        <button 
+            onClick={onClick}
+            className="group relative inline-flex items-center justify-center overflow-hidden rounded-xl bg-zinc-900 px-8 py-4 font-bold text-white transition-all duration-300 hover:bg-zinc-800 hover:text-white border border-zinc-700 hover:border-zinc-500"
+        >
+            <span className="relative flex items-center gap-2 text-lg">
+                {children}
+            </span>
+            <div className="absolute inset-0 -z-10 bg-gradient-to-tr from-transparent via-white/5 to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
+        </button>
+    );
+};
+
+
 export default function LandingPage() {
   const router = useRouter();
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   return (
     <div className="min-h-screen bg-black text-white font-sans selection:bg-blue-600 selection:text-white">
@@ -35,121 +106,116 @@ export default function LandingPage() {
         </div>
       </nav>
 
-      {/* --- 1. HERO SECTION (Above the Fold) --- */}
+      {/* --- HERO SECTION --- */}
       <header className="relative pt-24 pb-20 overflow-hidden">
-         {/* Background Grid Ambience */}
          <div className="absolute inset-0 bg-[radial-gradient(#ffffff05_1px,transparent_1px)] [background-size:32px_32px] opacity-20 pointer-events-none"></div>
          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-blue-900/20 rounded-full blur-[120px] -z-10"></div>
 
-         <div className="max-w-5xl mx-auto text-center px-6 relative z-10">
+         <div className="max-w-6xl mx-auto text-center px-6 relative z-10">
             <h1 className="text-5xl md:text-7xl font-black tracking-tighter leading-none mb-8">
-               Run Your Entire Fleet Service Operation — <br className="hidden md:block"/>
-               <span className="text-zinc-500">In One Platform.</span>
+               <span className="block mb-2 md:mb-4">Run Your Entire</span>
+               <span className="block text-blue-600 mb-2 md:mb-4">
+                  <WordCycler />
+               </span>
+               <span className="block text-zinc-500">Operation.</span>
             </h1>
             
-            <p className="text-xl text-zinc-400 max-w-3xl mx-auto mb-10 leading-relaxed font-medium">
+            <p className="text-xl text-zinc-400 max-w-3xl mx-auto mb-12 leading-relaxed font-medium">
                Revlet connects fleet requests, dispatch, technicians, parts, photos, and invoicing into one real-time workflow.
             </p>
 
-            {/* CTAs mapped to your App Routes so you can still use them */}
-            <div className="flex flex-col md:flex-row justify-center gap-4">
-               <button onClick={() => router.push("/office")} className="bg-blue-600 text-white px-8 py-4 rounded-xl text-lg font-bold hover:bg-blue-500 transition shadow-[0_0_30px_-5px_rgba(37,99,235,0.4)]">
-                 Request a Demo
-               </button>
-               <button onClick={() => router.push("/tech")} className="bg-zinc-900 border border-zinc-700 text-white px-8 py-4 rounded-xl text-lg font-bold hover:bg-zinc-800 transition">
-                 See How It Works
-               </button>
+            {/* --- UPGRADED CTAS (FIXED LINK) --- */}
+            <div className="flex flex-col md:flex-row justify-center gap-6">
+               <PrimaryCTA onClick={() => setIsModalOpen(true)}>
+                   Request a Demo
+               </PrimaryCTA>
+               
+               {/* ⚠️ FIXED: Updated link to /tour to avoid conflict */}
+               <SecondaryCTA onClick={() => router.push("/tour")}>
+                   See How It Works
+               </SecondaryCTA>
             </div>
-            <p className="mt-4 text-xs text-zinc-500 font-mono">
-                DEV NOTE: "Request Demo" launches /office. "See How It Works" launches /tech.
+            
+            <p className="mt-8 text-xs text-zinc-500 font-mono">
+                DEV NOTE: "Request Demo" opens lead modal. "See How It Works" launches /tour.
             </p>
          </div>
       </header>
 
-      {/* --- 2. TRUST & PROOF STRIP --- */}
+      {/* --- TRUST & PROOF STRIP --- */}
       <section className="border-y border-white/5 bg-zinc-950 py-10">
         <div className="max-w-7xl mx-auto px-6 text-center">
             <p className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-6">
-                Trusted by High-Volume Fleet Operators & Enterprise Partners
+               Trusted by High-Volume Fleet Operators & Enterprise Partners
             </p>
             <div className="flex flex-wrap justify-center items-center gap-12 opacity-40 grayscale">
-                {/* Text-based Logos to avoid image dependencies */}
-                <span className="text-xl font-black font-serif"></span>
-                <span className="text-xl font-black font-sans tracking-tight"><span className="font-light"></span></span>
-                <span className="text-xl font-black font-mono"></span>
-                <span className="text-xl font-black italic"></span>
-                <span className="text-xl font-black"></span>
+               <span className="text-xl font-black font-serif"></span>
+               <span className="text-xl font-black font-sans tracking-tight"><span className="font-light"></span></span>
+               <span className="text-xl font-black font-mono"></span>
+               <span className="text-xl font-black italic"></span>
+               <span className="text-xl font-black"></span>
             </div>
         </div>
       </section>
 
-      {/* --- 3. ROLE-BASED PLATFORM OVERVIEW --- */}
+      {/* --- ROLE-BASED OVERVIEW --- */}
       <section className="py-24 px-6 bg-black">
          <div className="max-w-7xl mx-auto">
             <div className="mb-16 text-center">
-                <h2 className="text-4xl font-black tracking-tight mb-4">One Platform. Built for Every Role.</h2>
-                <p className="text-zinc-400">Strict permissions, dedicated workflows, shared intelligence.</p>
+               <h2 className="text-4xl font-black tracking-tight mb-4">One Platform. Built for Every Role.</h2>
+               <p className="text-zinc-400">Strict permissions, dedicated workflows, shared intelligence.</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                
-                {/* Customer Portal */}
-                <div className="bg-zinc-900/50 border border-white/5 p-6 rounded-2xl hover:bg-zinc-900 transition group">
-                    <div className="w-12 h-12 bg-purple-900/30 text-purple-400 rounded-xl flex items-center justify-center mb-6">
-                        <IconUser />
-                    </div>
-                    <h3 className="text-xl font-bold mb-2">Customer Portal</h3>
-                    <ul className="space-y-2 text-sm text-zinc-400">
-                        <li className="flex gap-2"><span className="text-purple-500">•</span> Submit requests</li>
-                        <li className="flex gap-2"><span className="text-purple-500">•</span> Track status live</li>
-                        <li className="flex gap-2"><span className="text-purple-500">•</span> View service history</li>
-                    </ul>
-                </div>
-
-                {/* Dispatch Console */}
-                <div className="bg-zinc-900/50 border border-white/5 p-6 rounded-2xl hover:bg-zinc-900 transition group">
-                    <div className="w-12 h-12 bg-orange-900/30 text-orange-400 rounded-xl flex items-center justify-center mb-6">
-                        <IconCommand />
-                    </div>
-                    <h3 className="text-xl font-bold mb-2">Dispatch Console</h3>
-                    <ul className="space-y-2 text-sm text-zinc-400">
-                        <li className="flex gap-2"><span className="text-orange-500">•</span> Central request queue</li>
-                        <li className="flex gap-2"><span className="text-orange-500">•</span> Assign & route techs</li>
-                        <li className="flex gap-2"><span className="text-orange-500">•</span> Priority control</li>
-                    </ul>
-                </div>
-
-                {/* Technician App */}
-                <div className="bg-zinc-900/50 border border-white/5 p-6 rounded-2xl hover:bg-zinc-900 transition group">
-                    <div className="w-12 h-12 bg-blue-900/30 text-blue-400 rounded-xl flex items-center justify-center mb-6">
-                        <IconSmartphone />
-                    </div>
-                    <h3 className="text-xl font-bold mb-2">Technician Mobile</h3>
-                    <ul className="space-y-2 text-sm text-zinc-400">
-                        <li className="flex gap-2"><span className="text-blue-500">•</span> Job list by route</li>
-                        <li className="flex gap-2"><span className="text-blue-500">•</span> VIN scan & Photos</li>
-                        <li className="flex gap-2"><span className="text-blue-500">•</span> Parts tracking</li>
-                    </ul>
-                </div>
-
-                {/* Admin & Reporting */}
-                <div className="bg-zinc-900/50 border border-white/5 p-6 rounded-2xl hover:bg-zinc-900 transition group">
-                    <div className="w-12 h-12 bg-green-900/30 text-green-400 rounded-xl flex items-center justify-center mb-6">
-                        <IconChart />
-                    </div>
-                    <h3 className="text-xl font-bold mb-2">Admin & Audit</h3>
-                    <ul className="space-y-2 text-sm text-zinc-400">
-                        <li className="flex gap-2"><span className="text-green-500">•</span> Fleet analytics</li>
-                        <li className="flex gap-2"><span className="text-green-500">•</span> Invoice automated</li>
-                        <li className="flex gap-2"><span className="text-green-500">•</span> Audit-ready logs</li>
-                    </ul>
-                </div>
-
+               <div className="bg-zinc-900/50 border border-white/5 p-6 rounded-2xl hover:bg-zinc-900 transition group">
+                   <div className="w-12 h-12 bg-purple-900/30 text-purple-400 rounded-xl flex items-center justify-center mb-6">
+                       <IconUser />
+                   </div>
+                   <h3 className="text-xl font-bold mb-2">Customer Portal</h3>
+                   <ul className="space-y-2 text-sm text-zinc-400">
+                       <li className="flex gap-2"><span className="text-purple-500">•</span> Submit requests</li>
+                       <li className="flex gap-2"><span className="text-purple-500">•</span> Track status live</li>
+                       <li className="flex gap-2"><span className="text-purple-500">•</span> View service history</li>
+                   </ul>
+               </div>
+               <div className="bg-zinc-900/50 border border-white/5 p-6 rounded-2xl hover:bg-zinc-900 transition group">
+                   <div className="w-12 h-12 bg-orange-900/30 text-orange-400 rounded-xl flex items-center justify-center mb-6">
+                       <IconCommand />
+                   </div>
+                   <h3 className="text-xl font-bold mb-2">Dispatch Console</h3>
+                   <ul className="space-y-2 text-sm text-zinc-400">
+                       <li className="flex gap-2"><span className="text-orange-500">•</span> Central request queue</li>
+                       <li className="flex gap-2"><span className="text-orange-500">•</span> Assign & route techs</li>
+                       <li className="flex gap-2"><span className="text-orange-500">•</span> Priority control</li>
+                   </ul>
+               </div>
+               <div className="bg-zinc-900/50 border border-white/5 p-6 rounded-2xl hover:bg-zinc-900 transition group">
+                   <div className="w-12 h-12 bg-blue-900/30 text-blue-400 rounded-xl flex items-center justify-center mb-6">
+                       <IconSmartphone />
+                   </div>
+                   <h3 className="text-xl font-bold mb-2">Technician Mobile</h3>
+                   <ul className="space-y-2 text-sm text-zinc-400">
+                       <li className="flex gap-2"><span className="text-blue-500">•</span> Job list by route</li>
+                       <li className="flex gap-2"><span className="text-blue-500">•</span> VIN scan & Photos</li>
+                       <li className="flex gap-2"><span className="text-blue-500">•</span> Parts tracking</li>
+                   </ul>
+               </div>
+               <div className="bg-zinc-900/50 border border-white/5 p-6 rounded-2xl hover:bg-zinc-900 transition group">
+                   <div className="w-12 h-12 bg-green-900/30 text-green-400 rounded-xl flex items-center justify-center mb-6">
+                       <IconChart />
+                   </div>
+                   <h3 className="text-xl font-bold mb-2">Admin & Audit</h3>
+                   <ul className="space-y-2 text-sm text-zinc-400">
+                       <li className="flex gap-2"><span className="text-green-500">•</span> Fleet analytics</li>
+                       <li className="flex gap-2"><span className="text-green-500">•</span> Invoice automated</li>
+                       <li className="flex gap-2"><span className="text-green-500">•</span> Audit-ready logs</li>
+                   </ul>
+               </div>
             </div>
          </div>
       </section>
 
-      {/* --- 4. WORKFLOW SECTION (Tesla-style) --- */}
+      {/* --- WORKFLOW SECTION --- */}
       <section className="py-24 px-6 bg-zinc-950 border-t border-white/5">
         <div className="max-w-7xl mx-auto">
             <div className="text-center mb-16">
@@ -157,11 +223,8 @@ export default function LandingPage() {
                 <p className="text-zinc-400">Every step is tracked, timestamped, and visible to the right people — automatically.</p>
             </div>
 
-            {/* Horizontal Timeline Visualizer */}
             <div className="relative">
-                {/* Connecting Line */}
                 <div className="hidden md:block absolute top-1/2 left-0 w-full h-1 bg-zinc-800 -translate-y-1/2 z-0"></div>
-
                 <div className="grid grid-cols-1 md:grid-cols-5 gap-8 relative z-10">
                     {[
                         { step: "01", title: "Request", desc: "Customer submits via portal" },
@@ -181,7 +244,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* --- 5. WHY REVLET / DIFFERENTIATION --- */}
+      {/* --- DIFFERENTIATION --- */}
       <section className="py-24 px-6 bg-black">
          <div className="max-w-6xl mx-auto bg-zinc-900/30 rounded-3xl p-8 md:p-16 border border-white/5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
@@ -210,7 +273,7 @@ export default function LandingPage() {
          </div>
       </section>
 
-      {/* --- 6. INDUSTRIES --- */}
+      {/* --- INDUSTRIES --- */}
       <section className="py-24 px-6">
         <div className="max-w-7xl mx-auto">
             <h2 className="text-3xl font-black tracking-tight mb-10 text-center">Built for High-Demand Fleets</h2>
@@ -231,23 +294,26 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* --- 7. FINAL CTA --- */}
+      {/* --- FINAL CTA --- */}
       <section className="py-24 px-6 text-center bg-gradient-to-b from-black to-zinc-900">
         <div className="max-w-3xl mx-auto">
             <h2 className="text-4xl md:text-5xl font-black tracking-tighter mb-8">Ready to Modernize Your Fleet?</h2>
-            <div className="flex flex-col md:flex-row justify-center gap-4 mb-6">
-               <button onClick={() => router.push("/login")} className="bg-white text-black px-10 py-4 rounded-xl text-lg font-bold hover:bg-zinc-200 transition">
-                 Schedule a Demo
-               </button>
-               <button onClick={() => router.push("/login")} className="bg-transparent border border-zinc-700 text-white px-10 py-4 rounded-xl text-lg font-bold hover:bg-zinc-800 transition">
-                 Talk to Sales
-               </button>
+            
+            {/* --- UPGRADED CTAS --- */}
+            <div className="flex flex-col md:flex-row justify-center gap-6 mb-6">
+               <PrimaryCTA onClick={() => setIsModalOpen(true)}>
+                   Schedule a Demo
+               </PrimaryCTA>
+               <SecondaryCTA onClick={() => router.push("/login")}>
+                   Talk to Sales
+               </SecondaryCTA>
             </div>
+            
             <p className="text-sm text-zinc-500 font-medium">No contracts. No gimmicks. Built for real operations.</p>
         </div>
       </section>
 
-      {/* --- 8. FOOTER --- */}
+      {/* --- FOOTER --- */}
       <footer className="border-t border-white/10 bg-black pt-16 pb-8 px-6">
          <div className="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-5 gap-8 mb-12">
             <div className="col-span-2">
@@ -288,6 +354,9 @@ export default function LandingPage() {
             &copy; {new Date().getFullYear()} Venture Marketing Partners. All rights reserved.
          </div>
       </footer>
+
+      {/* 👇 MODAL AT THE BOTTOM */}
+      <LeadModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
 
     </div>
   );

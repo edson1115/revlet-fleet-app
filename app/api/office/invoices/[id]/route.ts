@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { resolveUserScope } from "@/lib/api/scope";
-import { EmailTemplates } from "@/lib/email/templates"; // 👈 Added Import
+import { EmailTemplates } from "@/lib/email/templates"; 
 
 export const dynamic = "force-dynamic";
 
@@ -57,7 +57,7 @@ export async function GET(
     ok: true,
     invoice: {
       ...request,
-      shop_settings: settings, // Send this to UI so the PDF has correct address!
+      shop_settings: settings, 
       financials: {
         labor_rate: LABOR_RATE,
         tax_rate: TAX_RATE,
@@ -81,16 +81,41 @@ export async function POST(
 ) {
   const scope = await resolveUserScope();
   const { id } = await params;
-  const body = await req.json(); // { status: 'BILLED', grand_total: 123.45 }
+  const body = await req.json(); // { grand_total: 123.45, method: 'MANUAL' }
 
   const supabase = await supabaseServer();
 
-  // 1. Update Status & Fetch Customer Details for Email
+  // 1. Fetch the Ticket First (to get customer_id)
+  const { data: ticket } = await supabase
+    .from("service_requests")
+    .select("customer_id")
+    .eq("id", id)
+    .single();
+
+  if (!ticket) return NextResponse.json({ error: "Ticket not found" }, { status: 404 });
+
+  // 2. CREATE THE INVOICE RECORD 📝 (The Missing Step)
+  const { data: newInvoice, error: invError } = await supabase
+    .from("invoices")
+    .insert({
+        service_request_id: id,
+        customer_id: ticket.customer_id,
+        total_amount: body.grand_total,
+        status: "PAID",
+        payment_method: body.method || "MANUAL",
+    })
+    .select()
+    .single();
+
+  if (invError) return NextResponse.json({ error: "Failed to create invoice record: " + invError.message }, { status: 500 });
+
+  // 3. Update Status & Link Invoice
   const { data: updatedRequest, error } = await supabase
     .from("service_requests")
     .update({
-      status: "BILLED", // or COMPLETED
-      invoice_grand_total: body.grand_total, // Save the final amount for analytics
+      status: "BILLED", 
+      invoice_id: newInvoice.id, // Link to the new invoice
+      invoice_grand_total: body.grand_total,
       completed_at: new Date().toISOString()
     })
     .eq("id", id)
@@ -103,29 +128,27 @@ export async function POST(
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // 2. 📧 TRIGGER: EMAIL RECEIPT
-  // We call our internal API which checks the "Enable Email" setting automatically
+  // 4. 📧 TRIGGER: EMAIL RECEIPT
   if (updatedRequest.customer?.email) {
       const vehicleName = `${updatedRequest.vehicle?.year} ${updatedRequest.vehicle?.model}`;
       const totalFormatted = parseFloat(body.grand_total).toFixed(2);
 
-      // Fire and forget (don't await the result to keep UI snappy)
+      // Fire and forget email
       fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/system/send-email`, {
           method: 'POST',
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
               to: updatedRequest.customer.email,
               subject: `Receipt: ${vehicleName}`,
-              // ... inside POST ...
-html: EmailTemplates.invoicePaid(
-    updatedRequest.customer.name, 
-    vehicleName, 
-    totalFormatted, 
-    id // 👈 Pass the ID here!
-)
+              html: EmailTemplates.invoicePaid(
+                updatedRequest.customer.name, 
+                vehicleName, 
+                totalFormatted, 
+                newInvoice.id // Pass the REAL Invoice ID
+              )
           })
       }).catch(err => console.error("Receipt Email Failed:", err));
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, invoiceId: newInvoice.id });
 }

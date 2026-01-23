@@ -119,15 +119,15 @@ file_size_limit = "50MiB"
 [auth]
 enabled = true
 
-# Your app is RUNNING on port 3001
-site_url = "http://localhost:3001"
+# Your app is RUNNING on port 3000
+site_url = "http://localhost:3000"
 
 # Supabase should ALSO allow these redirects:
 additional_redirect_urls = [
   "http://localhost:3000",
-  "http://localhost:3001",
+  "http://localhost:3000",
   "http://127.0.0.1:3000",
-  "http://127.0.0.1:3001"
+  "http://127.0.0.1:3000"
 ]
 
 jwt_expiry = 3600

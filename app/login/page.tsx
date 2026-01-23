@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { createBrowserClient } from "@supabase/ssr";
 
 // --- ICONS ---
@@ -49,7 +50,6 @@ export default function LoginPage() {
     // 🚥 THE TRAFFIC CONTROLLER
     let targetPath = '/office'; // Default fallback
     
-    // Normalize role to ensure case-insensitivity if needed
     const r = role?.toUpperCase() || "";
 
     if (r === 'SUPERADMIN' || r === 'ADMIN' || r === 'SUPER_ADMIN') {
@@ -58,13 +58,15 @@ export default function LoginPage() {
       targetPath = '/tech';
     } else if (r === 'CUSTOMER') {
       targetPath = '/customer'; 
-    } else if (r === 'DISPATCH' || r === 'DISPATCHER') { // ✅ ADDED DISPATCH LOGIC
+    } else if (r === 'DISPATCH' || r === 'DISPATCHER') { 
       targetPath = '/dispatch';
+    } else if (r === 'SALES' || r === 'SALES REP' || r === 'SALES_REP') {
+      // 👇 THIS WAS MISSING IN YOUR FILE
+      targetPath = '/sales'; 
     }
 
     router.prefetch(targetPath);
 
-    // Wait slightly for cookie to set, then refresh
     setTimeout(() => {
       router.push(targetPath);
       router.refresh();
@@ -74,14 +76,10 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-[#0B0F19] text-white font-sans flex overflow-hidden">
       
-      {/* 1️⃣ LEFT PANEL — BRAND + TRUST (Hidden on mobile) */}
+      {/* 1️⃣ LEFT PANEL — BRAND + TRUST */}
       <div className="hidden lg:flex w-1/2 bg-[#0F172A] relative flex-col justify-between p-12 border-r border-white/5">
-         
-         {/* Background Visuals */}
          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-blue-900/20 via-[#0F172A] to-[#0F172A]"></div>
          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 bg-repeat mix-blend-overlay"></div>
-         
-         {/* Abstract Network Graphic */}
          <div className="absolute top-0 right-0 w-full h-full opacity-30 pointer-events-none">
             <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
                <path d="M0 100 Q 50 50 100 0" stroke="url(#grad1)" strokeWidth="0.2" fill="none" />
@@ -97,7 +95,6 @@ export default function LoginPage() {
             </svg>
          </div>
 
-         {/* Brand Header */}
          <div className="relative z-10">
             <div onClick={() => router.push("/")} className="text-2xl font-black italic tracking-tighter flex items-center gap-2 cursor-pointer mb-2">
                <span className="bg-white text-black px-2 py-0.5 rounded">R</span>
@@ -106,7 +103,6 @@ export default function LoginPage() {
             <p className="text-blue-400 font-medium tracking-wide">Fleet operations. Connected.</p>
          </div>
 
-         {/* Trust Footer */}
          <div className="relative z-10">
             <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold uppercase tracking-widest mb-2">
                <IconShield /> Secure Enterprise Access
@@ -119,110 +115,72 @@ export default function LoginPage() {
 
       {/* 2️⃣ RIGHT PANEL — LOGIN FORM */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-6 relative">
-         
          <div className="w-full max-w-[400px]">
-            {/* Header */}
             <div className="mb-10">
                <h1 className="text-3xl font-bold tracking-tight text-white mb-2">Log in to Revlet</h1>
                <p className="text-slate-400">Access your fleet operations platform.</p>
             </div>
 
-            {/* Form */}
             <form onSubmit={handleLogin} className="space-y-6">
-               
-               {/* Email */}
                <div className="space-y-2">
                   <label className="text-xs font-semibold text-slate-300">Work Email</label>
                   <div className="relative group">
-                     <div className="absolute left-4 top-3.5 text-slate-500 group-focus-within:text-white transition-colors">
-                        <IconMail />
-                     </div>
-                     <input
-                        type="email"
-                        required
-                        autoFocus
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="name@company.com"
-                        className="w-full bg-slate-900/50 border border-slate-700 text-white pl-12 pr-4 h-12 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition placeholder:text-slate-600"
-                     />
+                     <div className="absolute left-4 top-3.5 text-slate-500 group-focus-within:text-white transition-colors"><IconMail /></div>
+                     <input type="email" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" className="w-full bg-slate-900/50 border border-slate-700 text-white pl-12 pr-4 h-12 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition placeholder:text-slate-600" />
                   </div>
                </div>
 
-               {/* Password */}
+               {/* Back to Home Link */}
+               <div className="absolute top-6 left-6">
+                 <Link href="/" className="flex items-center gap-2 text-sm font-bold text-zinc-500 hover:text-white transition-colors">
+                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg> Back to Home
+                 </Link>
+               </div>
+
                <div className="space-y-2">
                   <div className="flex justify-between items-center">
                      <label className="text-xs font-semibold text-slate-300">Password</label>
-                     <span className="text-xs text-blue-500 hover:text-blue-400 cursor-pointer font-medium">Forgot password?</span>
+                     <Link href="/forgot-password"><span className="text-xs text-blue-500 hover:text-blue-400 cursor-pointer font-medium">Forgot password?</span></Link>
                   </div>
                   <div className="relative group">
-                     <div className="absolute left-4 top-3.5 text-slate-500 group-focus-within:text-white transition-colors">
-                        <IconLock />
-                     </div>
-                     <input
-                        type={showPassword ? "text" : "password"}
-                        required
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="••••••••"
-                        className="w-full bg-slate-900/50 border border-slate-700 text-white pl-12 pr-12 h-12 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition placeholder:text-slate-600"
-                     />
-                     <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-4 top-3.5 text-slate-500 hover:text-white transition-colors"
-                     >
+                     <div className="absolute left-4 top-3.5 text-slate-500 group-focus-within:text-white transition-colors"><IconLock /></div>
+                     <input type={showPassword ? "text" : "password"} required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="w-full bg-slate-900/50 border border-slate-700 text-white pl-12 pr-12 h-12 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition placeholder:text-slate-600" />
+                     <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-3.5 text-slate-500 hover:text-white transition-colors">
                         {showPassword ? <IconEyeOff /> : <IconEye />}
                      </button>
                   </div>
                </div>
 
-               {/* Error Message */}
-               {error && (
-                  <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-medium p-3 rounded-lg flex items-center gap-2">
-                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                     {error}
-                  </div>
-               )}
+               {error && <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-medium p-3 rounded-lg flex items-center gap-2"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>{error}</div>}
 
-               {/* Submit */}
-               <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold h-12 rounded-lg shadow-lg shadow-blue-900/20 active:scale-[0.98] transition flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-               >
-                  {loading ? (
-                     <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                  ) : (
-                     "Log In"
-                  )}
+               <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold h-12 rounded-lg shadow-lg shadow-blue-900/20 active:scale-[0.98] transition flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                  {loading ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span> : "Log In"}
                </button>
 
-               {/* Enterprise SSO Divider */}
                <div className="relative py-2">
-                  <div className="absolute inset-0 flex items-center">
-                     <div className="w-full border-t border-slate-800"></div>
-                  </div>
-                  <div className="relative flex justify-center text-xs uppercase">
-                     <span className="bg-[#0B0F19] px-2 text-slate-600 font-semibold">Enterprise Access</span>
-                  </div>
+                  <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-800"></div></div>
+                  <div className="relative flex justify-center text-xs uppercase"><span className="bg-[#0B0F19] px-2 text-slate-600 font-semibold">Enterprise Access</span></div>
                </div>
 
                <button type="button" disabled className="w-full bg-slate-900 border border-slate-700 text-slate-400 font-medium h-12 rounded-lg flex items-center justify-center gap-2 hover:bg-slate-800 transition cursor-not-allowed opacity-60">
                   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#EA4335"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.52 1 3.8 3.55 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#34A853"/><path d="M12 23c2.97 0 5.46-1.01 7.28-2.69l-3.54-2.87c-.99.66-2.23 1.06-3.74 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.8 20.45 7.52 23 12 23z" fill="#34A853"/><path d="M23 12c0-.66-.12-1.32-.27-1.96H12v3.75h6.35c-.53 2.57-2.73 4.26-5.35 4.26-2.5 0-4.63-1.5-5.71-3.75l-3.02 2.44C6.03 19.66 9.35 21.38 13.07 21.38c5.44 0 9.87-3.93 10.61-9.38H23z" fill="#4285F4"/></svg>
                   Sign in with SSO
                </button>
-
+                
+               <div className="mt-4 text-center">
+                  <p className="text-xs text-slate-500">
+                    Don't have an account?{' '}
+                    <Link href="/signup" className="text-blue-500 font-bold hover:text-blue-400">Sign up here</Link>
+                  </p>
+               </div>
             </form>
 
-            {/* Footer */}
             <div className="mt-12 flex justify-center gap-6 text-xs text-slate-500 font-medium">
-               <span className="hover:text-slate-300 cursor-pointer">Contact Support</span>
+               <Link href="/support"><span className="hover:text-slate-300 cursor-pointer">Contact Support</span></Link>
                <span className="w-px h-3 bg-slate-800"></span>
                <span className="hover:text-slate-300 cursor-pointer">Privacy & Security</span>
             </div>
          </div>
-
       </div>
     </div>
   );
