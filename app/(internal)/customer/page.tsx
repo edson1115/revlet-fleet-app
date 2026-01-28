@@ -12,7 +12,6 @@ export default async function CustomerPage() {
   const supabase = await supabaseServerReadonly();
 
   // 1. Get Customer ID linked to this User
-  // ⚠️ FIXED: Changed 'name' to 'company_name' to match your database
   const { data: profile } = await supabase
     .from("profiles")
     .select("customer_id, customers(company_name)")
@@ -37,7 +36,9 @@ export default async function CustomerPage() {
       );
   }
 
-  // 3. Fetch Active Requests for this Fleet
+  // 3. Fetch Requests (Active + Recent)
+  // ✅ FIX 1: Removed .neq("status", "COMPLETED") so the Client handles the 72-hour filter
+  // ✅ FIX 2: Added 'updated_at' so the client knows how old the completion is
   const { data: requests } = await supabase
     .from("service_requests")
     .select(`
@@ -45,19 +46,18 @@ export default async function CustomerPage() {
       status, 
       service_title, 
       created_at, 
+      updated_at,
       scheduled_start_at,
       technician_notes,
       vehicle:vehicles(year, make, model, plate, unit_number),
       technician:profiles!technician_id(full_name)
     `)
     .eq("customer_id", profile.customer_id)
-    .neq("status", "COMPLETED") 
     .order("created_at", { ascending: false });
 
   return (
     <CustomerDashboardClient 
        requests={requests || []} 
-       // ⚠️ FIXED: Mapping the correct column name
        customerName={profile.customers?.company_name || "My Fleet"} 
     />
   );

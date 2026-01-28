@@ -7,10 +7,9 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // 1. Await params (Next.js 15 requirement)
     const { id } = await params;
     
-    // 2. Setup Supabase
+    // 1. Setup Supabase
     const cookieStore = await cookies();
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,24 +22,41 @@ export async function PATCH(
       }
     );
 
-    // 3. Auth Check
+    // 2. Auth Check
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    // 4. Update Database
-    // We update whatever is passed in 'body' (status, technician_id, notes, etc.)
+    // 3. Parse & Sanitize Body
     const body = await req.json();
+    
+    const { 
+        force_update, // Frontend flag
+        scheduled_at, // Frontend date field
+        ...rest 
+    } = body;
 
+    // Start with basic fields
+    const updatePayload: any = { ...rest };
+
+    // ✅ FIX: Map 'scheduled_at' to the correct DB column 'scheduled_start_at'
+    if (scheduled_at !== undefined) {
+        updatePayload.scheduled_start_at = scheduled_at;
+    }
+
+    // 4. Update Database
     const { data, error } = await supabase
       .from("service_requests")
-      .update(body)
+      .update(updatePayload)
       .eq("id", id)
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+        console.error("Supabase Update Error:", error);
+        throw error;
+    }
 
     return NextResponse.json({ ok: true, request: data });
 

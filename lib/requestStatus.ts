@@ -5,9 +5,9 @@ export type RequestStatus =
   | "WAITING_APPROVAL" 
   | "COMPLETED"
   | "ATTENTION_REQUIRED"
-  | "CANCELED"
+  | "CANCELLED" // ✅ Fixed spelling to match DB (Double L)
   | "READY_TO_SCHEDULE"
-  | "RESCHEDULE_PENDING"; // ✅ Added for Hot Potato Workflow
+  | "RESCHEDULE_PENDING";
 
 export const REQUEST_STATUS: Record<
   string,
@@ -54,14 +54,13 @@ export const REQUEST_STATUS: Record<
     dot: "bg-indigo-500",
     tone: "blue"
   },
-  // ✅ NEW: The "Hot Potato" Status
   RESCHEDULE_PENDING: { 
     label: "Reschedule Needed", 
     description: "Tech unable to complete. Needs new time.",
     bg: "bg-red-100", 
     text: "text-red-700", 
     dot: "bg-red-600",
-    pulse: true, // Urgent pulsing effect
+    pulse: true, 
     tone: "red"
   },
   COMPLETED: {
@@ -80,12 +79,13 @@ export const REQUEST_STATUS: Record<
     dot: "bg-red-500",
     tone: "red"
   },
-  CANCELED: {
-    label: "Canceled",
-    description: "Request canceled",
+  // ✅ UPDATED: Cancelled Status with Strikethrough
+  CANCELLED: {
+    label: "Cancelled",
+    description: "Request cancelled",
     bg: "bg-zinc-100",
-    text: "text-zinc-500",
-    dot: "bg-zinc-400",
+    text: "text-zinc-400 line-through decoration-zinc-400", // Gray text + Line-through
+    dot: "bg-zinc-300",
     tone: "zinc"
   },
 };

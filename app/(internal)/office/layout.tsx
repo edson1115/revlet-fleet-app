@@ -1,7 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-// import AppLayout from "@/components/layout/AppLayout"; // 👈 REMOVING THE BLOCKER
 
 export default async function OfficeLayout({
   children,
@@ -40,17 +39,10 @@ export default async function OfficeLayout({
     redirect("/login");
   }
 
-  // 4. BYPASS APPLAYOUT (The Client-Side Killer)
-  // We return a simple div wrapper instead of AppLayout to stop the redirect loop.
+  // 4. CLEAN LAYOUT (No Header Wrapper)
+  // We removed the black bar. The Office Dashboard component handles its own header.
   return (
     <div className="min-h-screen bg-white">
-       {/* Temporary Navigation Header so you can escape to Dispatch */}
-       <div className="bg-black text-white p-4 flex justify-between items-center">
-          <span className="font-bold">REVLET OFFICE (Safe Mode)</span>
-          <a href="/dispatch" className="bg-white text-black px-4 py-2 rounded-lg font-bold text-sm hover:bg-zinc-200">
-             GO TO DISPATCH CONSOLE &rarr;
-          </a>
-       </div>
        {children}
     </div>
   );

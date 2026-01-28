@@ -1,17 +1,14 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import { createBrowserClient } from "@supabase/ssr";
 
 // --- ICONS ---
 const IconBack = () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>;
-const IconCamera = () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>;
-const IconCheck = () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>;
-const IconAlert = () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>;
 const IconClipboard = () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>;
-const IconTraffic = () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>;
+const IconKey = () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>;
 
 const INSPECTION_POINTS = ["Wipers", "Lights", "Tires", "Brakes", "Fluids", "Battery", "Belts", "Air Filter", "Glass"];
 
@@ -19,7 +16,6 @@ type InspectionStatus = "GREEN" | "YELLOW" | "RED" | null;
 
 export default function TechJobDetailClient({ request, userId }: { request: any, userId: string }) {
   const router = useRouter();
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -32,8 +28,9 @@ export default function TechJobDetailClient({ request, userId }: { request: any,
   const [inspectionData, setInspectionData] = useState<Record<string, InspectionStatus>>({});
 
   const isStarted = status === "IN_PROGRESS";
-  const isCompleted = status === "COMPLETED";
+  const isCompleted = status === "COMPLETED" || status === "BILLED";
   const isPending = !isStarted && !isCompleted;
+  
   const today = new Date(); today.setHours(0,0,0,0);
   const jobDate = request.scheduled_start_at ? new Date(request.scheduled_start_at) : new Date();
   jobDate.setHours(0,0,0,0);
@@ -51,58 +48,77 @@ export default function TechJobDetailClient({ request, userId }: { request: any,
       return { red, yellow, green, total: red + yellow + green };
   };
 
-  const attemptComplete = () => {
+  // 🔴 UPDATED: ONE-STEP SAVE
+  const attemptComplete = async () => {
       const { total } = getInspectionSummary();
+      
+      // 1. Force Inspection Check
       if (total < INSPECTION_POINTS.length) {
-          setShowInspectionModal(true); // Force open modal
+          alert("Please complete the 9-Point Inspection before finishing.");
+          setShowInspectionModal(true);
           return;
       }
-      if (confirm("Are you sure you want to finish this job?")) {
-          updateStatus("COMPLETED");
+
+      if (!confirm("Are you sure you want to finish this job?")) return;
+      
+      setLoading(true);
+
+      // 2. Prepare Final Notes
+      const report = Object.entries(inspectionData).map(([k, v]) => {
+            const icon = v === 'RED' ? '🔴 REQUIRED' : v === 'YELLOW' ? '🟡 RECOMMENDED' : '🟢 GOOD';
+            return `${icon} - ${k}`;
+      }).join('\n');
+      
+      const finalNotes = `${notes}\n\n--- 9-POINT INSPECTION ---\n${report}`;
+
+      try {
+          // 3. SEND EVERYTHING IN ONE GO
+          const res = await fetch(`/api/tech/job/${request.id}/complete`, { 
+             method: "POST",
+             headers: { "Content-Type": "application/json" },
+             body: JSON.stringify({ final_notes: finalNotes }) // ✅ Sending notes here
+          });
+
+          if (!res.ok) throw new Error("API Failed");
+
+          // 4. Redirect immediately
+          router.push("/tech");
+
+      } catch (err) {
+          console.error(err);
+          alert("Error completing job. Please try again.");
+          setLoading(false);
       }
   };
 
-  async function updateStatus(newStatus: string, extraNotes?: string) {
-    if (newStatus === "IN_PROGRESS" && isFuture) return alert("Locked.");
-    
+  async function updateStatus(newStatus: string) {
+    if (newStatus === "IN_PROGRESS" && isFuture) return alert("This job is scheduled for the future. You cannot start it yet.");
     setLoading(true);
     
-    // Format Inspection for Office/Customer
-    let finalNotes = extraNotes ? `${notes}\n\n${extraNotes}` : notes;
-    
-    if (newStatus === "COMPLETED") {
-        const report = Object.entries(inspectionData).map(([k, v]) => {
-            const icon = v === 'RED' ? '🔴 REQUIRED' : v === 'YELLOW' ? '🟡 RECOMMENDED' : '🟢 GOOD';
-            return `${icon} - ${k}`;
-        }).join('\n');
-        finalNotes = `${finalNotes}\n\n--- 9-POINT INSPECTION ---\n${report}`;
-    }
-
     try {
         const res = await fetch(`/api/tech/requests/${request.id}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ 
                 status: newStatus, 
-                notes: finalNotes,
+                notes: notes,
                 technician_id: newStatus === "READY_TO_SCHEDULE" ? null : userId
             })
         });
 
         if (res.ok) {
-            if (newStatus === "READY_TO_SCHEDULE" || newStatus === "COMPLETED") {
-                router.push("/tech");
-            } else {
-                setStatus(newStatus);
-                router.refresh();
-            }
+            setStatus(newStatus);
+            router.refresh();
         }
-    } catch (e) { alert("Error"); } finally { setLoading(false); }
+    } catch (e) { alert("Error updating status"); } finally { setLoading(false); }
   }
 
   const handleReschedule = () => {
-      const reason = prompt("Reason:");
-      if (reason) updateStatus("READY_TO_SCHEDULE", `RESCHEDULED: ${reason}`);
+      const reason = prompt("Reason for rescheduling:");
+      if (reason) {
+          // Use the specific 'RESCHEDULE_PENDING' status we added to the DB
+          updateStatus("RESCHEDULE_PENDING", `TECH RESCHEDULE REQUEST: ${reason}`);
+      }
   };
 
   return (
@@ -121,10 +137,22 @@ export default function TechJobDetailClient({ request, userId }: { request: any,
          
          {/* INFO CARD */}
          <div className="bg-zinc-900 rounded-2xl p-5 border border-zinc-800">
+             
              <div className="flex gap-2 mb-3">
                  <span className="bg-white text-black px-2 py-1 rounded text-xs font-mono font-black">{request.vehicle?.plate || "NO PLATE"}</span>
                  <span className="bg-zinc-800 text-zinc-300 px-2 py-1 rounded text-xs font-bold">{request.vehicle?.year} {request.vehicle?.model}</span>
              </div>
+
+             {request.key_location && (
+                 <div className="mb-4 bg-amber-500/10 border border-amber-500/20 p-3 rounded-xl flex items-start gap-3">
+                     <div className="text-amber-500"><IconKey /></div>
+                     <div>
+                         <div className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Key Location</div>
+                         <div className="text-white font-bold text-sm">{request.key_location}</div>
+                     </div>
+                 </div>
+             )}
+
              <h2 className="text-xl font-bold text-white mb-2">{request.service_title}</h2>
              <p className="text-sm text-zinc-400 bg-black/30 p-3 rounded-xl border border-zinc-800/50">
                  {request.service_description || request.description || "No instructions provided."}
@@ -175,7 +203,7 @@ export default function TechJobDetailClient({ request, userId }: { request: any,
             
             {isStarted && (
                 <button onClick={attemptComplete} disabled={loading} className="w-full bg-green-600 text-white font-black text-lg py-4 rounded-xl shadow-xl shadow-green-900/20 active:scale-[0.95] transition">
-                    COMPLETE JOB
+                    {loading ? "SAVING..." : "COMPLETE JOB"}
                 </button>
             )}
 

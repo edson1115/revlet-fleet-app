@@ -29,6 +29,7 @@ export default async function DispatchPage() {
       technician:profiles!technician_id(full_name), 
       second_technician:profiles!second_technician_id(full_name)
     `)
+    // You can adjust these filters if you want to see specific history
     .neq("status", "NEW")
     .neq("status", "COMPLETED")
     .order("created_at", { ascending: false })
@@ -36,10 +37,11 @@ export default async function DispatchPage() {
 
   if (error) console.error("Dispatch fetch error:", error);
 
-  // 3. ✅ NEW: Fetch Technicians for the Bulk Dropdown
+  // 3. ✅ FETCH TECHS & THEIR SAVED SHIFT TIMES
   const { data: technicians } = await supabase
     .from("profiles")
-    .select("id, full_name")
+    // ✅ Added 'current_shift_start' so the roster persists on refresh
+    .select("id, full_name, current_shift_start") 
     .in("role", ["TECHNICIAN", "TECH"])
     .eq("active", true)
     .order("full_name");
@@ -50,9 +52,15 @@ export default async function DispatchPage() {
     unassigned: list.filter((r) => r.status === "READY_TO_SCHEDULE").length,
     scheduled: list.filter((r) => r.status === "SCHEDULED").length,
     inProgress: list.filter((r) => r.status === "IN_PROGRESS").length,
-    atRisk: list.filter((r) => r.status === "ATTENTION_REQUIRED" || r.status === "WAITING_APPROVAL").length,
+    atRisk: list.filter((r) => r.status === "ATTENTION_REQUIRED" || r.status === "WAITING_APPROVAL" || r.status === "RESCHEDULE_PENDING").length,
   };
 
-  // ✅ Pass 'technicians' to the client
-  return <DispatchDashboardClient requests={list} stats={stats} isOffice={isOffice} technicians={technicians || []} />;
+  return (
+    <DispatchDashboardClient 
+      requests={list} 
+      stats={stats} 
+      isOffice={isOffice} 
+      technicians={technicians || []} 
+    />
+  );
 }

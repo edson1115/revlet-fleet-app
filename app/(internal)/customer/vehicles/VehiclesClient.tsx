@@ -6,7 +6,7 @@ import { createBrowserClient } from "@supabase/ssr";
 import clsx from "clsx";
 
 // --- ICONS ---
-const IconGrid = () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>;
+const IconGrid = () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>;
 const IconList = () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>;
 const IconSearch = () => <svg className="w-5 h-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>;
 const IconX = () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>;
@@ -47,7 +47,7 @@ export default function VehiclesClient({ vehicles, customerId }: { vehicles: any
       plate: "",
       vin: "",
       unit_number: "",
-      mileage: "", // <--- FIXED
+      mileage: "", // Initialized as string to allow empty input
       fmc_account: ""
   });
 
@@ -83,6 +83,8 @@ export default function VehiclesClient({ vehicles, customerId }: { vehicles: any
           // ✅ MAP to 'mileage' column
           mileage: Number(newVehicle.mileage) || 0,
           unit_number: newVehicle.unit_number || null,
+          // ✅ Fix Year conversion
+          year: Number(newVehicle.year) || 0,
       };
 
       const { error } = await supabase.from("vehicles").insert({
@@ -92,7 +94,7 @@ export default function VehiclesClient({ vehicles, customerId }: { vehicles: any
 
       if (!error) {
           setIsAdding(false);
-          setNewVehicle({ year: 2026, make: "", model: "", plate: "", vin: "", unit_number: "", mileage: "", fmc_account: "" });
+          setNewVehicle({ year: new Date().getFullYear() + 1, make: "", model: "", plate: "", vin: "", unit_number: "", mileage: "", fmc_account: "" });
           router.refresh();
       } else {
           console.error("Add Vehicle Error:", error);
@@ -210,12 +212,12 @@ export default function VehiclesClient({ vehicles, customerId }: { vehicles: any
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                {filtered.map(v => (
                   <div key={v.id} onClick={() => setActiveVehicle(v)} className="bg-white p-6 rounded-2xl border border-zinc-200 shadow-sm hover:shadow-md hover:border-zinc-300 transition cursor-pointer group">
-                     <div className="flex justify-between items-start mb-4">
-                         <div className="text-xs font-bold text-zinc-400 uppercase tracking-widest bg-zinc-100 px-2 py-1 rounded">{v.plate}</div>
-                         <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.4)]"></div>
-                     </div>
-                     <div className="text-xl font-black text-zinc-900 group-hover:text-blue-600 transition">{v.year} {v.make} {v.model}</div>
-                     <div className="text-xs text-zinc-500 mt-1 font-mono">VIN: {v.vin}</div>
+                      <div className="flex justify-between items-start mb-4">
+                          <div className="text-xs font-bold text-zinc-400 uppercase tracking-widest bg-zinc-100 px-2 py-1 rounded">{v.plate}</div>
+                          <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.4)]"></div>
+                      </div>
+                      <div className="text-xl font-black text-zinc-900 group-hover:text-blue-600 transition">{v.year} {v.make} {v.model}</div>
+                      <div className="text-xs text-zinc-500 mt-1 font-mono">VIN: {v.vin}</div>
                   </div>
                ))}
             </div>
@@ -342,7 +344,17 @@ export default function VehiclesClient({ vehicles, customerId }: { vehicles: any
                       <div className="grid grid-cols-3 gap-4">
                           <div>
                               <label className="text-[10px] font-bold text-zinc-400 uppercase">Year</label>
-                              <input required type="number" className="w-full p-3 bg-zinc-50 rounded-xl font-bold border-zinc-200 border" value={newVehicle.year} onChange={e => setNewVehicle({...newVehicle, year: parseInt(e.target.value)})} />
+                              {/* ✅ FIXED: Handle empty string to prevent NaN */}
+                              <input 
+                                required 
+                                type="number" 
+                                className="w-full p-3 bg-zinc-50 rounded-xl font-bold border-zinc-200 border" 
+                                value={newVehicle.year || ""} 
+                                onChange={e => {
+                                    const val = parseInt(e.target.value);
+                                    setNewVehicle({...newVehicle, year: isNaN(val) ? 0 : val});
+                                }} 
+                              />
                           </div>
                           <div className="col-span-2">
                               <label className="text-[10px] font-bold text-zinc-400 uppercase">Make</label>
@@ -373,7 +385,7 @@ export default function VehiclesClient({ vehicles, customerId }: { vehicles: any
                           </div>
                           <div>
                               <label className="text-[10px] font-bold text-zinc-400 uppercase">Current Mileage</label>
-                              {/* ✅ Fixed Input Mapping */}
+                              {/* ✅ FIXED: mileage is string in state, so this is safe */}
                               <input type="number" placeholder="0" className="w-full p-3 bg-zinc-50 rounded-xl font-bold border-zinc-200 border" value={newVehicle.mileage} onChange={e => setNewVehicle({...newVehicle, mileage: e.target.value})} />
                           </div>
                       </div>

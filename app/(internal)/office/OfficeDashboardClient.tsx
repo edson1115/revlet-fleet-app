@@ -10,8 +10,9 @@ const IconSearch = () => <svg className="w-4 h-4 text-zinc-400" fill="none" view
 const IconCar = () => <svg className="w-5 h-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>;
 const IconBox = () => <svg className="w-5 h-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>;
 const IconMap = () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg>;
-const IconGear = () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>;
+const IconGear = () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>;
 const IconLogout = () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>;
+const IconTrendingUp = () => <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>;
 
 export default function OfficeDashboardClient({
   requests,
@@ -36,7 +37,6 @@ export default function OfficeDashboardClient({
       const customer = (r.customer?.name || "").toLowerCase();
       const service = (r.service_title || "").toLowerCase();
       const description = (r.description || "").toLowerCase(); 
-      // ✅ Added service_description to search
       const serviceDesc = (r.service_description || "").toLowerCase();
 
       const matchesSearch = !q || 
@@ -206,7 +206,7 @@ export default function OfficeDashboardClient({
                     const poValue = poMatch ? poMatch[1].trim() : "N/A";
 
                     const displayTitle = hasVehicle 
-                      ? `${r.vehicle.year} ${r.vehicle.model}` 
+                      ? `${r.vehicle.year} ${r.vehicle.make} ${r.vehicle.model}` 
                       : (isTireOrder ? "Fleet Order" : "No Vehicle");
 
                     const displaySubtitle = hasVehicle 
@@ -220,17 +220,21 @@ export default function OfficeDashboardClient({
                     // Age Calc
                     const daysOld = Math.floor((Date.now() - new Date(r.created_at).getTime()) / (1000 * 60 * 60 * 24));
 
-                    // ✅ SMART NOTE SELECTOR (Revised)
-                    // 1. Service Description (Internal Requisition - where you typed "Correct it needs a windshield")
-                    // 2. Description (Customer Complaint)
-                    // 3. Tech Notes
-                    // 4. Internal Notes
-                    const displayNote = 
-                        r.service_description || 
-                        r.description || 
-                        r.technician_notes || 
-                        r.notes_internal || 
-                        "No details provided";
+                    // ✅ INTELLIGENT NOTE DISPLAY
+                    // Default to office description
+                    let displayNote = r.service_description || r.description || "No details";
+                    
+                    // If Reschedule, show Tech Notes (The Reason) instead
+                    if (r.status === 'RESCHEDULE_PENDING' && r.technician_notes) {
+                        displayNote = r.technician_notes; 
+                    }
+
+                    // ✅ UPSELL DETECTION
+                    const notes = r.technician_notes || "";
+                    const redCount = (notes.match(/🔴/g) || []).length;
+                    const yellowCount = (notes.match(/🟡/g) || []).length;
+                    const upsellCount = redCount + yellowCount;
+                    const isUpsellOpp = upsellCount > 0 && (r.status === 'COMPLETED' || r.status === 'BILLED');
 
                     return (
                       <tr
@@ -259,19 +263,28 @@ export default function OfficeDashboardClient({
                           )}
                         </td>
 
-                        {/* ✅ UPDATED SERVICE COLUMN */}
                         <td className="px-6 py-4">
                           <div className="font-medium text-zinc-900">{r.service_title || "—"}</div>
-                          <div className="text-xs text-zinc-400 truncate max-w-[200px]" title={displayNote}>
+                          {/* ✅ SHOWS TECH REASON IF RESCHEDULED */}
+                          <div className={clsx("text-xs truncate max-w-[200px]", r.status === 'RESCHEDULE_PENDING' ? "text-red-600 font-bold" : "text-zinc-400")} title={displayNote}>
                               {displayNote}
                           </div>
                         </td>
 
                         <td className="px-6 py-4">
-                           <span className={clsx("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide", statusConfig.bg, statusConfig.text)}>
-                                <div className={clsx("w-1.5 h-1.5 rounded-full", statusConfig.dot, statusConfig.pulse && "animate-pulse")} />
-                                {statusConfig.label}
-                           </span>
+                           <div className="flex flex-col items-start gap-1">
+                               <span className={clsx("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide", statusConfig.bg, statusConfig.text)}>
+                                    <div className={clsx("w-1.5 h-1.5 rounded-full", statusConfig.dot, statusConfig.pulse && "animate-pulse")} />
+                                    {statusConfig.label}
+                               </span>
+                               
+                               {/* UPSELL BADGE */}
+                               {isUpsellOpp && (
+                                   <span className="inline-flex items-center gap-1 bg-red-100 text-red-700 px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wide animate-pulse">
+                                       <IconTrendingUp /> {upsellCount} Opportunity
+                                   </span>
+                               )}
+                           </div>
                         </td>
 
                         <td className="px-6 py-4 text-right text-xs font-mono text-zinc-400">

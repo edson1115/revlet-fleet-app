@@ -13,19 +13,38 @@ const IconPlus = () => (
 
 const IconWrench = () => (
   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37.996.608 2.296.07 2.572-1.065z" />
     <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
   </svg>
 );
 
-export default function CustomerDashboardClient({ requests, customerName }: { requests: any[], customerName: string }) {
+const IconCheck = () => (
+  <svg className="w-5 h-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+  </svg>
+);
+
+// ✅ NEW: Icons for Cancel/Reschedule
+const IconXCircle = () => (
+  <svg className="w-5 h-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+  </svg>
+);
+
+const IconCalendar = () => (
+  <svg className="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+  </svg>
+);
+
+export default function CustomerDashboardClient({ requests = [], customerName }: { requests?: any[], customerName: string }) {
   const router = useRouter();
-  
-  // 🔐 PASSWORD STATE
   const [newPassword, setNewPassword] = useState("");
   const [passwordStatus, setPasswordStatus] = useState<"IDLE" | "SAVING" | "SUCCESS">("IDLE");
   const [needsPassword, setNeedsPassword] = useState(false);
   const [user, setUser] = useState<any>(null);
+
+  const safeRequests = Array.isArray(requests) ? requests : [];
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -37,59 +56,68 @@ export default function CustomerDashboardClient({ requests, customerName }: { re
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
             setUser(session.user);
-            
-            // 🧠 SMART CHECK: How did they log in?
-            // If they used a 'magic_link' or 'otp', they probably need to set a password.
-            // If they used 'password', we hide the banner.
-            const amr = session.user?.app_metadata?.provider || "email";
-            // Note: Supabase AMR (Authentication Method Reference) is inside session.user.amr
-            // but for simplicity, we assume if they are just setting up, they need it.
-            // We will trust the local state "SUCCESS" to hide it after saving.
             setNeedsPassword(true); 
         }
     };
     checkUser();
   }, []);
 
-  // ⚡️ PASSWORD HANDLER
   const handleSetPassword = async () => {
       setPasswordStatus("SAVING");
       const { error } = await supabase.auth.updateUser({ password: newPassword });
-      
       if (error) {
           alert("Error setting password: " + error.message);
           setPasswordStatus("IDLE");
       } else {
           setPasswordStatus("SUCCESS");
           alert("✅ Password secured! You can now log in normally.");
-          setNeedsPassword(false); // Hide the banner immediately
+          setNeedsPassword(false);
       }
   };
   
-  // --- DASHBOARD FILTERS ---
-  const actionItems = requests.filter(r => 
+  // 1. Items requiring Immediate Customer Action
+  const actionItems = safeRequests.filter(r => 
       r.status === 'PENDING' || 
       r.status === 'PROBLEM' || 
-      r.status === 'READY_TO_SCHEDULE'
+      r.status === 'WAITING_CONFIRMATION'
   );
 
-  const activeItems = requests.filter(r => 
-      r.status === 'IN_PROGRESS' || 
-      r.status === 'SCHEDULED' || 
-      r.status === 'NEW'
-  );
+  // 2. Define "Active" statuses for the Count Badge
+  const activeStatuses = [
+      'IN_PROGRESS', 'SCHEDULED', 'NEW', 'READY_TO_SCHEDULE', 
+      'APPROVED_AND_SCHEDULING', 'RESCHEDULE_PENDING', 'WAITING_CONFIRMATION'
+  ];
   
-  const totalActive = actionItems.length + activeItems.length;
+  const totalActiveCount = safeRequests.filter(r => activeStatuses.includes(r.status)).length;
+
+  // 3. Main Feed: Active Jobs + Recent History (Last 72 Hours)
+  const feedItems = safeRequests.filter(r => {
+      // Always show active items
+      if (activeStatuses.includes(r.status)) return true;
+
+      // For Terminal items (Completed/Canceled), check if they are recent (< 72 hours)
+      const isTerminal = ['COMPLETED', 'BILLED', 'CANCELED', 'CANCELLED'].includes(r.status);
+      
+      if (isTerminal) {
+          const threeDaysAgo = new Date();
+          threeDaysAgo.setHours(threeDaysAgo.getHours() - 72);
+          
+          // Use updated_at (when it finished) or created_at as fallback
+          const recordDate = new Date(r.updated_at || r.created_at);
+          return recordDate > threeDaysAgo;
+      }
+
+      return false;
+  });
+
+  // Sort feed: Most recently updated/created on top
+  feedItems.sort((a, b) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime());
 
   return (
     <div className="min-h-screen bg-[#F4F5F7] font-sans pb-20">
-        
-       {/* ❌ REMOVED DUPLICATE HEADER (Global layout handles it now) */}
-
        <div className="space-y-8 px-6 py-10 max-w-7xl mx-auto">
-       
-           {/* 🚨 PASSWORD SECURITY ALERT */}
-           {/* Logic: Show if 'needsPassword' is true AND they haven't just finished saving it */}
+           
+           {/* PASSWORD BANNER */}
            {(needsPassword && passwordStatus !== "SUCCESS") && (
                 <div className="bg-amber-50 border border-amber-200 p-6 rounded-[2rem] flex flex-col md:flex-row items-start md:items-center justify-between gap-6 shadow-sm animate-in slide-in-from-top-4">
                     <div className="flex-1">
@@ -120,16 +148,13 @@ export default function CustomerDashboardClient({ requests, customerName }: { re
                 </div>
             )}
 
-           {/* HEADER + TILES */}
            <div className="space-y-6">
                <div>
                   <h1 className="text-3xl font-black tracking-tight text-gray-900">{customerName}</h1>
                   <p className="text-gray-500 font-medium">Fleet Overview</p>
                </div>
 
-               {/* 🟢 QUICK ACTIONS */}
                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                   
                    <button onClick={() => router.push('/customer/requests/new')} className="bg-white p-6 rounded-2xl border border-zinc-200 shadow-sm hover:shadow-md hover:border-black/20 transition text-left group">
                        <div className="bg-black text-white w-10 h-10 rounded-xl flex items-center justify-center mb-3 group-hover:scale-110 transition shadow-lg shadow-black/20">
                            <IconPlus />
@@ -146,15 +171,14 @@ export default function CustomerDashboardClient({ requests, customerName }: { re
                        <div className="text-xs text-zinc-500 mt-1">Browse catalog</div>
                    </button>
 
-                   {/* KPI TILE */}
                    <div className="bg-zinc-900 p-6 rounded-2xl border border-black shadow-sm flex flex-col justify-center">
                         <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Total Active</span>
-                        <span className="text-3xl font-black text-white">{totalActive} Jobs</span>
+                        <span className="text-3xl font-black text-white">{totalActiveCount} Jobs</span>
                    </div>
                </div>
            </div>
 
-           {/* ACTION SECTION (Red Alert) */}
+           {/* ACTION REQUIRED SECTION */}
            {actionItems.length > 0 && (
                <div className="space-y-4">
                    <h2 className="text-sm font-black text-red-600 uppercase tracking-widest flex items-center gap-2">
@@ -163,62 +187,77 @@ export default function CustomerDashboardClient({ requests, customerName }: { re
                    </h2>
                    <div className="grid gap-4 md:grid-cols-2">
                       {actionItems.map(r => {
-                          const notes = r.technician_notes || "";
-                          const redCount = (notes.match(/🔴/g) || []).length;
-                          const yellowCount = (notes.match(/🟡/g) || []).length;
-
-                          return (
-                              <div key={r.id} onClick={() => router.push(`/customer/requests/${r.id}`)} className="bg-white p-5 rounded-2xl border border-red-100 shadow-lg shadow-red-900/5 cursor-pointer hover:border-red-300 transition group">
-                                  <div className="flex justify-between items-start mb-2">
-                                     <span className="bg-red-100 text-red-700 text-[10px] font-black px-2 py-1 rounded uppercase">{r.status.replace("_", " ")}</span>
-                                     <span className="text-gray-400 group-hover:translate-x-1 transition">→</span>
-                                  </div>
-                                  <div className="font-bold text-lg text-gray-900">{r.vehicle ? `${r.vehicle.year} ${r.vehicle.model}` : "Fleet Order"}</div>
-                                  <div className="text-sm text-gray-500 mb-4">{r.vehicle ? `Unit #${r.vehicle.unit_number || "N/A"}` : "Stock / Drop Ship"}</div>
-                                  
-                                  <div className="flex justify-between items-end">
-                                      <div className="text-sm font-medium text-gray-800">{r.service_title}</div>
-                                      {(redCount > 0 || yellowCount > 0) && (
-                                         <div className="flex gap-1">
-                                              {redCount > 0 && <span className="bg-red-600 text-white text-[10px] font-black px-1.5 py-0.5 rounded flex items-center gap-1">🔴 {redCount} Urgent</span>}
-                                              {yellowCount > 0 && <span className="bg-amber-400 text-black text-[10px] font-black px-1.5 py-0.5 rounded">🟡 {yellowCount}</span>}
-                                         </div>
-                                      )}
-                                  </div>
-                              </div>
-                          );
+                          if (r.status === 'WAITING_CONFIRMATION') {
+                              return (
+                                <div key={r.id} onClick={() => router.push(`/customer/requests/${r.id}`)} className="bg-amber-50 p-5 rounded-2xl border border-amber-200 shadow-lg shadow-amber-900/5 hover:border-amber-400 transition cursor-pointer">
+                                    <div className="flex items-start gap-3">
+                                        <div className="text-2xl">⚠️</div>
+                                        <div className="flex-1">
+                                            <div className="flex justify-between items-start mb-2">
+                                                <h4 className="font-black text-amber-900 text-sm uppercase tracking-wide">Confirm Appointment</h4>
+                                                <div className="text-xs text-amber-800 font-bold">{r.vehicle?.plate}</div>
+                                            </div>
+                                            <div className="text-md font-bold text-zinc-900 mb-2">{r.service_title}</div>
+                                            <p className="text-xs text-amber-800 mb-2 font-medium">Click to confirm time & keys.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                              );
+                          }
+                          return null; 
                       })}
                    </div>
                </div>
            )}
 
-           {/* ACTIVE LIST (Monitoring) */}
+           {/* MAIN FEED: Active + Recent (72h) */}
            <div className="space-y-4">
-               <h2 className="text-sm font-black text-gray-400 uppercase tracking-widest">In Progress / Requested</h2>
+               <h2 className="text-sm font-black text-gray-400 uppercase tracking-widest">Recent Fleet Activity</h2>
                <div className="bg-white rounded-2xl border border-zinc-200 divide-y divide-zinc-100 shadow-sm">
-                   {activeItems.length === 0 ? (
-                       <div className="p-8 text-center text-gray-400 text-sm">No active maintenance at the moment.</div>
+                   {feedItems.length === 0 ? (
+                       <div className="p-8 text-center text-gray-400 text-sm">No active maintenance in the last 72 hours.</div>
                    ) : (
-                       activeItems.map(r => {
+                       feedItems.map(r => {
                            const notes = r.technician_notes || "";
                            const redCount = (notes.match(/🔴/g) || []).length;
                            const vehicleText = r.vehicle ? `${r.vehicle.year} ${r.vehicle.model}` : "Stock Order";
+                           
+                           // Status Helpers
+                           const isComplete = r.status === 'COMPLETED' || r.status === 'BILLED';
+                           const isReschedule = r.status === 'RESCHEDULE_PENDING';
+                           const isCanceled = r.status === 'CANCELED' || r.status === 'CANCELLED';
 
                            return (
                                <div key={r.id} onClick={() => router.push(`/customer/requests/${r.id}`)} className="p-5 flex justify-between items-center hover:bg-zinc-50 transition cursor-pointer">
                                    <div>
                                        <div className="font-bold text-gray-900 flex items-center gap-2">
-                                            {vehicleText}
-                                            {redCount > 0 && <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" title="Needs Attention"></span>}
+                                             <span className={isCanceled ? "text-zinc-400 line-through decoration-zinc-400" : ""}>{vehicleText}</span>
+                                             
+                                             {redCount > 0 && !isCanceled && <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" title="Needs Attention"></span>}
+                                             
+                                             {isComplete && <span className="flex items-center gap-1 text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full text-[10px] font-black uppercase"><IconCheck /> Complete</span>}
+                                             
+                                             {isReschedule && <span className="flex items-center gap-1 text-red-600 bg-red-50 px-2 py-0.5 rounded-full text-[10px] font-black uppercase"><IconCalendar /> Reschedule Needed</span>}
+
+                                             {isCanceled && <span className="flex items-center gap-1 text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-full text-[10px] font-black uppercase border border-zinc-200"><IconXCircle /> Canceled</span>}
                                        </div>
+                                       
                                        <div className="text-xs text-gray-500 mt-1 uppercase tracking-wide">
-                                           {r.status === 'IN_PROGRESS' ? (
-                                               <span className="text-green-600 font-bold flex items-center gap-1">● In Repair</span>
-                                           ) : r.status === 'NEW' ? (
-                                               <span className="text-blue-600 font-bold flex items-center gap-1">● Requested (Sent to Dispatch)</span>
-                                           ) : (
-                                               <span>Scheduled: {r.scheduled_start_at ? new Date(r.scheduled_start_at).toLocaleDateString() : "TBD"}</span>
-                                           )}
+                                            {isCanceled ? (
+                                                <span className="text-zinc-400 font-bold flex items-center gap-1">● Service Canceled</span>
+                                            ) : r.status === 'IN_PROGRESS' ? (
+                                                <span className="text-green-600 font-bold flex items-center gap-1">● In Repair</span>
+                                            ) : r.status === 'NEW' ? (
+                                                <span className="text-blue-600 font-bold flex items-center gap-1">● Requested (Pending Approval)</span>
+                                            ) : (r.status === 'READY_TO_SCHEDULE' || r.status === 'APPROVED_AND_SCHEDULING') ? (
+                                                <span className="text-emerald-600 font-bold flex items-center gap-1">● Approved & Scheduling</span>
+                                            ) : isComplete ? (
+                                                <span className="text-emerald-600 font-bold flex items-center gap-1">● Completed Recently</span>
+                                            ) : isReschedule ? (
+                                                <span className="text-red-600 font-bold flex items-center gap-1">● Reschedule Pending - Check Email</span>
+                                            ) : (
+                                                <span>Scheduled: {r.scheduled_start_at ? new Date(r.scheduled_start_at).toLocaleDateString() : "TBD"}</span>
+                                            )}
                                        </div>
                                    </div>
                                    <div className="text-right">

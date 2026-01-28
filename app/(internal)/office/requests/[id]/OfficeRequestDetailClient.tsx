@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import { RequestPartsSection } from "@/components/office/RequestPartsSection";
@@ -18,6 +18,8 @@ const IconGauge = () => <svg className="w-5 h-5 text-zinc-400" fill="none" viewB
 const IconShare = () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 100-5.368 3 3 0 000 5.368zm0 10.684a3 3 0 100-5.368 3 3 0 000 5.368z" /></svg>;
 const IconCheck = () => <svg className="w-4 h-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>;
 const IconBack = () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>;
+// ✅ NEW: Alert Icon
+const IconAlert = () => <svg className="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>;
 
 export default function OfficeRequestDetailClient({
   request: initialRequest,
@@ -52,15 +54,26 @@ export default function OfficeRequestDetailClient({
     : (isProcurement ? `PO: ${poValue}` : "NO PLATE");
 
   const displayVin = v?.vin || (isProcurement ? "Non-Asset Item" : "N/A");
+  const mileageValue = request.display_mileage || request.vehicle?.mileage;
 
   // Status Configuration
   const statusKey = (request.status as RequestStatusKey) || "NEW";
   const statusConfig = REQUEST_STATUS[statusKey] || REQUEST_STATUS.NEW;
   
   const isEditable = ["NEW", "WAITING", "WAITING_APPROVAL", "ATTENTION_REQUIRED"].includes(request.status);
+  const isCompleted = request.status === "COMPLETED" || request.status === "BILLED";
+
+  // 🚨 FINDINGS LOGIC (FIXED): Relaxed search for Red/Yellow items
+  const techNotes = request.technician_notes || "";
+  const findings = useMemo(() => {
+      if (!techNotes) return [];
+      const lines = techNotes.split('\n');
+      // Simply look for the emoji anywhere in the line
+      return lines.filter((l: string) => l.includes('🔴') || l.includes('🟡'));
+  }, [techNotes]);
 
   /* ===============================
-     HANDLERS
+       HANDLERS
   =============================== */
   const handleShare = () => {
     const portalUrl = `${window.location.origin}/portal/${request.id}`;
@@ -79,6 +92,7 @@ export default function OfficeRequestDetailClient({
   async function handleSave() {
     if (!isEditable) return;
     setSaving(true);
+    
     const res = await fetch(`/api/office/requests/${request.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -87,35 +101,54 @@ export default function OfficeRequestDetailClient({
         service_description: serviceDescription,
       }),
     });
+    
     const json = await res.json();
-    if (json.ok) setRequest(json.request);
-    else alert("Failed to save changes");
-    setSaving(false);
+    
+    if (json.ok) {
+        router.refresh();
+        router.push("/office");
+    } else {
+        alert("Failed to save changes");
+        setSaving(false);
+    }
   }
 
   async function handleApprove() {
     if (!isEditable) return;
+    setSaving(true); 
     
-    // Optimistic
-    const previousStatus = request.status;
-    setRequest({ ...request, status: "READY_TO_SCHEDULE" });
-
     const res = await fetch(`/api/office/requests/${request.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "READY_TO_SCHEDULE" }), 
+      body: JSON.stringify({ 
+          status: "READY_TO_SCHEDULE",
+          service_title: serviceTitle,
+          service_description: serviceDescription
+      }), 
     });
     
     const json = await res.json();
     if (json.ok) {
-      setRequest(json.request);
+      router.push("/office");
       router.refresh(); 
     } else {
       console.error(json.error);
       alert("Failed to approve. Check console.");
-      setRequest({ ...request, status: previousStatus }); 
+      setSaving(false); 
     }
   }
+
+  // ✅ NEW: CREATE FOLLOW-UP TICKET LOGIC
+  const handleCreateFollowUp = () => {
+      const noteText = `Follow-up from Service #${request.id.slice(0,8)}:\n\n${findings.join('\n')}`;
+      const params = new URLSearchParams({
+          vehicleId: v?.id || "",
+          customerId: c?.id || "",
+          prefillTitle: "Recommended Repairs", 
+          prefillDesc: noteText
+      });
+      router.push(`/office/requests/new?${params.toString()}`);
+  };
 
   return (
     <div className="min-h-screen bg-[#F4F5F7] pb-20 font-sans text-zinc-900">
@@ -149,7 +182,6 @@ export default function OfficeRequestDetailClient({
         </div>
 
         <div className="flex gap-2">
-          {/* Share */}
           <button
             onClick={handleShare}
             className={clsx(
@@ -161,7 +193,6 @@ export default function OfficeRequestDetailClient({
             {copying ? "Copied" : "Share"}
           </button>
 
-          {/* Invoice */}
           <button
             onClick={() => router.push(`/office/requests/${request.id}/invoice`)}
             className="px-4 py-2 text-xs font-bold rounded-lg border border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50 transition flex items-center gap-2"
@@ -169,7 +200,6 @@ export default function OfficeRequestDetailClient({
             <span>$</span> Invoice
           </button>
 
-          {/* Save */}
           <button
             onClick={handleSave}
             disabled={!isEditable || saving}
@@ -178,13 +208,13 @@ export default function OfficeRequestDetailClient({
             {saving ? "Saving..." : "Save Changes"}
           </button>
 
-          {/* Approve */}
           {isEditable && (
              <button
                 onClick={handleApprove}
+                disabled={saving}
                 className="px-4 py-2 text-xs font-bold rounded-lg bg-black text-white hover:bg-zinc-800 transition shadow-lg flex items-center gap-2"
              >
-                Approve & Dispatch
+                {saving ? "Processing..." : "Approve & Dispatch"}
              </button>
           )}
         </div>
@@ -195,8 +225,6 @@ export default function OfficeRequestDetailClient({
         
         {/* LEFT COLUMN (Context) */}
         <div className="lg:col-span-4 space-y-6">
-          
-          {/* Customer Card */}
           <div className="bg-white rounded-xl p-5 border border-zinc-200 flex gap-4 shadow-sm">
             <div className="w-10 h-10 rounded-full bg-zinc-50 border border-zinc-100 flex items-center justify-center">
                 <IconUser />
@@ -208,7 +236,6 @@ export default function OfficeRequestDetailClient({
             </div>
           </div>
 
-          {/* Asset / Order Card */}
           <div className="bg-white rounded-xl border border-zinc-200 p-5 shadow-sm">
             <div className="flex gap-4">
               <div className="w-10 h-10 rounded-full bg-zinc-50 border border-zinc-100 flex items-center justify-center">
@@ -219,7 +246,6 @@ export default function OfficeRequestDetailClient({
                     {isProcurement ? "Order Reference" : "Asset Details"}
                 </p>
                 <p className="font-bold text-zinc-900 text-lg leading-tight">{displayTitle}</p>
-                
                 <div className="flex flex-wrap gap-2 mt-2">
                     <span className="text-[10px] font-mono bg-zinc-100 px-1.5 py-0.5 rounded text-zinc-600 border border-zinc-200">
                         {isProcurement ? "TYPE: PARTS" : `VIN: ${displayVin}`}
@@ -235,7 +261,6 @@ export default function OfficeRequestDetailClient({
             </div>
           </div>
 
-          {/* Mileage (Only for Vehicles) */}
           {!isProcurement && (
             <div className="bg-white rounded-xl border border-zinc-200 p-5 flex gap-4 shadow-sm">
               <div className="w-10 h-10 rounded-full bg-zinc-50 border border-zinc-100 flex items-center justify-center">
@@ -244,7 +269,7 @@ export default function OfficeRequestDetailClient({
               <div>
                 <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Odometer</p>
                 <p className="font-bold text-zinc-900 text-lg">
-                    {request.display_mileage ? `${request.display_mileage.toLocaleString()} mi` : "—"}
+                    {mileageValue ? `${Number(mileageValue).toLocaleString()} mi` : "—"}
                 </p>
               </div>
             </div>
@@ -254,13 +279,41 @@ export default function OfficeRequestDetailClient({
         {/* RIGHT COLUMN (Work) */}
         <div className="lg:col-span-8 space-y-6">
           
-          {/* Revenue Optimizer (Smart Upsell) */}
+          {/* ✅ NEW: TECHNICIAN RECOMMENDATIONS PANEL (Only shows if completed & has findings) */}
+          {isCompleted && findings.length > 0 && (
+              <div className="bg-red-50 border border-red-100 rounded-xl p-6 shadow-sm animate-in slide-in-from-top-4">
+                  <div className="flex justify-between items-start mb-4">
+                      <div className="flex items-center gap-3">
+                          <div className="p-2 bg-red-100 rounded-lg text-red-600">
+                              <IconAlert />
+                          </div>
+                          <div>
+                              <h3 className="font-black text-red-900 text-lg">Technician Recommendations</h3>
+                              <p className="text-red-700 text-xs font-medium">Items found during inspection that require attention.</p>
+                          </div>
+                      </div>
+                      <button 
+                          onClick={handleCreateFollowUp}
+                          className="bg-black text-white px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wide hover:bg-zinc-800 transition shadow-lg"
+                      >
+                          Draft New Request
+                      </button>
+                  </div>
+                  
+                  <div className="bg-white rounded-lg border border-red-100 p-4 shadow-sm">
+                      {findings.map((finding: string, i: number) => (
+                          <div key={i} className="text-sm font-bold text-zinc-800 py-2 border-b border-zinc-50 last:border-0 flex items-center gap-2">
+                              {finding}
+                          </div>
+                      ))}
+                  </div>
+              </div>
+          )}
+
           <RevenueOptimizer request={request} onUpdate={handleRequestUpdate} />
 
-          {/* Service Requisition */}
           <div className="bg-white rounded-xl border border-zinc-200 p-6 shadow-sm">
             <h3 className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-4">Internal Service Requisition</h3>
-            
             <div className="space-y-4">
                 <input
                 value={serviceTitle}
@@ -288,7 +341,6 @@ export default function OfficeRequestDetailClient({
             </div>
           </div>
 
-          {/* Field Documentation */}
           <div className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden">
             <div className="p-4 border-b border-zinc-100 bg-zinc-50/50 flex justify-between items-center">
               <h3 className="text-[10px] font-black text-zinc-900 uppercase tracking-widest">Field Documentation</h3>
@@ -296,15 +348,13 @@ export default function OfficeRequestDetailClient({
             </div>
             
             <div className="p-6 space-y-6">
-              {/* Tech Notes */}
               <div>
                 <label className="text-[10px] font-black text-zinc-400 uppercase mb-2 block">Technician Notes</label>
-                <div className="p-4 bg-zinc-50 rounded-xl border border-zinc-100 text-zinc-600 text-sm italic leading-relaxed">
+                <div className="p-4 bg-zinc-50 rounded-xl border border-zinc-100 text-zinc-600 text-sm italic leading-relaxed whitespace-pre-wrap">
                   {request.technician_notes || "Technician has not submitted findings yet."}
                 </div>
               </div>
 
-              {/* Photos Grid */}
               <div>
                 <label className="text-[10px] font-black text-zinc-400 uppercase mb-2 block">Inspection Photos</label>
                 <div className="grid grid-cols-4 gap-3">
@@ -340,7 +390,6 @@ export default function OfficeRequestDetailClient({
 
           <OfficeFieldsSection request={request} />
 
-          {/* Audit Log */}
           {logs.length > 0 && (
             <div className="mt-8 border-t border-zinc-200 pt-8 opacity-60 hover:opacity-100 transition">
               <h3 className="text-[10px] font-black uppercase text-zinc-400 tracking-[0.2em] mb-4">Activity Audit Trail</h3>
