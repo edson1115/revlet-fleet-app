@@ -255,3 +255,16 @@ h1, h2, h3 {
   animation: teslaDrawerOut 0.35s cubic-bezier(0.65, 0, 0.35, 1);
 }
 
+/* ... existing code ... */
+
+@media (min-width: 1600px) {
+  html {
+    font-size: 110%; /* Scales everything up slightly */
+  }
+}
+
+@media (min-width: 1920px) {
+  html {
+    font-size: 120%; /* Scales everything up more for big monitors */
+  }
+}

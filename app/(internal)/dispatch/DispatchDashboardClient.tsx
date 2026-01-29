@@ -11,6 +11,7 @@ const IconSearch = () => <svg className="w-4 h-4 text-zinc-400" fill="none" view
 const IconCheck = () => <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>;
 const IconClock = () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
 const IconUsers = () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a4 4 0 00-4-4h-1M9 20H4v-2a4 4 0 014-4h1m8-4a4 4 0 10-8 0 4 4 0 008 0z" /></svg>;
+const IconEye = () => <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>;
 
 const toneChip = (tone: string) =>
   tone === "emerald" ? "bg-emerald-100 text-emerald-700" :
@@ -23,11 +24,13 @@ export default function DispatchDashboardClient({
   requests,
   stats,
   isOffice,
+  canAccessTech,
   technicians
 }: {
   requests: any[];
   stats: any;
   isOffice: boolean;
+  canAccessTech?: boolean;
   technicians: any[];
 }) {
   const router = useRouter();
@@ -136,7 +139,6 @@ export default function DispatchDashboardClient({
 
       setNotifying(true);
       try {
-          // ✅ SEND SELECTED IDs
           const res = await fetch("/api/dispatch/notify", { 
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -151,7 +153,7 @@ export default function DispatchDashboardClient({
           const data = await res.json();
           if (res.ok) {
               alert(`✅ Roster sent! ${data.results.length} technicians notified.`);
-              setSelectedTechs([]); // Clear selection after sending
+              setSelectedTechs([]);
           } else {
               alert("Server Error: " + (data.error || data.message));
           }
@@ -188,6 +190,8 @@ export default function DispatchDashboardClient({
             <h1 className="text-lg font-black text-zinc-900 tracking-tight">Dispatch Console</h1>
           </div>
           <div className="flex items-center gap-4">
+              {/* REMOVED TECH APP BUTTON FOR CLARITY */}
+              
               {isOffice && (
                  <Link href="/office" className="bg-zinc-800 text-white px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest hover:bg-zinc-700 transition flex items-center gap-2 shadow-lg shadow-zinc-800/20">
                     <span>← Return to HQ</span>
@@ -276,9 +280,7 @@ export default function DispatchDashboardClient({
                         <IconUsers /> Team Roster
                     </h3>
                     <div className="flex items-center gap-2">
-                        <Link href="/office/users" className="text-[10px] font-bold text-blue-600 hover:underline">
-                            + Manage
-                        </Link>
+                        {/* REMOVED + MANAGE LINK */}
                         <span className="bg-green-100 text-green-700 text-[10px] font-bold px-2 py-0.5 rounded-full">Live</span>
                     </div>
                 </div>
@@ -289,7 +291,7 @@ export default function DispatchDashboardClient({
                         return (
                             <div key={t.id} className={clsx("group rounded-lg p-2 transition border", isSelected ? "bg-blue-50 border-blue-200" : "hover:bg-zinc-50 border-transparent")}>
                                 <div className="flex items-center gap-3 mb-2">
-                                    {/* ✅ SELECT CHECKBOX */}
+                                    {/* SELECT CHECKBOX */}
                                     <button 
                                         onClick={() => toggleTech(t.id)}
                                         className={clsx("w-5 h-5 rounded border flex items-center justify-center transition shrink-0", isSelected ? "bg-blue-600 border-blue-600" : "bg-white border-zinc-300")}
@@ -300,6 +302,18 @@ export default function DispatchDashboardClient({
                                     <div className="flex-1 min-w-0">
                                         <div className="flex justify-between items-center">
                                             <span className="font-bold text-sm text-zinc-900 truncate">{t.full_name}</span>
+                                            
+                                            {/* ✅ OBVIOUS VIEW BUTTON (ALWAYS VISIBLE) */}
+                                            {isOffice && (
+                                                <Link 
+                                                    href={`/dispatch/tech-view?id=${t.id}`}
+                                                    className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 transition"
+                                                    title="View Dashboard"
+                                                >
+                                                    <span className="text-indigo-600"><IconEye /></span>
+                                                    <span className="text-[9px] font-bold text-indigo-700 uppercase tracking-wide">View</span>
+                                                </Link>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -341,7 +355,6 @@ export default function DispatchDashboardClient({
       {/* FLOATY BULK ACTION BAR */}
       {selectedIds.length > 0 && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white border border-zinc-200 shadow-2xl rounded-2xl p-4 flex flex-col items-center gap-3 z-50 animate-in slide-in-from-bottom-10 fade-in duration-300 min-w-[600px]">
-              {/* ... (Bulk actions kept same) ... */}
               <div className="flex items-center gap-4 w-full">
                   <div className="bg-black text-white px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wide whitespace-nowrap">
                       {selectedIds.length} Selected

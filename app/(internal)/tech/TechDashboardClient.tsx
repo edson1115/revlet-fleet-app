@@ -4,6 +4,11 @@ import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import { createBrowserClient } from "@supabase/ssr";
+import PlayerCard from "@/components/gamification/PlayerCard"; 
+import XpToast from "@/components/gamification/XpToast";
+import XpHistoryModal from "@/components/gamification/XpHistoryModal";
+import TrophyModal from "@/components/gamification/TrophyModal";
+import PerksModal from "@/components/gamification/PerksModal"; // ✅ IMPORTED
 
 // --- ICONS ---
 const IconRefresh = () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>;
@@ -11,13 +16,28 @@ const IconLogout = () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24
 const IconBox = () => <svg className="w-5 h-5 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>;
 const IconClock = () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
 const IconX = () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>;
-// ✅ NEW: Map Pin Icon
 const IconMapPin = () => <svg className="w-3.5 h-3.5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>;
+const IconTrophy = () => <svg className="w-5 h-5 text-yellow-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>;
+// ✅ NEW ICON
+const IconStar = () => <svg className="w-5 h-5 text-indigo-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>;
 
-export default function TechDashboardClient({ requests, userId, userName }: { requests: any[], userId: string, userName: string }) {
+export default function TechDashboardClient({ 
+  requests, 
+  userId, 
+  userName, 
+  currentXp = 0 
+}: { 
+  requests: any[], 
+  userId: string, 
+  userName: string, 
+  currentXp?: number 
+}) {
   const router = useRouter();
   const [view, setView] = useState<"TODAY" | "UPCOMING">("TODAY");
-  const [showLoadout, setShowLoadout] = useState(false); // ✅ Replaced 'showPartsOnly' with Modal Trigger
+  const [showLoadout, setShowLoadout] = useState(false); 
+  const [showHistory, setShowHistory] = useState(false);
+  const [showTrophies, setShowTrophies] = useState(false);
+  const [showPerks, setShowPerks] = useState(false); // ✅ NEW STATE
   const [allJobs] = useState<any[]>(requests || []);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [shiftStart, setShiftStart] = useState<string | null>(null);
@@ -51,7 +71,6 @@ export default function TechDashboardClient({ requests, userId, userName }: { re
     const _upcoming: any[] = [];
 
     (allJobs || []).forEach(r => {
-      // ✅ Include RESCHEDULE_PENDING in Today so Tech sees they need to act
       if (r.status === 'IN_PROGRESS' || r.status === 'RESCHEDULE_PENDING') {
         _today.push(r); return;
       }
@@ -68,7 +87,6 @@ export default function TechDashboardClient({ requests, userId, userName }: { re
 
   const displayedJobs = view === "TODAY" ? todayJobs : upcomingJobs;
 
-  // ✅ LOGIC: Calculate Total Parts Needed for Today
   const dailyParts = useMemo(() => {
       const totals: Record<string, { name: string, qty: number, number: string }> = {};
       todayJobs.forEach(job => {
@@ -91,6 +109,9 @@ export default function TechDashboardClient({ requests, userId, userName }: { re
   return (
     <div className="min-h-screen bg-black text-white font-sans pb-32">
       
+      {/* Toast Notification */}
+      <XpToast userId={userId} />
+
       {/* HEADER */}
       <div className="bg-zinc-900 border-b border-zinc-800 px-5 py-5 sticky top-0 z-30 flex justify-between items-center shadow-2xl">
         <div>
@@ -108,11 +129,37 @@ export default function TechDashboardClient({ requests, userId, userName }: { re
         </div>
       </div>
 
-      {/* VIEW TOGGLE */}
+      {/* VIEW TOGGLE & PLAYER CARD */}
       <div className="p-4 sticky top-[80px] z-20 bg-black/90 backdrop-blur-xl">
-        <div className="bg-zinc-900 p-1 rounded-xl flex gap-1 border border-zinc-800 shadow-lg">
-          <button onClick={() => setView("TODAY")} className={clsx("flex-1 py-3 text-xs font-black uppercase tracking-wider rounded-lg transition-all", view === "TODAY" ? "bg-white text-black shadow-lg" : "text-zinc-500")}>Today ({todayJobs.length})</button>
-          <button onClick={() => setView("UPCOMING")} className={clsx("flex-1 py-3 text-xs font-black uppercase tracking-wider rounded-lg transition-all", view === "UPCOMING" ? "bg-white text-black shadow-lg" : "text-zinc-500")}>Upcoming ({upcomingJobs.length})</button>
+        
+        {/* CLICKABLE PLAYER CARD (Opens History) */}
+        <div onClick={() => setShowHistory(true)} className="cursor-pointer active:scale-[0.98] transition hover:opacity-90">
+            <PlayerCard xp={currentXp} name={userName} />
+        </div>
+
+        {/* ✅ ACTION BAR: VIEW TOGGLE + PERKS + TROPHY */}
+        <div className="flex gap-2 mt-4">
+            {/* View Toggle */}
+            <div className="bg-zinc-900 p-1 rounded-xl flex gap-1 border border-zinc-800 shadow-lg flex-1">
+                <button onClick={() => setView("TODAY")} className={clsx("flex-1 py-3 text-xs font-black uppercase tracking-wider rounded-lg transition-all", view === "TODAY" ? "bg-white text-black shadow-lg" : "text-zinc-500")}>Today ({todayJobs.length})</button>
+                <button onClick={() => setView("UPCOMING")} className={clsx("flex-1 py-3 text-xs font-black uppercase tracking-wider rounded-lg transition-all", view === "UPCOMING" ? "bg-white text-black shadow-lg" : "text-zinc-500")}>Upcoming ({upcomingJobs.length})</button>
+            </div>
+
+            {/* Perks Button */}
+            <button 
+                onClick={() => setShowPerks(true)}
+                className="bg-zinc-900 border border-zinc-800 rounded-xl px-4 flex items-center justify-center shadow-lg active:scale-95 transition"
+            >
+                <IconStar />
+            </button>
+
+            {/* Trophy Button */}
+            <button 
+                onClick={() => setShowTrophies(true)}
+                className="bg-zinc-900 border border-zinc-800 rounded-xl px-4 flex items-center justify-center shadow-lg active:scale-95 transition"
+            >
+                <IconTrophy />
+            </button>
         </div>
       </div>
 
@@ -129,7 +176,7 @@ export default function TechDashboardClient({ requests, userId, userName }: { re
           </div>
       )}
 
-      {/* ✅ NEW: DAILY LOADOUT BUTTON (Only if parts exist) */}
+      {/* DAILY LOADOUT BUTTON */}
       {dailyParts.length > 0 && view === "TODAY" && (
         <div className="px-4 mb-4">
           <button 
@@ -161,8 +208,6 @@ export default function TechDashboardClient({ requests, userId, userName }: { re
             const isRescheduled = r.status === 'RESCHEDULE_PENDING';
             const hasParts = r.request_parts && r.request_parts.length > 0;
             const timeString = r.scheduled_start_at ? new Date(r.scheduled_start_at).toLocaleTimeString([], {hour: 'numeric', minute:'2-digit'}) : "TBD";
-
-            // ✅ ADDRESS LOGIC
             const address = r.customer?.address || "Address not provided";
 
             return (
@@ -193,7 +238,6 @@ export default function TechDashboardClient({ requests, userId, userName }: { re
 
                   <div className="pl-3 mb-2">
                       <div className="text-2xl font-black text-white tracking-tight leading-none truncate pr-2">{r.customer?.name}</div>
-                      {/* ✅ ADDRESS DISPLAY */}
                       <div className="flex items-start gap-1 mt-1 text-zinc-400 text-xs font-bold">
                           <IconMapPin />
                           <span className="truncate">{address}</span>
@@ -213,7 +257,7 @@ export default function TechDashboardClient({ requests, userId, userName }: { re
         )}
       </div>
 
-      {/* ✅ LOADOUT MODAL */}
+      {/* LOADOUT MODAL */}
       {showLoadout && (
           <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm p-6 flex flex-col animate-in fade-in">
               <div className="flex justify-between items-center mb-6">
@@ -234,6 +278,21 @@ export default function TechDashboardClient({ requests, userId, userName }: { re
               </div>
               <button onClick={() => setShowLoadout(false)} className="mt-4 w-full bg-white text-black font-black uppercase py-4 rounded-xl">Done Loading</button>
           </div>
+      )}
+
+      {/* HISTORY MODAL */}
+      {showHistory && (
+          <XpHistoryModal userId={userId} onClose={() => setShowHistory(false)} />
+      )}
+
+      {/* TROPHY MODAL */}
+      {showTrophies && (
+          <TrophyModal userId={userId} onClose={() => setShowTrophies(false)} />
+      )}
+
+      {/* ✅ PERKS MODAL */}
+      {showPerks && (
+          <PerksModal currentXp={currentXp} onClose={() => setShowPerks(false)} />
       )}
     </div>
   );

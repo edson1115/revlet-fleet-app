@@ -10,14 +10,24 @@ export default async function DispatchPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // 1. Check Role
+  // 1. Check Role & Permissions
   const { data: profile } = await supabase
     .from("profiles")
-    .select("role")
+    .select("role, permissions")
     .eq("id", user.id)
     .single();
 
-  const isOffice = profile?.role === 'OFFICE' || profile?.role === 'SUPERADMIN' || user.email === 'office@test.com';
+  const isOffice = 
+    profile?.role === 'OFFICE' || 
+    profile?.role === 'SUPERADMIN' || 
+    user.email === 'office@test.com' ||
+    profile?.permissions?.access_dispatch === true;
+
+  // ✅ NEW: Check if they are allowed to see the Tech App
+  const canAccessTech = 
+    profile?.role === 'TECHNICIAN' || 
+    profile?.role === 'TECH' || 
+    profile?.permissions?.access_tech_app === true;
 
   // 2. Fetch Requests
   const { data: requests, error } = await supabase
@@ -29,7 +39,6 @@ export default async function DispatchPage() {
       technician:profiles!technician_id(full_name), 
       second_technician:profiles!second_technician_id(full_name)
     `)
-    // You can adjust these filters if you want to see specific history
     .neq("status", "NEW")
     .neq("status", "COMPLETED")
     .order("created_at", { ascending: false })
@@ -37,10 +46,9 @@ export default async function DispatchPage() {
 
   if (error) console.error("Dispatch fetch error:", error);
 
-  // 3. ✅ FETCH TECHS & THEIR SAVED SHIFT TIMES
+  // 3. Fetch Techs
   const { data: technicians } = await supabase
     .from("profiles")
-    // ✅ Added 'current_shift_start' so the roster persists on refresh
     .select("id, full_name, current_shift_start") 
     .in("role", ["TECHNICIAN", "TECH"])
     .eq("active", true)
@@ -59,7 +67,8 @@ export default async function DispatchPage() {
     <DispatchDashboardClient 
       requests={list} 
       stats={stats} 
-      isOffice={isOffice} 
+      isOffice={isOffice}
+      canAccessTech={canAccessTech} // 👈 Passing the permission
       technicians={technicians || []} 
     />
   );

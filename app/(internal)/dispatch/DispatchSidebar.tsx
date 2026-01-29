@@ -32,33 +32,5 @@ export default function DispatchSidebar() {
     );
   };
 
-  return (
-    // ✅ Changed w-72 to w-20 (Slim Sidebar)
-    <div className="w-20 bg-white border-r border-zinc-200 hidden md:flex flex-col sticky top-0 h-screen z-50 items-center py-6">
-      
-      {/* Logo (R Icon) */}
-      <div className="mb-8">
-        <div className="bg-black text-white w-10 h-10 flex items-center justify-center rounded-lg text-lg font-black tracking-tighter italic shadow-xl cursor-default">
-          R
-        </div>
-      </div>
-
-      {/* Menu Items */}
-      <div className="flex-1 w-full px-2 space-y-2">
-        <NavItem label="Dashboard" icon={IconDashboard} path="/dispatch" exact={true} />
-        {/* Add more icons here later */}
-      </div>
-
-      {/* Logout */}
-      <div className="mt-auto w-full px-2">
-        <button
-          onClick={handleLogout}
-          title="Sign Out"
-          className="w-full flex justify-center items-center p-3 rounded-xl border border-transparent text-zinc-400 hover:text-red-600 hover:bg-red-50 transition"
-        >
-          <IconLogout />
-        </button>
-      </div>
-    </div>
-  );
+  
 }
