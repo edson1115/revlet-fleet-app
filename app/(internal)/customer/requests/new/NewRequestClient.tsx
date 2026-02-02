@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import clsx from "clsx";
 import { createBrowserClient } from "@supabase/ssr";
+import ImageDropzone from "@/components/ui/ImageDropzone"; // ✅ IMPORTED
 
 const SERVICES = [
   "Oil Change",
@@ -34,6 +35,7 @@ export default function NewRequestClient({ customerId, vehicles }: { customerId:
   const [serviceType, setServiceType] = useState(SERVICES[0]);
   const [mileage, setMileage] = useState(""); // ✅ Added Mileage State
   const [description, setDescription] = useState("");
+  const [files, setFiles] = useState<File[]>([]); // ✅ FILES STATE
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -43,24 +45,57 @@ export default function NewRequestClient({ customerId, vehicles }: { customerId:
         // ✅ Pack Mileage into the description for Dispatch
         const finalDescription = `Current Mileage: ${mileage || "Not Provided"} \n\n${description}`;
 
-        const { error } = await supabase.from("service_requests").insert({
+        // 1. Create Ticket
+        const { data: ticket, error } = await supabase.from("service_requests").insert({
             customer_id: customerId,
             vehicle_id: selectedVehicle,
             service_title: serviceType,
             description: finalDescription, // Updated Description
             status: "NEW", 
-            technician_notes: "" 
-        });
+            technician_notes: "",
+            created_by_role: "CUSTOMER"
+        }).select().single();
 
         if (error) throw error;
         
-        // Optional: We could also update the vehicle's mileage in the 'vehicles' table here
-        // if we wanted to keep the asset record perfectly in sync.
+        // 2. Upload Images (If any)
+        if (files.length > 0 && ticket) {
+            for (const file of files) {
+                const ext = file.name.split(".").pop();
+                const fileName = `${ticket.id}/${Date.now()}.${ext}`;
+
+                const { error: uploadErr } = await supabase.storage
+                    .from("request-images") // ⚠️ Ensure bucket exists!
+                    .upload(fileName, file);
+
+                if (!uploadErr) {
+                    const { data: { publicUrl } } = supabase.storage.from("request-images").getPublicUrl(fileName);
+                    await supabase.from("request_images").insert({
+                        request_id: ticket.id,
+                        url_full: publicUrl,
+                        kind: "customer_upload"
+                    });
+                } else {
+                    console.error("Upload error:", uploadErr);
+                    // Optional: alert user if specific image fails, or just log it
+                }
+            }
+        }
 
         router.push("/customer"); 
         router.refresh();
-    } catch (err) {
-        alert("Failed to submit request.");
+    } catch (err: any) {
+        // ✅ IMPROVED LOGGING
+        console.error("Submission Error Details:", err);
+        
+        // Check for specific Supabase error codes
+        if (err.code === "42501" || err.message?.includes("policy")) {
+            alert("Permission Denied: You do not have permission to create requests or upload photos.");
+        } else if (err.message?.includes("storage")) {
+            alert("Storage Error: " + err.message);
+        } else {
+            alert("Failed to submit request: " + (err.message || "Unknown error"));
+        }
     } finally {
         setLoading(false);
     }
@@ -137,6 +172,16 @@ export default function NewRequestClient({ customerId, vehicles }: { customerId:
                         onChange={(e) => setDescription(e.target.value)}
                         placeholder="e.g. Noise coming from front left..."
                         className="w-full p-4 bg-zinc-50 border border-zinc-200 rounded-xl font-medium text-zinc-900 outline-none focus:ring-2 focus:ring-black/5 min-h-[100px] resize-none"
+                    />
+                </div>
+
+                {/* ✅ PHOTOS SECTION */}
+                <div>
+                    <label className="block text-xs font-bold text-zinc-900 uppercase tracking-wide mb-2">Photos (Optional)</label>
+                    <ImageDropzone 
+                        onFilesSelected={(newFiles) => setFiles([...files, ...newFiles])}
+                        existingFiles={files}
+                        onRemove={(i) => setFiles(files.filter((_, idx) => idx !== i))}
                     />
                 </div>
 

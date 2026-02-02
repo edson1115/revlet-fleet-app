@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { supabaseServerReadonly } from "@/lib/supabase/server-readonly";
 import { resolveUserScope } from "@/lib/api/scope";
 import OfficeDashboardClient from "./OfficeDashboardClient";
+import ActivityFeed from "@/components/office/ActivityFeed"; // ✅ Imported to pass as a prop
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,7 @@ export default async function OfficeHomePage() {
 
   const supabase = await supabaseServerReadonly();
 
-  // 2. Fetch Data (✅ ADDED missing note columns)
+  // 2. Fetch Data
   const { data: requests, error } = await supabase
     .from("service_requests")
     .select(`
@@ -47,5 +48,15 @@ export default async function OfficeHomePage() {
     attention: list.filter((r: any) => r.status === "ATTENTION_REQUIRED" || r.status === "WAITING_APPROVAL").length,
   };
 
-  return <OfficeDashboardClient requests={list} stats={stats} />;
+  return (
+    // ✅ FIX: No Grid, No Sidebar Div. 
+    // The DashboardClient now controls 100% of the page width.
+    <div className="min-h-screen bg-[#F4F5F7]">
+        <OfficeDashboardClient 
+            requests={list} 
+            stats={stats} 
+            feedSlot={<ActivityFeed />} 
+        />
+    </div>
+  );
 }

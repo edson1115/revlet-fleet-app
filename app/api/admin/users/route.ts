@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { resolveUserScope } from "@/lib/api/scope";
+import { sendApprovalEmail } from "@/lib/email"; // 👈 IMPORTED EMAILER
 
 export const dynamic = "force-dynamic";
 
@@ -56,10 +57,7 @@ export async function DELETE(request: Request) {
 
   try {
       // 2. CLEANUP DATABASE RECORDS FIRST (Prevent Foreign Key Errors)
-      // Delete any sales leads owned by this user
       await supabaseAdmin.from('sales_leads').delete().eq('sales_rep_id', userId);
-      
-      // Delete the profile row
       await supabaseAdmin.from('profiles').delete().eq('id', userId);
 
       // 3. DELETE AUTH USER (The Master Record)
@@ -106,61 +104,76 @@ export async function PATCH(request: Request) {
     if (dbError) return NextResponse.json({ error: dbError.message }, { status: 500 });
   }
 
-  // 3. 🧠 AUTO-SYNC: If Approving a Customer, Ensure Company Card Exists
+  // 3. 🧠 AUTO-SYNC & NOTIFY
+  // If we are approving a user (setting them to ACTIVE), do the magic setup
   if (status === 'ACTIVE' && active === true) {
     
-    // A. Get the full profile data (to find Company Name & Address)
+    // A. Get the full profile data
     const { data: profile } = await supabaseAdmin
       .from('profiles')
       .select('*')
       .eq('id', userId)
       .single();
     
-    if (profile && (profile.role === 'CUSTOMER' || role === 'CUSTOMER')) {
-        
-        // B. Check if Company exists (Match by Name)
-        const { data: existingCompany } = await supabaseAdmin
-          .from('customers')
-          .select('id')
-          .ilike('company_name', profile.company_name) // Case-insensitive match
-          .maybeSingle();
+    // ... inside the PATCH function ...
 
-        let finalCustomerId = existingCompany?.id;
-
-        // C. If no company exists, CREATE IT NOW
-        if (!finalCustomerId && profile.company_name) {
-            const { data: newCompany, error: createError } = await supabaseAdmin
-              .from('customers')
-              .insert({
-                  company_name: profile.company_name,
-                  contact_name: profile.full_name,
-                  email: profile.email,
-                  phone: profile.phone,
-                  billing_address: profile.billing_address, // ✅ Saves the Location/Address
-                  market: 'San Antonio', // Default Market
-                  status: 'ACTIVE'
-              })
-              .select()
-              .single();
-            
-            if (!createError && newCompany) {
-               finalCustomerId = newCompany.id;
-            } else if (createError) {
-               console.error("Auto-Create Company Failed:", createError);
-            }
+    if (profile) {
+        // 📧 SEND APPROVAL EMAIL
+        if (profile.email) {
+            // 👇 You can change "Revlet Fleet Services" to your actual Shop Name
+            await sendApprovalEmail(
+                profile.email, 
+                profile.full_name || "Partner", 
+                "Revlet Fleet Services" 
+            );
         }
 
-        // D. Link the User Profile to this Company
-        if (finalCustomerId) {
-            await supabaseAdmin
-              .from('profiles')
-              .update({ customer_id: finalCustomerId })
-              .eq('id', userId);
+// ... rest of the code ...
+
+        // B. Handle Customer/Company Linking Logic
+        if (profile.role === 'CUSTOMER' || role === 'CUSTOMER') {
             
-            // Also update Auth Metadata so it sticks
-            await supabaseAdmin.auth.admin.updateUserById(userId, {
-              user_metadata: { customer_id: finalCustomerId }
-            });
+            // Check if Company exists (Match by Name)
+            const { data: existingCompany } = await supabaseAdmin
+              .from('customers')
+              .select('id')
+              .ilike('company_name', profile.company_name) // Case-insensitive match
+              .maybeSingle();
+
+            let finalCustomerId = existingCompany?.id;
+
+            // If no company exists, CREATE IT NOW
+            if (!finalCustomerId && profile.company_name) {
+                const { data: newCompany, error: createError } = await supabaseAdmin
+                  .from('customers')
+                  .insert({
+                      company_name: profile.company_name,
+                      contact_name: profile.full_name,
+                      email: profile.email,
+                      phone: profile.phone,
+                      billing_address: profile.billing_address,
+                      market: 'San Antonio',
+                      status: 'ACTIVE'
+                  })
+                  .select()
+                  .single();
+                
+                if (!createError && newCompany) {
+                   finalCustomerId = newCompany.id;
+                }
+            }
+
+            // Link the User Profile to this Company
+            if (finalCustomerId) {
+                await supabaseAdmin
+                  .from('profiles')
+                  .update({ customer_id: finalCustomerId })
+                  .eq('id', userId);
+                
+                await supabaseAdmin.auth.admin.updateUserById(userId, {
+                  user_metadata: { customer_id: finalCustomerId }
+                });
+            }
         }
     }
   }

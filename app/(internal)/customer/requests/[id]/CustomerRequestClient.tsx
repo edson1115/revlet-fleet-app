@@ -15,9 +15,26 @@ export default function CustomerRequestClient({ request }: { request: any }) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
 
+  // --- FILTER IMAGES (The "Chain of Custody" Logic) ---
+  const allImages = request.request_images || [];
+  
+  // 1. Customer's own photos (Always visible)
+  const customerImages = allImages.filter((img: any) => 
+      img.kind === 'customer_upload' || img.kind === 'damage' || !img.kind
+  );
+
+  // 2. Tech's photos (Before, After, etc.)
+  const techImages = allImages.filter((img: any) => 
+      ['before', 'after', 'other'].includes(img.kind)
+  );
+
+  // 3. Logic Gate: Only show Tech photos if the job is "Terminal" or "Rescheduled"
+  // We don't want the customer seeing half-finished work while status is IN_PROGRESS.
+  const showTechEvidence = ['COMPLETED', 'BILLED', 'RESCHEDULE_PENDING', 'CANCELED'].includes(request.status);
+
+
   // --- PARSE INSPECTION REPORT ---
   const notes = request.technician_notes || "";
-  
   let inspectionItems: string[] = [];
   if (notes.includes("--- 9-POINT INSPECTION ---")) {
       const inspectionStart = notes.indexOf("--- 9-POINT INSPECTION ---");
@@ -26,39 +43,30 @@ export default function CustomerRequestClient({ request }: { request: any }) {
   } else {
       inspectionItems = notes.split('\n').filter((line: string) => line.includes('🔴') || line.includes('🟡'));
   }
-
   const redItems = inspectionItems.filter(i => i.includes('🔴'));
   const yellowItems = inspectionItems.filter(i => i.includes('🟡'));
 
-  // --- 1. SUBMIT FOR REVIEW (Approve) ---
+
+  // --- ACTIONS ---
   const handleApprove = async () => {
       if (!confirm("Submit this approval to the office?")) return;
       setLoading(true);
       
       const timestamp = new Date().toLocaleString();
-      const nextStatus = request.status === 'NEW' ? 'APPROVED_AND_SCHEDULING' : 'NEW'; 
-
       const approvalNote = `\n\n✅ CUSTOMER SUBMITTED APPROVAL\nTimestamp: ${timestamp}\nAction: Customer Approved Work`;
 
       const { error } = await supabase
         .from("service_requests")
         .update({ 
-            status: nextStatus, 
+            status: 'APPROVED_AND_SCHEDULING', 
             technician_notes: (request.technician_notes || "") + approvalNote
         }) 
         .eq("id", request.id);
 
-      if (!error) {
-          router.push("/customer"); 
-          router.refresh(); 
-      } else {
-          console.error("Approve Error:", error);
-          alert("Error sending request.");
-          setLoading(false);
-      }
+      if (!error) { router.push("/customer"); router.refresh(); }
+      setLoading(false);
   };
 
-  // --- 2. DECLINE REQUEST (Revised) ---
   const handleDecline = async () => {
       const reason = prompt("Please provide a reason for declining (optional):");
       if (reason === null) return; 
@@ -67,7 +75,6 @@ export default function CustomerRequestClient({ request }: { request: any }) {
       const timestamp = new Date().toLocaleString();
       const declineNote = `\n\n❌ CUSTOMER DECLINED WORK\nTimestamp: ${timestamp}\nReason: ${reason || "No reason provided"}`;
 
-      // ✅ FIX: Changed spelling to "CANCELED" (One 'L') to match common DB enums
       const { error } = await supabase
         .from("service_requests")
         .update({ 
@@ -76,29 +83,24 @@ export default function CustomerRequestClient({ request }: { request: any }) {
         }) 
         .eq("id", request.id);
 
-      if (!error) {
-          alert("Request declined.");
-          router.push("/customer"); 
-          router.refresh(); 
-      } else {
-          console.error("Decline Error:", error);
-          alert("Error declining request. (Check Console for Details)");
-          setLoading(false);
-      }
+      if (!error) { router.push("/customer"); router.refresh(); }
+      setLoading(false);
   };
 
-  // --- 3. CONFIRM APPOINTMENT ---
   const handleConfirmAppointment = async () => {
       if (!keyLocation) return alert("Please tell us where the keys will be.");
       setLoading(true);
 
-      const res = await fetch("/api/customer/confirm-appointment", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ticket_id: request.id, key_location: keyLocation })
-      });
+      // Simple update instead of API call for speed
+      const { error } = await supabase
+        .from("service_requests")
+        .update({ 
+            status: 'SCHEDULED', // Confirming moves it to SCHEDULED
+            key_location: keyLocation
+        })
+        .eq("id", request.id);
 
-      if (res.ok) {
+      if (!error) {
           alert("Appointment Confirmed! See you then.");
           router.refresh();
       } else {
@@ -108,16 +110,16 @@ export default function CustomerRequestClient({ request }: { request: any }) {
   };
 
   return (
-    <div className="space-y-6 pb-40 px-6 py-8">
+    <div className="space-y-6 pb-40 px-6 py-8 bg-[#F4F5F7] min-h-screen font-sans">
        
        {/* HEADER */}
        <button onClick={() => router.back()} className="text-xs font-bold text-gray-400 hover:text-black uppercase tracking-widest transition">← Back to Fleet</button>
        
-       <div className="bg-white rounded-3xl p-8 border border-gray-200 shadow-xl">
-           <div className="flex justify-between items-start">
+       <div className="bg-white rounded-3xl p-8 border border-gray-200 shadow-sm">
+           <div className="flex flex-col md:flex-row justify-between items-start gap-4">
                <div>
                    <h1 className="text-3xl font-black text-gray-900 mb-2">
-                       {request.vehicle ? `${request.vehicle.year} ${request.vehicle.model}` : "Stock Order / Drop Ship"}
+                       {request.vehicle ? `${request.vehicle.year} ${request.vehicle.model}` : "Stock Order"}
                    </h1>
                    <div className="flex gap-2 items-center">
                        {request.vehicle && (
@@ -129,11 +131,11 @@ export default function CustomerRequestClient({ request }: { request: any }) {
                            request.status === 'WAITING_CONFIRMATION' ? "bg-amber-100 text-amber-700 animate-pulse" :
                            "bg-zinc-100 text-zinc-600"
                        )}>
-                           {request.status.replace("_", " ")}
+                           {request.status.replace(/_/g, " ")}
                        </span>
                    </div>
                </div>
-               <div className="text-right">
+               <div className="text-left md:text-right">
                    <div className="text-xs font-bold text-gray-400 uppercase tracking-widest">Service</div>
                    <div className="text-lg font-bold text-gray-900">{request.service_title}</div>
                </div>
@@ -146,19 +148,19 @@ export default function CustomerRequestClient({ request }: { request: any }) {
                <div className="flex items-start gap-4">
                    <div className="text-3xl">⚠️</div>
                    <div className="flex-1">
-                       <h3 className="text-lg font-black text-amber-900 uppercase tracking-tight mb-2">Appointment Proposed</h3>
+                       <h3 className="text-lg font-black text-amber-900 uppercase tracking-tight mb-2">Confirm Appointment</h3>
                        <p className="text-amber-800 text-sm mb-4">
-                           Dispatch has requested to service this vehicle on: <br/>
+                           Dispatch has requested: <br/>
                            <span className="font-bold text-lg">
                                {request.scheduled_start_at ? new Date(request.scheduled_start_at).toLocaleString() : "Time TBD"}
                            </span>
                        </p>
                        
-                       <label className="text-[10px] font-bold text-amber-700 uppercase mb-1 block">Where will the keys be?</label>
+                       <label className="text-[10px] font-bold text-amber-700 uppercase mb-1 block">Key Location</label>
                        <input 
                            value={keyLocation}
                            onChange={(e) => setKeyLocation(e.target.value)}
-                           placeholder="e.g. Front Desk, Lockbox 1234, Driver has them"
+                           placeholder="e.g. Front Desk, Lockbox 1234..."
                            className="w-full p-3 rounded-xl border border-amber-300 mb-3 text-sm font-bold focus:ring-2 focus:ring-amber-500 outline-none"
                        />
                        
@@ -167,17 +169,17 @@ export default function CustomerRequestClient({ request }: { request: any }) {
                            disabled={loading}
                            className="w-full bg-black text-white py-3 rounded-xl font-bold uppercase text-xs tracking-widest shadow-lg hover:bg-zinc-800 transition"
                        >
-                           {loading ? "Confirming..." : "Confirm Appointment"}
+                           {loading ? "Confirming..." : "Confirm & Lock Time"}
                        </button>
                    </div>
                </div>
            </div>
        )}
 
-       {/* SERVICE DETAILS (OFFICE NOTES) */}
+       {/* SERVICE DETAILS */}
        {(request.description || request.service_description) && (
            <div className="bg-zinc-900 rounded-2xl p-6 shadow-sm text-white">
-               <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-widest mb-3">Service Details & Recommendations</h3>
+               <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-widest mb-3">Service Details</h3>
                <div className="text-sm font-mono whitespace-pre-wrap leading-relaxed opacity-90">
                    {request.description || request.service_description}
                </div>
@@ -207,19 +209,41 @@ export default function CustomerRequestClient({ request }: { request: any }) {
            </div>
        )}
 
-       {/* PHOTOS */}
-       {request.request_images && request.request_images.length > 0 && (
-           <div className="space-y-4">
-               <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest pl-2">Visual Proof</h3>
-               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                   {request.request_images.map((img: any) => (
-                       <div key={img.id} className="aspect-square rounded-2xl overflow-hidden bg-gray-100 border border-gray-200 relative group cursor-pointer">
-                           <img src={img.url_full} className="w-full h-full object-cover" />
-                       </div>
-                   ))}
-               </div>
-           </div>
-       )}
+       {/* --- IMAGE GALLERY (The Logic Gate) --- */}
+       <div className="grid gap-6">
+            {/* 1. Customer Uploads (Always Visible) */}
+            {customerImages.length > 0 && (
+                <div>
+                    <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3 pl-2">Your Uploads</h3>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {customerImages.map((img: any) => (
+                            <div key={img.id} className="aspect-square rounded-2xl overflow-hidden bg-gray-100 border border-gray-200">
+                                <img src={img.url_full} className="w-full h-full object-cover" />
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* 2. Tech Evidence (Visible ONLY when Completed/Rescheduled) */}
+            {showTechEvidence && techImages.length > 0 && (
+                <div className="animate-in fade-in duration-500">
+                    <h3 className="text-xs font-black text-blue-600 uppercase tracking-widest mb-3 pl-2 flex items-center gap-2">
+                        <span>📸</span> Technician Proof
+                    </h3>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {techImages.map((img: any) => (
+                            <div key={img.id} className="aspect-video rounded-2xl overflow-hidden bg-black border border-black relative group">
+                                <img src={img.url_full} className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition" />
+                                <div className="absolute bottom-0 left-0 w-full bg-black/60 backdrop-blur-md p-2">
+                                    <p className="text-[10px] font-bold text-white uppercase">{img.kind}</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+       </div>
 
        {/* TECH NOTES */}
        <div className="bg-white rounded-2xl p-6 border border-gray-200">
@@ -240,7 +264,6 @@ export default function CustomerRequestClient({ request }: { request: any }) {
                        </div>
                    </div>
                    <div className="flex gap-3 w-full md:w-auto">
-                       {/* DECLINE BUTTON */}
                        <button 
                            onClick={handleDecline} 
                            disabled={loading}
@@ -260,8 +283,8 @@ export default function CustomerRequestClient({ request }: { request: any }) {
            </div>
        )}
 
-       {/* PASSIVE STATUS BAR */}
-       {(request.status === 'READY_TO_SCHEDULE' || request.status === 'APPROVED_AND_SCHEDULING') && (
+       {/* STATUS BANNER */}
+       {['READY_TO_SCHEDULE', 'APPROVED_AND_SCHEDULING'].includes(request.status) && (
            <div className="fixed bottom-0 left-0 w-full bg-emerald-50/90 backdrop-blur-md border-t border-emerald-100 p-6 z-50 text-center">
                 <p className="text-emerald-800 font-bold uppercase text-sm flex justify-center items-center gap-2">
                     ✅ Approved. Dispatch is scheduling now.

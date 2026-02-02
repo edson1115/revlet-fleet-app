@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef } from "react";
+import { createBrowserClient } from "@supabase/ssr";
 
 type Props = {
   requestId: string;
@@ -9,197 +10,116 @@ type Props = {
   autoCategoryFromStatus?: "SCHEDULED" | "IN_PROGRESS" | "COMPLETED";
 };
 
-export default function TechPhotoUpload({
-  requestId,
-  onUploaded,
-  onClose,
-  autoCategoryFromStatus,
-}: Props) {
+export default function TechPhotoUpload({ requestId, onUploaded, onClose, autoCategoryFromStatus }: Props) {
   const [kind, setKind] = useState<"before" | "after" | "other">("before");
   const [previewFiles, setPreviewFiles] = useState<File[]>([]);
-  const [previewURL, setPreviewURL] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [progressText, setProgressText] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ type: "success" | "error"; msg: string } | null>(null);
-
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-category detection based on request status (optional)
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+
   React.useEffect(() => {
     if (autoCategoryFromStatus === "SCHEDULED") setKind("before");
     else if (autoCategoryFromStatus === "IN_PROGRESS") setKind("after");
     else setKind("other");
   }, [autoCategoryFromStatus]);
 
-  // ---------------------------------------------------------------------------
-  // Handle file selection
-  // ---------------------------------------------------------------------------
   async function handleSelect(e: any) {
     const files: File[] = Array.from(e.target.files || []);
-    if (!files.length) return;
-
-    setPreviewFiles(files);
-
-    // Show preview of the first file
-    const first = files[0];
-    setPreviewURL(URL.createObjectURL(first));
+    if (files.length) setPreviewFiles(files);
   }
 
-  // ---------------------------------------------------------------------------
-  // Upload all selected files
-  // ---------------------------------------------------------------------------
   async function uploadAll() {
     if (!previewFiles.length) return;
+    setUploading(true);
 
     try {
-      setUploading(true);
-      let index = 0;
-
       for (const file of previewFiles) {
-        index++;
-        setProgressText(`Uploading file ${index} of ${previewFiles.length}…`);
+        const ext = file.name.split(".").pop();
+        const fileName = `${requestId}/${Date.now()}_${kind}.${ext}`;
 
-        const form = new FormData();
-        form.append("file", file);
-        form.append("request_id", requestId);
-        form.append("kind", kind);
+        // 1. Upload to Storage
+        const { error: uploadErr } = await supabase.storage
+          .from("request-images")
+          .upload(fileName, file);
 
-        const res = await fetch("/api/images/upload", {
-          method: "POST",
-          body: form,
-          credentials: "include",
-        });
+        if (uploadErr) throw uploadErr;
 
-        const js = await res.json();
-        if (!res.ok) {
-          throw new Error(js.error || "Upload failed");
-        }
+        // 2. Get URL
+        const { data: { publicUrl } } = supabase.storage.from("request-images").getPublicUrl(fileName);
 
-        // Return the inserted SQL row to parent
-        onUploaded(js.image);
+        // 3. Insert into DB
+        const { data: row, error: dbErr } = await supabase
+          .from("request_images")
+          .insert({
+            request_id: requestId,
+            url_full: publicUrl,
+            kind: kind
+          })
+          .select()
+          .single();
+
+        if (!dbErr && row) onUploaded(row);
       }
-
-      setToast({ type: "success", msg: "Uploaded successfully!" });
-
-      setTimeout(() => {
-        onClose();
-      }, 700);
+      onClose();
     } catch (err: any) {
-      console.error(err);
-      setToast({ type: "error", msg: err.message });
+      alert("Upload failed: " + err.message);
     } finally {
       setUploading(false);
-      setProgressText(null);
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // UI
-  // ---------------------------------------------------------------------------
   return (
-    <div
-      className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-    >
-      {/* TOAST */}
-      {toast && (
-        <div
-          className={`fixed top-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-xl text-white text-sm shadow-lg ${
-            toast.type === "success" ? "bg-green-600" : "bg-red-600"
-          }`}
-        >
-          {toast.msg}
-        </div>
-      )}
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-white w-full max-w-sm p-6 rounded-3xl shadow-2xl space-y-6">
+        <h2 className="text-lg font-black text-center uppercase tracking-tight">Upload Evidence</h2>
 
-      <div className="bg-white w-full max-w-sm p-6 rounded-2xl shadow-xl animate-in fade-in duration-150 space-y-6">
-        <h2 className="text-lg font-semibold text-center">Upload Photos</h2>
-
-        {/* CATEGORY SELECT */}
+        {/* Category Toggles */}
         <div className="flex gap-2 justify-center">
           {["before", "after", "other"].map((k) => (
             <button
               key={k}
               onClick={() => setKind(k as any)}
-              className={`px-3 py-1 rounded-full text-sm border transition ${
-                kind === k ? "bg-black text-white" : "bg-gray-100"
+              className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wide transition ${
+                kind === k ? "bg-black text-white shadow-md" : "bg-zinc-100 text-zinc-500"
               }`}
             >
-              {k.toUpperCase()}
+              {k}
             </button>
           ))}
         </div>
 
-        {/* PREVIEW */}
-        {previewURL ? (
-          <div className="space-y-4">
-            <img
-              src={previewURL}
-              className="w-full h-52 rounded-xl object-cover border shadow-sm"
-            />
-
-            {/* MULTI UPLOAD PROGRESS */}
-            {uploading && progressText && (
-              <div className="text-center text-sm text-gray-600">
-                {progressText}
-              </div>
+        {/* Preview / Select */}
+        <div 
+            onClick={() => inputRef.current?.click()}
+            className="aspect-square bg-zinc-100 rounded-2xl border-2 border-dashed border-zinc-300 flex items-center justify-center cursor-pointer hover:border-black transition overflow-hidden relative"
+        >
+            <input ref={inputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleSelect} />
+            
+            {previewFiles.length > 0 ? (
+                <img src={URL.createObjectURL(previewFiles[0])} className="w-full h-full object-cover" />
+            ) : (
+                <div className="text-center">
+                    <div className="text-2xl mb-2">📸</div>
+                    <p className="text-xs font-bold text-zinc-400 uppercase">Tap to Select</p>
+                </div>
             )}
+        </div>
 
-            <div className="flex gap-2">
-              {/* Retake */}
-              <button
-                onClick={() => {
-                  setPreviewFiles([]);
-                  setPreviewURL(null);
-                  inputRef.current?.click();
-                }}
-                disabled={uploading}
-                className="w-1/2 py-3 rounded-xl bg-gray-200 text-gray-700 font-semibold"
-              >
-                Retake
-              </button>
-
-              {/* Upload */}
-              <button
-                onClick={uploadAll}
-                disabled={uploading}
-                className="w-1/2 py-3 rounded-xl bg-black text-white font-semibold"
-              >
-                {uploading ? "Uploading…" : "Upload"}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <>
-            {/* FILE SELECT BUTTON */}
-            <label className="block w-full">
-              <div className="w-full py-3 rounded-xl bg-black text-white font-semibold text-center">
-                Choose Photos
-              </div>
-              <input
-                ref={inputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                capture="environment"
-                onChange={handleSelect}
-                className="hidden"
-              />
-            </label>
-
-            {/* CANCEL */}
-            <button
-              onClick={onClose}
-              className="w-full py-2 rounded-xl bg-gray-200 text-gray-700"
+        <div className="flex gap-3">
+            <button onClick={onClose} className="flex-1 py-3 rounded-xl font-bold text-zinc-500 bg-zinc-100">Cancel</button>
+            <button 
+                onClick={uploadAll} 
+                disabled={uploading || previewFiles.length === 0}
+                className="flex-[2] py-3 rounded-xl font-bold text-white bg-black shadow-lg disabled:opacity-50"
             >
-              Cancel
+                {uploading ? "Uploading..." : `Upload ${previewFiles.length > 0 ? `(${previewFiles.length})` : ""}`}
             </button>
-          </>
-        )}
+        </div>
       </div>
     </div>
   );
 }
-
-
-

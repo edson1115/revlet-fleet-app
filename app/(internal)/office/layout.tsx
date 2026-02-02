@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import RealtimePinger from "@/components/realtime/RealtimePinger"; // ✅ ADDED IMPORT
 
 export default async function OfficeLayout({
   children,
@@ -39,10 +40,12 @@ export default async function OfficeLayout({
     redirect("/login");
   }
 
-  // 4. CLEAN LAYOUT (No Header Wrapper)
-  // We removed the black bar. The Office Dashboard component handles its own header.
+  // 4. CLEAN LAYOUT with Realtime Pinger
   return (
     <div className="min-h-screen bg-white">
+       {/* ✅ LISTENER ADDED: Plays sound on new requests/updates */}
+       <RealtimePinger role="OFFICE" />
+       
        {children}
     </div>
   );
