@@ -83,7 +83,7 @@ export default function VehiclesPanel({
 
   // -----------------------------
   // VEHICLE DETAIL DRAWER
-  ------------------------------
+
   function Drawer() {
     if (!selected) return null;
 

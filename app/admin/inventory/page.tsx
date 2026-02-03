@@ -4,8 +4,6 @@ import { useEffect, useState } from "react";
 import { TeslaHeroBar } from "@/components/tesla/TeslaHeroBar";
 import { TeslaSection } from "@/components/tesla/TeslaSection";
 import { TeslaListRow } from "@/components/tesla/TeslaListRow";
-import { TeslaBarChart } from "@/components/tesla/TeslaBarChart";
-import { TeslaTrendChart } from "@/components/tesla/TeslaTrendChart";
 import { TeslaDivider } from "@/components/tesla/TeslaDivider";
 import ReceiveStockModal from "./ReceiveStockModal"; // 👈 Import the Modal
 
@@ -73,20 +71,10 @@ export default function InventoryDashboard() {
 
       {/* WEEKLY USAGE */}
       <TeslaSection label="Weekly Tire Usage">
-        <TeslaTrendChart
-          label="Tires Used (7 days)"
-          data={stats.usage_week}
-        />
       </TeslaSection>
 
       {/* COMMON TIRE SIZES */}
       <TeslaSection label="Most Common Tire Sizes">
-        <TeslaBarChart
-          data={stats.top_sizes.map((s: any) => ({
-            label: s.size,
-            value: s.count,
-          }))}
-        />
       </TeslaSection>
 
       {/* MARKET INVENTORY */}
