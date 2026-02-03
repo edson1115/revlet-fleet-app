@@ -124,7 +124,7 @@ export default function DispatcherRequestDetailClient({
             <span className="font-black text-lg text-indigo-900">{request.customer?.name || "Customer"}</span>
           </div>
         </div>
-        <span className={clsx("inline-flex items-center px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-wide", toneChip(statusMeta.tone))}>
+        <span className={clsx("inline-flex items-center px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-wide", toneChip(statusMeta.tone || "zinc"))}>
           {statusMeta.label}
         </span>
       </header>
