@@ -167,7 +167,6 @@ export default function DispatcherRequestDetailClient({
 
             <TeslaButton
               onClick={schedule}
-              disabled={saving}
             >
               {saving ? "Scheduling…" : "Schedule Job"}
             </TeslaButton>
