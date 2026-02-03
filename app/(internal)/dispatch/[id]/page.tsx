@@ -103,10 +103,6 @@ export default function DispatchDetailPage() {
     return;
   }
 
-  if (conflicts.length > 0) {
-    alert("⚠️ This time conflicts with another job.");
-    return;
-  }
 
   setSaving(true);
 
