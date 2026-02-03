@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { TeslaDivider } from "@/components/tesla/TesaDivider";
+import { TeslaDivider } from "@/components/tesla/TeslaDivider";
 import { TeslaSection } from "@/components/tesla/TeslaSection";
 import RequestDrawer from "../drawers/RequestDrawer"; // 🔥 IMPORTANT — points to your RequestDrawer
 import {
