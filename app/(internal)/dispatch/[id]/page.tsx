@@ -108,7 +108,7 @@ export default function DispatchDetailPage() {
 
   try {
     await scheduleRequest({
-      requestId,
+      requestId: id,
       technicianId: selectedTech,
       start: timeRange.start,
       end: timeRange.end,
