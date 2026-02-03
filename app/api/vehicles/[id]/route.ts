@@ -1,56 +1,36 @@
 import { NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase/server";
-import { resolveUserScope } from "@/lib/api/scope";
+import { createClient } from "@/lib/supabase/server-helpers";
 
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
+export async function GET(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  // In Next.js 15, params must be awaited
+  const { id } = await params;
+  const supabase = await createClient();
 
-/* ============================================================
-   GET — Load a single vehicle
-============================================================ */
-export async function GET(req: Request, context: any) {
-  const { id } = await context.params;   // FIXED
-
-  const scope = await resolveUserScope();
-  if (!scope.uid || !scope.isCustomer) {
-    return NextResponse.json({ ok:false, error:"Unauthorized" }, { status:401 });
-  }
-
-  const supabase = await supabaseServer();
-
-    const { data: v, error } = await supabase
+  try {
+    const { data, error } = await supabase
       .from("vehicles")
       .select(`
-        id,
-        customer_id,
-        year,
-        make,
-        model,
-        plate,
-        unit_number,
-        vin,
-        market,
-        health_photo_1,
-        health_photo_2,
-        health_photo_3,
-        provider_company_id,
+        *,
         provider_company:provider_companies(id, name)
       `)
       .eq("id", id)
-      .eq("customer_id", scope.customer_id)
-      .maybeSingle();
+      .single();
 
-    if (error || !v) {
-      return NextResponse.json({ ok: false, error: "Vehicle not found." });
+    if (error) {
+      return NextResponse.json({ ok: false, error: error.message }, { status: 404 });
     }
 
-    return NextResponse.json({
-      ok: true,
-      vehicle: {
-        ...v,
-        provider_name: v.provider_company?.name ?? null,
-      },
-    });
+    // Safely format the provider name if it exists
+    const providerData = data.provider_company as any;
+    const vehicle = {
+      ...data,
+      provider_name: providerData?.name || null,
+    };
+
+    return NextResponse.json({ ok: true, vehicle });
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: "Server error", detail: err.message },
@@ -59,58 +39,46 @@ export async function GET(req: Request, context: any) {
   }
 }
 
-/* ============================================================
-   PUT — Update vehicle
-============================================================ */
 export async function PUT(
   req: Request,
-  props: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = await props.params;
+  const { id } = await params;
+  const supabase = await createClient();
 
   try {
-    const scope = await resolveUserScope();
-
-    if (!scope.uid || !scope.isCustomer) {
-      return NextResponse.json(
-        { ok: false, error: "Unauthorized" },
-        { status: 401 }
-      );
-    }
-
     const body = await req.json();
-    const supabase = await supabaseServer();
+    
+    // Clean up the body to remove fields we don't want to save directly
+    // (like the joined provider_company object)
+    const { provider_company, provider_name, ...updateData } = body;
 
-    const update = {
-      year: body.year,
-      make: body.make,
-      model: body.model,
-      plate: body.plate || null,
-      unit_number: body.unit_number || null,
-      vin: body.vin || null,
-      health_photo_1: body.health_photo_1 ?? undefined,
-      health_photo_2: body.health_photo_2 ?? undefined,
-      health_photo_3: body.health_photo_3 ?? undefined,
-      provider_company_id: body.provider_company_id ?? undefined,
-    };
-
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from("vehicles")
-      .update(update)
-      .eq("id", id)
-      .eq("customer_id", scope.customer_id)
-      .select()
-      .maybeSingle();
+      .update(updateData)
+      .eq("id", id);
 
-    if (error) {
-      return NextResponse.json({ ok: false, error: error.message });
-    }
+    if (error) throw error;
 
-    return NextResponse.json({ ok: true, vehicle: data });
+    return NextResponse.json({ ok: true });
   } catch (err: any) {
-    return NextResponse.json(
-      { ok: false, error: "Server error", detail: err.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: err.message }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  const supabase = await createClient();
+
+  try {
+    const { error } = await supabase.from("vehicles").delete().eq("id", id);
+    if (error) throw error;
+
+    return NextResponse.json({ ok: true });
+  } catch (err: any) {
+    return NextResponse.json({ ok: false, error: err.message }, { status: 500 });
   }
 }
