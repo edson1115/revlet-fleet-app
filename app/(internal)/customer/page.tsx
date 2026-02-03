@@ -58,7 +58,11 @@ export default async function CustomerPage() {
   return (
     <CustomerDashboardClient 
        requests={requests || []} 
-       customerName={profile.customers?.company_name || "My Fleet"} 
+       customerName={
+  (Array.isArray(profile.customers)
+    ? profile.customers[0]?.company_name
+    : profile.customers?.company_name) || "My Fleet"
+} 
     />
   );
 }
