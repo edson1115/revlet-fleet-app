@@ -8,8 +8,6 @@ import { TeslaSection } from "@/components/tesla/TeslaSection";
 import { TeslaListRow } from "@/components/tesla/TeslaListRow";
 import { TeslaDivider } from "@/components/tesla/TeslaDivider";
 import { TeslaStatusChip } from "@/components/tesla/TeslaStatusChip";
-import { TeslaTrendChart } from "@/components/tesla/TeslaTrendChart";
-import { TeslaBarChart } from "@/components/tesla/TeslaBarChart";
 
 export default function MarketDetailPage({ params }: any) {
   const marketId = params.id;
@@ -75,10 +73,6 @@ export default function MarketDetailPage({ params }: any) {
 
       {/* PERFORMANCE CHART */}
       <TeslaSection label="Week Activity">
-        <TeslaTrendChart
-          label="Jobs Completed"
-          data={stats.activity_week || []}
-        />
       </TeslaSection>
 
       {/* STATUS BREAKDOWN */}
@@ -131,12 +125,6 @@ export default function MarketDetailPage({ params }: any) {
 
       {/* VEHICLES */}
       <TeslaSection label="Vehicles In Market">
-        <TeslaBarChart
-          data={(stats.vehicle_summary || []).map((v: any) => ({
-            label: v.make,
-            value: v.count,
-          }))}
-        />
       </TeslaSection>
     </div>
   );
