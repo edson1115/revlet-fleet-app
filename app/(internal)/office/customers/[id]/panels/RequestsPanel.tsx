@@ -139,7 +139,7 @@ export default function RequestsPanel({
 
     // Vehicle
     if (vehicleFilter !== "ALL") {
-      list = list.filter((r) => r.vehicle_id === vehicleFilter);
+      list = list.filter((r) => (r as any).vehicle_id === vehicleFilter);
     }
 
     setFiltered(list);
