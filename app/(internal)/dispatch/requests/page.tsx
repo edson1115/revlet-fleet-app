@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { TeslaSection } from "@/components/tesla/TeslaSection";
-import { TeslaTabs } from "@/components/tesla/TeslaTabs";
 import { TeslaRequestCard } from "@/components/tesla/TeslaRequestCard";
 
 type Request = {
@@ -61,7 +60,7 @@ export default function DispatcherRequestsPage() {
         </p>
       </div>
 
-      <TeslaTabs value={status} onChange={setStatus} tabs={TABS} />
+    
 
       <TeslaSection>
         {loading && (

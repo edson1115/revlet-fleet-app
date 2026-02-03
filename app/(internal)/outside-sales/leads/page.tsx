@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { TeslaHeroBar } from "@/components/tesla/TeslaHeroBar";
 import { TeslaSection } from "@/components/tesla/TeslaSection";
-import { TeslaLeadRow } from "./components/TeslaLeadRow";
 import { useRouter } from "next/navigation";
 
 export default function LeadsPage() {
@@ -41,13 +40,7 @@ export default function LeadsPage() {
 
             {!loading &&
               rows.map((lead) => (
-                <TeslaLeadRow
-                  key={lead.id}
-                  lead={lead}
-                  onClick={() =>
-                    router.push(`/outside-sales/leads/${lead.id}`)
-                  }
-                />
+                
               ))}
           </div>
         </TeslaSection>
