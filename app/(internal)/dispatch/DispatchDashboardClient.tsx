@@ -168,7 +168,7 @@ export default function DispatchDashboardClient({
     const key = (code as RequestStatusKey) || "NEW";
     const meta = REQUEST_STATUS[key] || { label: code, tone: "zinc" };
     return (
-      <span className={clsx("inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wide", toneChip(meta.tone))}>
+      <span className={clsx("inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wide", toneChip(meta.tone || "zinc"))}>
         {meta.label}
       </span>
     );
