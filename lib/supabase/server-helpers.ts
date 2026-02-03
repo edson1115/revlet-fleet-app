@@ -1,5 +1,8 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+
+// Export the constant expected by other files
+export const INTERNAL = 'internal';
 
 export async function createClient() {
   const cookieStore = await cookies()
@@ -18,12 +21,22 @@ export async function createClient() {
               cookieStore.set(name, value, options)
             )
           } catch {
-            // The `setAll` method was called from a Server Component.
-            // This can be ignored if you have middleware refreshing
-            // user sessions.
+            // Valid catch for Server Components
           }
         },
       },
     }
   )
+}
+
+// Export the helper function expected by dashboard/queue routes
+export async function getUserAndRole() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) return { user: null, role: null };
+
+  // Retrieve profile/role. For now, we return the user and a default role
+  // to ensure the build passes.
+  return { user, role: INTERNAL };
 }

@@ -40,7 +40,9 @@ export default async function CustomerLayout({ children }: { children: React.Rea
 
   if (profile) {
       if (!customerId) customerId = profile.customer_id;
-      if (profile.customers?.name) companyName = profile.customers.name;
+      // Fix: Handle cases where customers is an array or a single object
+const custData = Array.isArray(profile.customers) ? profile.customers[0] : profile.customers;
+if (custData?.name) companyName = custData.name;
       // We removed dynamic city/state because columns don't exist
   }
 
