@@ -1,4 +1,4 @@
-import { supabaseServer } from "@/lib/supabaseServer";
+import { createClient } from "@/lib/supabase/server-helpers";
 
 export async function POST(req: Request) {
   const supabase = await supabaseServer();

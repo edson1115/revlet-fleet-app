@@ -1,6 +1,6 @@
 // app/api/portal/metrics/route.ts
 import { NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabaseServer";
+import { createClient } from "@/lib/supabase/server-helpers";
 
 export const dynamic = "force-dynamic";
 
