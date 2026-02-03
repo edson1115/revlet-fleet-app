@@ -114,7 +114,6 @@ export default function DispatchDetailPage() {
       end: timeRange.end,
     });
 
-    onClose?.();
   } catch (e) {
     console.error(e);
     alert("Failed to schedule request");
