@@ -1,36 +1,30 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import clsx from "clsx";
 
-// Icons
-const IconDashboard = () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>;
-const IconLogout = () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>;
-
 export default function DispatchSidebar() {
-  const router = useRouter();
   const pathname = usePathname();
 
-  async function handleLogout() {
-    await fetch("/api/auth/signout", { method: "POST" });
-    router.push("/login");
-  }
-
-  const NavItem = ({ label, icon: Icon, path, exact }: any) => {
-    const isActive = exact ? pathname === path : pathname.startsWith(path);
-    return (
-      <button
-        onClick={() => router.push(path)}
-        title={label} // Tooltip since text is hidden
-        className={clsx(
-          "w-full flex justify-center items-center p-4 rounded-xl transition-all mb-2",
-          isActive ? "bg-black text-white shadow-lg" : "text-zinc-400 hover:bg-zinc-100 hover:text-black"
-        )}
-      >
-        <Icon />
-      </button>
-    );
-  };
-
-  
+  return (
+    <div className="w-64 bg-white border-r border-gray-200 flex-shrink-0 flex flex-col h-full">
+      <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+        <span className="font-bold text-lg tracking-tight">Revlet Dispatch</span>
+      </div>
+      
+      <div className="p-2 space-y-1 overflow-y-auto flex-1">
+        <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4 px-2">
+          Menu
+        </div>
+        {/* Placeholder links to pass build */}
+        <Link href="/dispatch" className="block px-3 py-2 text-sm font-medium text-gray-700 rounded-md hover:bg-gray-50">
+          Dashboard
+        </Link>
+        <Link href="/dispatch/assign" className="block px-3 py-2 text-sm font-medium text-gray-700 rounded-md hover:bg-gray-50">
+          Assign Techs
+        </Link>
+      </div>
+    </div>
+  );
 }
