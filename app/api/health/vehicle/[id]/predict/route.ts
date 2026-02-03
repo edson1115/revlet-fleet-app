@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
-import { computeWearPredictions } from "@/app/api/ai/predict/curves";
 import { statisticalFailurePrediction } from "@/app/api/ai/predict/stats";
 import { aiPredictiveModel } from "@/app/api/ai/predict/ai";
 
