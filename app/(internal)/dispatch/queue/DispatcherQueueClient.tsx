@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import TeslaCard from "@/components/tesla/TeslaCard";
-import TeslaStatusChip from "@/components/tesla/TeslaStatusChip";
+import { TeslaStatusChip } from "@/components/tesla/TeslaStatusChip";
 
 type QueueRequest = {
   id: string;
