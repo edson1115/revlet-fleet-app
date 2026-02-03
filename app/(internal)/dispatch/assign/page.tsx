@@ -8,7 +8,7 @@ export default function AssignPage() {
     <div className="mx-auto max-w-3xl p-6 space-y-6">
       <h1 className="text-2xl font-semibold">Assign / Re-Assign</h1>
       <Suspense fallback={<div className="text-sm text-gray-500">Loading…</div>}>
-        <AssignClient />
+        <AssignClient requestId="" techs={[]} />
       </Suspense>
     </div>
   );
