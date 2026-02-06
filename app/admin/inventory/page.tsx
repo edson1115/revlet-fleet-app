@@ -5,24 +5,32 @@ import { TeslaHeroBar } from "@/components/tesla/TeslaHeroBar";
 import { TeslaSection } from "@/components/tesla/TeslaSection";
 import { TeslaListRow } from "@/components/tesla/TeslaListRow";
 import { TeslaDivider } from "@/components/tesla/TeslaDivider";
-import ReceiveStockModal from "./ReceiveStockModal"; // 👈 Import the Modal
+import ReceiveStockModal from "./ReceiveStockModal";
 
 export default function InventoryDashboard() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<any>(null);
-  const [showReceive, setShowReceive] = useState(false); // 👈 New State for Modal
+  const [showReceive, setShowReceive] = useState(false);
 
   async function load() {
-    // We don't necessarily need to set loading=true here to avoid UI flicker on refresh
-    // but for the initial load we do.
     if (!stats) setLoading(true);
     
-    const res = await fetch("/api/admin/inventory", {
-      cache: "no-store",
-    }).then((r) => r.json());
+    try {
+        const res = await fetch("/api/admin/inventory", {
+          cache: "no-store",
+        }).then((r) => r.json());
 
-    if (res.ok) setStats(res.stats);
-    setLoading(false);
+        if (res && res.stats) {
+            setStats(res.stats);
+        } else {
+             // Fallback to prevent crash if API is missing
+             setStats({ total_stock: 0, used_week: 0, top_size: "-", vendor_count: 0, market_stock: [], vendor_breakdown: [] });
+        }
+    } catch (e) {
+        setStats({ total_stock: 0, used_week: 0, top_size: "-", vendor_count: 0, market_stock: [], vendor_breakdown: [] });
+    } finally {
+        setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -39,8 +47,8 @@ export default function InventoryDashboard() {
           <ReceiveStockModal 
               onClose={() => setShowReceive(false)} 
               onSuccess={() => { 
-                  // Reload stats to show the new stock immediately
                   load(); 
+                  setShowReceive(false);
               }} 
           />
       )}
@@ -59,12 +67,11 @@ export default function InventoryDashboard() {
               />
           </div>
           
-          {/* 🟢 NEW ACTION BUTTON */}
           <button 
              onClick={() => setShowReceive(true)}
              className="mb-2 bg-blue-600 hover:bg-blue-500 text-white px-6 py-4 rounded-xl font-bold text-xs uppercase tracking-widest shadow-lg shadow-blue-600/20 active:scale-95 transition-all whitespace-nowrap"
           >
-             + Receive Shipment
+              + Receive Shipment
           </button>
       </div>
 
@@ -77,6 +84,9 @@ export default function InventoryDashboard() {
 
       {/* COMMON TIRE SIZES */}
       <TeslaSection label="Most Common Tire Sizes">
+         <div className="p-4 text-gray-400 italic text-sm">
+           Data collecting...
+         </div>
       </TeslaSection>
 
       {/* MARKET INVENTORY */}
@@ -86,8 +96,8 @@ export default function InventoryDashboard() {
             <TeslaListRow
               key={m.market}
               title={m.market}
-              value={`${m.stock} tires`}
-              href={`/admin/inventory/${m.market_id}`}
+              subtitle={`${m.stock} tires`} 
+              onClick={() => window.location.href = `/admin/inventory/${m.market_id}`}
             />
           ))}
         </div>
@@ -102,7 +112,7 @@ export default function InventoryDashboard() {
             <TeslaListRow
               key={v.vendor}
               title={v.vendor}
-              value={`${v.count} tires`}
+              subtitle={`${v.count} tires`}
             />
           ))}
         </div>
