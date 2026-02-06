@@ -1,22 +1,17 @@
 "use server";
 
-import { createClient } from "@supabase/supabase-js";
+import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
 export async function signInWithMagicLink(formData: FormData) {
   const email = formData.get("email") as string;
   const cookieStore = await cookies();
 
-  // 1. Create a Server-Side Client
-  // This client can securely set cookies in your browser
-  const supabase = createClient(
+  // FIX: Use createServerClient from @supabase/ssr instead of createClient from @supabase/supabase-js
+  const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
-      auth: {
-        flowType: 'pkce',
-        detectSessionInUrl: false,
-      },
       cookies: {
         getAll() {
           return cookieStore.getAll();
@@ -27,7 +22,9 @@ export async function signInWithMagicLink(formData: FormData) {
               cookieStore.set(name, value, options)
             );
           } catch {
-            // Ignored
+            // The `setAll` method was called from a Server Component.
+            // This can be ignored if you have middleware refreshing
+            // user sessions.
           }
         },
       },
