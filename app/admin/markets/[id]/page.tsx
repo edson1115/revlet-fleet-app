@@ -61,7 +61,6 @@ export default function MarketDetailPage({ params }: any) {
       {/* HERO */}
       <TeslaHeroBar
         title={market.name}
-        subtitle="Market Performance Overview"
         status={market.performance}
         meta={[
           { label: "Techs", value: stats.techs },
