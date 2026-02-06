@@ -89,7 +89,7 @@ export default function AdminDashboardPage() {
         </div>
       )}
 
-      <TeslaHeroBar title="Executive Command" subtitle="Nationwide performance & predictive fleet intelligence" />
+      <TeslaHeroBar title="Executive Command" />
 
       <div className="max-w-7xl mx-auto p-6 space-y-12">
         <TeslaSection label="Fleet Intelligence Index">
