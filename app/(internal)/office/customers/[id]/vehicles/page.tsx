@@ -78,9 +78,9 @@ export default function CustomerVehiclesPage() {
 
       {/* DRAWER */}
       {selected && (
+        {selected && (
         <VehicleDrawer
-          vehicle={selected}
-          onClose={({ vehicle: selected, onClose: () => setSelected(null) } as any)}
+          {...({ vehicle: selected, onClose: () => setSelected(null) } as any)}
         />
       )}
     </div>
