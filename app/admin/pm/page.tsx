@@ -42,14 +42,13 @@ export default function PMDashboard() {
       
       <div className="flex justify-between items-end mb-10">
           <div className="flex-1">
-             <TeslaHeroBar 
-                title="Preventative Maintenance" 
-                subtitle="Automated fleet health monitoring" 
-                meta={[
-                    { label: "Monitored Vehicles", value: schedules.length },
-                    { label: "Due Soon", value: schedules.filter(s => new Date(s.next_due_date) < new Date()).length }
-                ]}
-             />
+             <TeslaHeroBar
+                 title="Fleet PM Schedules"
+                 meta={[
+                   { label: "Monitored Vehicles", value: String(schedules.length) },
+                   { label: "Due Soon", value: String(schedules.filter((s: any) => new Date(s.next_due_date) < new Date()).length) }
+                 ]}
+              />
           </div>
           <button 
              onClick={runScanner}
