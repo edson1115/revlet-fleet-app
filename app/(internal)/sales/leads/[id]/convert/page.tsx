@@ -55,7 +55,6 @@ export default function ConvertLeadPage({ params }: any) {
     <div className="p-6 max-w-3xl mx-auto space-y-10">
       <TeslaHeroBar
         title="Convert Lead → Customer"
-        subtitle={lead.customer_name}
         status="CONVERSION"
       />
 
