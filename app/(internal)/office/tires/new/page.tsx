@@ -39,7 +39,7 @@ export default function NewTireOrderPage() {
 
   return (
     <div className="p-8 max-w-lg mx-auto space-y-6">
-      <TeslaHeroBar title="New Tire Order" subtitle="Office → Vendor" />
+      <TeslaHeroBar title="New Tire Order" />
 
       <div className="bg-white p-6 rounded-xl border space-y-4">
         <div>
