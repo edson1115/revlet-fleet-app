@@ -70,6 +70,9 @@ export default function InventoryDashboard() {
 
       {/* WEEKLY USAGE */}
       <TeslaSection label="Weekly Tire Usage">
+        <div className="p-4 text-gray-400 italic text-sm">
+          No usage data recorded this week.
+        </div>
       </TeslaSection>
 
       {/* COMMON TIRE SIZES */}
