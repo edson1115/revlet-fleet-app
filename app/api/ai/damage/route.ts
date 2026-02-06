@@ -1,42 +1,47 @@
 import { NextResponse } from "next/server";
-import OpenAI from "openai";
+import { OpenAI } from "openai";
 
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
+// Initialize OpenAI client
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export async function POST(req: Request) {
   try {
-    const { image_url } = await req.json();
+    const body = await req.json();
+    const { image, prompt } = body;
 
-    const prompt = `
-You are an automotive damage inspector. Analyze the vehicle image and return JSON ONLY with:
+    if (!image) {
+      return NextResponse.json({ ok: false, error: "Image URL is required" }, { status: 400 });
+    }
 
-- damage_detected: yes/no
-- items: array of { part, issue, severity }
-- summary: short sentence
-- risk_level: low/medium/high
-- technician_notes: short notes for repair tech
-    `;
-
-    const result = await client.responses.create({
+    // FIX: Use 'messages' instead of 'input', and 'image_url' instead of 'input_image'
+    const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
-      input: [
+      messages: [
         {
           role: "user",
           content: [
-            { type: "text", text: prompt },
-            { type: "input_image", image_url },
+            { 
+              type: "text", 
+              text: prompt || "Analyze the damage in this image and estimate severity." 
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: image,
+              },
+            },
           ],
         },
       ],
+      max_tokens: 500,
     });
 
-    const json = JSON.parse(result.output_text);
+    const analysis = response.choices[0].message.content;
 
-    return NextResponse.json({ ok: true, analysis: json });
+    return NextResponse.json({ ok: true, analysis });
+
   } catch (err: any) {
-    console.error(err);
-    return NextResponse.json({ ok: false, error: err.message });
+    console.error("AI Damage Analysis Error:", err);
+    return NextResponse.json({ ok: false, error: err.message }, { status: 500 });
   }
 }
