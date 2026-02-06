@@ -6,7 +6,8 @@ import Link from "next/link";
 
 import { TeslaListRow } from "@/components/tesla/TeslaListRow";
 import { TeslaDivider } from "@/components/tesla/TeslaDivider";
-import VehicleDrawer from "@/components/vehicles/VehicleDrawer";
+// Fix: Import from the correct relative path we created earlier
+import VehicleDrawer from "../drawers/VehicleDrawer";
 
 export default function CustomerVehiclesPage() {
   const { id } = useParams<{ id: string }>();
@@ -76,9 +77,8 @@ export default function CustomerVehiclesPage() {
         )}
       </div>
 
-      {/* DRAWER */}
+      {/* DRAWER - Fixed Syntax */}
       {selected && (
-        {selected && (
         <VehicleDrawer
           {...({ vehicle: selected, onClose: () => setSelected(null) } as any)}
         />
