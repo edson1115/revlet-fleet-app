@@ -9,8 +9,19 @@ export default function SalesDashboardPage() {
   const [stats, setStats] = useState<any>(null);
 
   async function load() {
-    const r = await fetch("/api/outside-sales/dashboard").then(r => r.json());
-    if (r.ok) setStats(r.stats);
+    try {
+      const r = await fetch("/api/outside-sales/dashboard").then((r) => r.json());
+      // Check if 'stats' exists in the response before setting it
+      if (r && r.stats) {
+        setStats(r.stats);
+      } else {
+         // Fallback to zeros if API fails so page doesn't crash
+         setStats({ total_leads: 0, converted: 0, visits: 0, pending_followups: 0, approved: 0, scheduled: 0, completed: 0 });
+      }
+    } catch (e) {
+      console.error(e);
+      setStats({ total_leads: 0, converted: 0, visits: 0, pending_followups: 0, approved: 0, scheduled: 0, completed: 0 });
+    }
   }
 
   useEffect(() => { load(); }, []);
@@ -25,16 +36,16 @@ export default function SalesDashboardPage() {
       />
 
       <TeslaSection label="Sales Funnel">
-        <TeslaListRow left="Total Leads" right={stats.total_leads} />
-        <TeslaListRow left="Converted Customers" right={stats.converted} />
-        <TeslaListRow left="Visits Logged" right={stats.visits} />
-        <TeslaListRow left="Pending Follow Ups" right={stats.pending_followups} />
+        <TeslaListRow title="Total Leads" subtitle={String(stats.total_leads || 0)} />
+        <TeslaListRow title="Converted Customers" subtitle={String(stats.converted || 0)} />
+        <TeslaListRow title="Visits Logged" subtitle={String(stats.visits || 0)} />
+        <TeslaListRow title="Pending Follow Ups" subtitle={String(stats.pending_followups || 0)} />
       </TeslaSection>
 
       <TeslaSection label="Revenue Impact">
-        <TeslaListRow left="Approved Requests" right={stats.approved} />
-        <TeslaListRow left="Scheduled Jobs" right={stats.scheduled} />
-        <TeslaListRow left="Completed Jobs" right={stats.completed} />
+        <TeslaListRow title="Approved Requests" subtitle={String(stats.approved || 0)} />
+        <TeslaListRow title="Scheduled Jobs" subtitle={String(stats.scheduled || 0)} />
+        <TeslaListRow title="Completed Jobs" subtitle={String(stats.completed || 0)} />
       </TeslaSection>
     </div>
   );
