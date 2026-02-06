@@ -22,7 +22,7 @@ export default function SalesKPIsPage() {
   return (
     <div className="space-y-10 p-8 max-w-6xl mx-auto">
 
-      <TeslaHeroBar title="Sales KPIs" subtitle="Performance metrics for your team" />
+      <TeslaHeroBar title="Sales KPIs" />
 
       {/* KPI GRID */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
