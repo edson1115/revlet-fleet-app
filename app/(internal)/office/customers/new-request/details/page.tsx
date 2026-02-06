@@ -30,10 +30,6 @@ export default function OfficeRequestDetailsPage() {
       <OfficeStepHeader
         title="Request Details"
         backHref={`/office/customers/new-request/vehicle?customerId=${customerId}`}
-        rightAction={{
-          label: "Dashboard",
-          href: "/office",
-        }}
       />
 
       {/* SERVICE TYPE */}
