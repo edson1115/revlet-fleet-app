@@ -113,7 +113,7 @@ export default function TechJobDetailClient({ request, userId }: { request: any,
       const reason = prompt("Reason for rescheduling:");
       if (reason) {
           updateStatus("RESCHEDULE_PENDING");
-          setNotes(prev => `TECH RESCHEDULE REQUEST: ${reason}\n\n${prev}`);
+          setNotes((prev: string) => `TECH RESCHEDULE REQUEST: ${reason}\n\n${prev}`);
       }
   };
 
