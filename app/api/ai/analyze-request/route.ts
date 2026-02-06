@@ -5,17 +5,6 @@ import { resolveUserScope } from "@/lib/api/scope";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/*
-============================================================
-POST — Analyze a service request using AI
-============================================================
-Expected payload:
-{
-  request_id: string
-}
-============================================================
-*/
-
 export async function POST(req: Request) {
   try {
     const scope = await resolveUserScope();
@@ -43,8 +32,7 @@ export async function POST(req: Request) {
     // --------------------------------------------------
     const { data: request, error } = await supabase
       .from("service_requests")
-      .select(
-        `
+      .select(`
         id,
         service_type,
         mileage,
@@ -55,8 +43,7 @@ export async function POST(req: Request) {
           model,
           plate
         )
-      `
-      )
+      `)
       .eq("id", request_id)
       .maybeSingle();
 
@@ -67,12 +54,19 @@ export async function POST(req: Request) {
       );
     }
 
+    // FIX: Handle 'vehicle' being an array OR an object
+    // Supabase joins often return an array, so we grab the first item.
+    const vehicleData = Array.isArray(request.vehicle) ? request.vehicle[0] : request.vehicle;
+    const vehicleStr = vehicleData 
+      ? `${vehicleData.year} ${vehicleData.make} ${vehicleData.model}` 
+      : "Unknown Vehicle";
+
     // --------------------------------------------------
     // 🧠 AI LOGIC (V1 — deterministic & safe)
     // --------------------------------------------------
 
     const aiSummary = `
-Vehicle: ${request.vehicle?.year} ${request.vehicle?.make} ${request.vehicle?.model}
+Vehicle: ${vehicleStr}
 Mileage: ${request.mileage ?? "unknown"}
 Concern: ${request.notes || "No customer notes provided"}
 
