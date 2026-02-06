@@ -13,7 +13,7 @@ export default function SalesDashboardPage() {
     if (r.ok) setStats(r.stats);
   }
 
-  uuseEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, []);
 
   if (!stats) return <div className="p-10">Loading…</div>;
 
