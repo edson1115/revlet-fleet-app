@@ -60,7 +60,6 @@ export default function SalesLeadDetailPage({ params }: any) {
 
       <TeslaHeroBar
         title={lead.business_name}
-        subtitle={`${lead.contact_name || "—"} — ${lead.email}`}
         status={lead.status}
         meta={[
           { label: "Market", value: lead.market },
