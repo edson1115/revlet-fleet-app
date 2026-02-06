@@ -80,10 +80,12 @@ export default function CustomerRequestsPage() {
                   : "No vehicle info"
               }
               metaLeft={
-                <div className="flex items-center gap-2">
-                  <TeslaStatusChip status={r.status} size="sm" />
-                </div>
-              }
+  (
+    <div className="flex items-center gap-2">
+      <TeslaStatusChip status={r.status} size="sm" />
+    </div>
+  ) as any
+}
               rightIcon
               onClick={() => router.push(`/office/requests/${r.id}`)}
             />
