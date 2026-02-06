@@ -2,15 +2,18 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { use } from "react"; // Needed for unwrapping params in Next.js 15+
 
 import { TeslaHeroBar } from "@/components/tesla/TeslaHeroBar";
 import { TeslaSection } from "@/components/tesla/TeslaSection";
 import { TeslaListRow } from "@/components/tesla/TeslaListRow";
-import { TeslaDivider } from "@/components/tesla/TeslaDivider";
 import { TeslaStatusChip } from "@/components/tesla/TeslaStatusChip";
 
 export default function MarketDetailPage({ params }: any) {
-  const marketId = params.id;
+  // Unwrap params properly for Next.js 15
+  const unwrappedParams: any = use(params);
+  const marketId = unwrappedParams.id;
+  
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
@@ -19,22 +22,29 @@ export default function MarketDetailPage({ params }: any) {
 
   async function load() {
     setLoading(true);
+    try {
+        const res = await fetch(`/api/admin/markets/${marketId}`, {
+          cache: "no-store",
+        }).then((r) => r.json());
 
-    const res = await fetch(`/api/admin/markets/${marketId}`, {
-      cache: "no-store",
-    }).then((r) => r.json());
-
-    if (res.ok) {
-      setMarket(res.market);
-      setStats(res.stats);
+        if (res.ok) {
+          setMarket(res.market);
+          setStats(res.stats);
+        } else {
+           // Fallback if ID is invalid
+           setMarket({ name: "Unknown Market", performance: "N/A" });
+           setStats({ techs: 0, customers: 0, vehicles: 0, today: 0, status_counts: {}, tech_list: [], customer_list: [] });
+        }
+    } catch (e) {
+        console.error(e);
+    } finally {
+        setLoading(false);
     }
-
-    setLoading(false);
   }
 
   useEffect(() => {
     load();
-  }, []);
+  }, [marketId]);
 
   if (loading || !market) {
     return <div className="p-10 text-gray-500">Loading market…</div>;
@@ -72,17 +82,22 @@ export default function MarketDetailPage({ params }: any) {
 
       {/* PERFORMANCE CHART */}
       <TeslaSection label="Week Activity">
+         <div className="h-40 bg-gray-50 rounded-xl flex items-center justify-center text-gray-400 italic text-sm">
+             Activity Chart Loading...
+         </div>
       </TeslaSection>
 
       {/* STATUS BREAKDOWN */}
       <TeslaSection label="Jobs by Status">
         <div className="bg-white rounded-xl divide-y border">
-          {jobsByStatus.map((row) => (
+          {jobsByStatus.length === 0 && (
+             <div className="p-4 text-gray-400 italic text-sm">No jobs found.</div>
+          )}
+          {jobsByStatus.map((row: any) => (
             <TeslaListRow
               key={row.status}
               title={row.status.replace(/_/g, " ")}
-              value={row.count}
-              accessory={<TeslaStatusChip status={row.status} />}
+              subtitle={`${row.count} Jobs`}
             />
           ))}
         </div>
@@ -124,6 +139,9 @@ export default function MarketDetailPage({ params }: any) {
 
       {/* VEHICLES */}
       <TeslaSection label="Vehicles In Market">
+         <div className="p-4 text-gray-400 italic text-sm">
+             Vehicle list loading...
+         </div>
       </TeslaSection>
     </div>
   );
