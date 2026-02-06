@@ -101,7 +101,6 @@ export default function OfficeSelectVehiclePage() {
       <OfficeStepHeader
         title="Select Vehicle"
         backHref="/office/customers/new-request"
-        rightAction={{ label: "Dashboard", href: "/office" }}
       />
 
       {/* CUSTOMER CONTEXT */}
