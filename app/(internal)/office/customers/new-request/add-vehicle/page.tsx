@@ -78,7 +78,6 @@ export default function OfficeAddVehiclePage() {
       <OfficeStepHeader
         title="Add Vehicle"
         backHref={`/office/customers/new-request/vehicle?customerId=${customerId}`}
-        rightAction={{ label: "Dashboard", href: "/office" }}
       />
 
       <TeslaSection label="Vehicle Information">
