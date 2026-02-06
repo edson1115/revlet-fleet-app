@@ -120,12 +120,11 @@ export default function AdminDashboardPage() {
           <div className="bg-white rounded-[2rem] border border-zinc-100 divide-y overflow-hidden shadow-sm">
             {markets.map((market: any) => (
               <TeslaListRow
-                key={market.id}
-                title={market.name}
-                subtitle={`${market.today} today • ${market.week} this week`}
-                right={<div className="text-right text-[10px] font-black text-zinc-400 uppercase">{market.techs} Techs • {market.customers} Accounts</div>}
-                onClick={() => { window.location.href = `/admin/customers?market=${market.name}`; }}
-              />
+            key={market.name}
+            title={market.name}
+            subtitle={`${market.today} today • ${market.week} this week • ${market.techs} Techs • ${market.customers} Accounts`}
+            onClick={() => { window.location.href = `/admin/customers?market=${market.name}`; }}
+          />
             ))}
           </div>
         </TeslaSection>
