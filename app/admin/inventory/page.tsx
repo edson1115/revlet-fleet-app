@@ -50,7 +50,6 @@ export default function InventoryDashboard() {
           <div className="flex-1 w-full">
               <TeslaHeroBar
                 title="Fleet Inventory + Tire Usage"
-                subtitle="Real-time usage across all markets"
                 meta={[
                   { label: "Tires in Stock", value: stats.total_stock },
                   { label: "Used This Week", value: stats.used_week },
