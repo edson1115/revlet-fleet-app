@@ -21,7 +21,6 @@ export default function SalesDashboardPage() {
     <div className="p-6 max-w-5xl mx-auto space-y-10">
       <TeslaHeroBar
         title="Outside Sales Dashboard"
-        subtitle="Lead & Customer Conversions"
         status="SALES"
       />
 
