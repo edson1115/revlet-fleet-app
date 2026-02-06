@@ -116,10 +116,6 @@ export default function OfficeConfirmRequestPage() {
       <OfficeStepHeader
         title="Confirm Service Request"
         backHref={`/office/customers/new-request/vehicle?customerId=${customerId}`}
-        rightAction={{
-          label: "Dashboard",
-          href: "/office",
-        }}
       />
 
       {/* CUSTOMER */}
