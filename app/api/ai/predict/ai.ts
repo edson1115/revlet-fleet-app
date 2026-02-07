@@ -39,7 +39,8 @@ JSON FORMAT:
     input: prompt,
   });
 
-  let text = res.output[0].content[0].text();
+  // FIX: Cast to any to handle potential union type mismatch with ToolCalls
+let text = (res.output[0] as any).content?.[0]?.text() || "";
 
   try {
     return JSON.parse(text);
