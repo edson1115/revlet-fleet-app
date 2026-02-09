@@ -11,7 +11,8 @@ export const runtime = "nodejs";
 export async function GET() {
   try {
     const scope = await resolveUserScope();
-    if (!scope.uid || !scope.isCustomer) {
+    // Fix: Explicitly check scope properties
+    if (!scope.uid || !scope.isCustomer || !scope.customer_id) {
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
 
@@ -42,20 +43,27 @@ export async function GET() {
 
     if (error) return NextResponse.json({ ok: false, error: error.message });
 
-    const vehicles = (rows || []).map((v) => ({
-      id: v.id,
-      year: v.year,
-      make: v.make,
-      model: v.model,
-      plate: v.plate,
-      unit_number: v.unit_number,
-      vin: v.vin,
-      market: v.market,
-      health_photo_1: v.health_photo_1 || null,
-      health_photo_2: v.health_photo_2 || null,
-      health_photo_3: v.health_photo_3 || null,
-      provider_name: v.provider_company?.name ?? null,
-    }));
+    // FIX: Handle provider_company potentially being an array
+    const vehicles = (rows || []).map((v: any) => {
+      const provider = Array.isArray(v.provider_company) 
+        ? v.provider_company[0] 
+        : v.provider_company;
+
+      return {
+        id: v.id,
+        year: v.year,
+        make: v.make,
+        model: v.model,
+        plate: v.plate,
+        unit_number: v.unit_number,
+        vin: v.vin,
+        market: v.market,
+        health_photo_1: v.health_photo_1 || null,
+        health_photo_2: v.health_photo_2 || null,
+        health_photo_3: v.health_photo_3 || null,
+        provider_name: provider?.name ?? null, // Safe access
+      };
+    });
 
     return NextResponse.json({ ok: true, vehicles });
   } catch (err: any) {
@@ -69,7 +77,7 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const scope = await resolveUserScope();
-    if (!scope.uid || !scope.isCustomer) {
+    if (!scope.uid || !scope.isCustomer || !scope.customer_id) {
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
 
