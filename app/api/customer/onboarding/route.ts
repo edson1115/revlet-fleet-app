@@ -21,7 +21,7 @@ export async function POST(req: Request) {
       onboarding_completed: true,
       created_by: "CUSTOMER",
     })
-    .eq("id", scope.customerId);
+    .eq("id", scope.customer_id);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
