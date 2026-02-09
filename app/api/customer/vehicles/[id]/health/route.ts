@@ -2,9 +2,18 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { resolveUserScope } from "@/lib/api/scope";
 
-export async function GET(req, { params }) {
+// FIX: Type the arguments explicitly
+export async function GET(
+  req: Request,
+  props: { params: Promise<{ id: string }> }
+) {
+  // FIX: Await params for Next.js 15
+  const params = await props.params;
+
   const scope = await resolveUserScope();
-  if (!scope.isCustomer) return NextResponse.json({ ok: false }, { status: 401 });
+  if (!scope.isCustomer) {
+      return NextResponse.json({ ok: false }, { status: 401 });
+  }
 
   const supabase = await supabaseServer();
 
