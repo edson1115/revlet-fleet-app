@@ -4,49 +4,55 @@ import { cookies } from "next/headers";
 
 export async function GET(
   req: Request,
-  context: { params: Promise<{ id: string }> }
+  props: { params: Promise<{ id: string }> }
 ) {
-  const { id } = await context.params;
+  const params = await props.params;
+  const vehicleId = params.id;
   const cookieStore = await cookies();
 
+  // FIX: Use modern getAll/setAll pattern for Supabase SSR + Next.js 15
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get: (n) => cookieStore.get(n)?.value,
-        set: (n, v, o) => cookieStore.set(n, v, o),
-        remove: (n, o) => cookieStore.delete(n, o),
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            );
+          } catch {
+            // Ignored
+          }
+        },
       },
     }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" });
+  const { data: { user } } = await supabase.auth.getUser();
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("customer_id")
-    .eq("id", user.id)
-    .maybeSingle();
+  if (!user) {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
 
-  if (!profile?.customer_id)
-    return NextResponse.json({ ok: false, error: "Forbidden" });
-
-  // Ensure visibility only for your customer’s vehicles
+  // Fetch Faults
+  // Assuming table 'vehicle_faults' exists
   const { data: faults, error } = await supabase
     .from("vehicle_faults")
     .select("*")
-    .eq("vehicle_id", id)
+    .eq("vehicle_id", vehicleId)
     .order("created_at", { ascending: false });
 
-  if (error)
-    return NextResponse.json({ ok: false, error: error.message });
+  if (error) {
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  }
 
   return NextResponse.json({
     ok: true,
-    faults: faults || [],
+    vehicle_id: vehicleId,
+    faults: faults || []
   });
 }
