@@ -14,7 +14,6 @@ export async function GET(
 
   const cookieStore = await cookies();
 
-  // FIX: Use modern getAll/setAll pattern for Supabase SSR + Next.js 15
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -73,9 +72,10 @@ export async function GET(
   }
 
   // 5. Run Engines
-  const rules = ruleEngine(health, faults);
+  // FIX: Ensure faults is an array (faults || [])
+  const rules = ruleEngine(health, faults || []);
   const cluster = clusterEngine(vehicle, groupStats);
-  const ai = await aiEngine(vehicle, faults, health);
+  const ai = await aiEngine(vehicle, faults || [], health);
 
   return NextResponse.json({
     ok: true,
