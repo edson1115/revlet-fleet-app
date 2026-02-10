@@ -1,17 +1,20 @@
-import { createClient } from "@/lib/supabase/server-helpers";
+import { NextResponse } from "next/server";
+import { supabaseServer } from "@/lib/supabase/server"; // FIX: Correct import
 
 export async function GET() {
   const supabase = await supabaseServer();
+  
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) return Response.json({}, { status: 401 });
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const { data: cust } = await supabase
     .from("customers")
-    .select(
-      `
+    .select(`
       id,
       name,
       billing_contact,
@@ -19,13 +22,11 @@ export async function GET() {
       billing_phone,
       secondary_contact,
       notes
-    `
-    )
-    .eq("profile_id", user.id)
+    `)
+    // Note: If this fails to find data, ensure your customers table has a 'profile_id' column
+    // or change this to .eq("email", user.email)
+    .eq("profile_id", user.id) 
     .maybeSingle();
 
-  return Response.json(cust || {});
+  return NextResponse.json(cust || {});
 }
-
-
-
