@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server-helpers";
+import { supabaseServer } from "@/lib/supabase/server"; // FIX: Correct import
 
 export async function GET() {
   const supabase = await supabaseServer();
+  
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -12,10 +13,11 @@ export async function GET() {
   }
 
   // Fetch customer record for this authenticated user
+  // Adjust .eq("profile_id", user.id) to .eq("email", user.email) if that is your schema
   const { data: customer } = await supabase
     .from("customers")
     .select("id")
-    .eq("profile_id", user.id)
+    .eq("email", user.email) 
     .maybeSingle();
 
   if (!customer) {
@@ -43,6 +45,3 @@ export async function GET() {
 
   return NextResponse.json({ data });
 }
-
-
-
