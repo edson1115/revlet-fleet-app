@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server-helpers";
+import { supabaseServer } from "@/lib/supabase/server"; // FIX: Correct import
 
 export async function GET() {
   const supabase = await supabaseServer();
+  
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -12,10 +13,12 @@ export async function GET() {
   }
 
   // CUSTOMER accounts connect via customers table
+  // Assuming 'email' or 'profile_id' links them. 
+  // If your table uses 'email', change .eq("profile_id", user.id) to .eq("email", user.email)
   const { data, error } = await supabase
     .from("customers")
     .select("*")
-    .eq("profile_id", user.id) // adjust if your FK field is different
+    .eq("email", user.email) // Common pattern: link by email
     .maybeSingle();
 
   if (error) {
@@ -24,6 +27,3 @@ export async function GET() {
 
   return NextResponse.json({ data });
 }
-
-
-
