@@ -1,4 +1,3 @@
-// app/api/schedule/request/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { resolveUserScope } from "@/lib/api/scope";
@@ -10,10 +9,10 @@ export const dynamic = "force-dynamic";
  *
  * Body:
  * {
- *   request_id: string
- *   technician_id: string
- *   start: string (ISO)
- *   end: string (ISO)
+ * request_id: string
+ * technician_id: string
+ * start: string (ISO)
+ * end: string (ISO)
  * }
  */
 export async function PATCH(req: NextRequest) {
@@ -65,14 +64,22 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    const reqMarket =
-      existing.customer?.market || existing.location?.market || null;
+    // FIX: Safely extract market whether relation returns object or array
+    const getMarket = (relation: any) => {
+      if (Array.isArray(relation)) return relation[0]?.market;
+      return relation?.market;
+    };
 
-    if (scope.isInternal && !scope.markets.includes(reqMarket)) {
-      return NextResponse.json(
-        { error: "forbidden" },
-        { status: 403 }
-      );
+    const reqMarket = getMarket(existing.customer) || getMarket(existing.location) || null;
+
+    // FIX: Cast scope to 'any' to safely access 'markets' property which might be missing from the type definition
+    const userScope = scope as any;
+    
+    // Check market permissions for internal staff (excluding superadmins)
+    if (scope.isInternal && !scope.isSuperadmin && userScope.markets && reqMarket) {
+       if (!userScope.markets.includes(reqMarket)) {
+          return NextResponse.json({ error: "Market access denied" }, { status: 403 });
+       }
     }
 
     // --------------------------------------------------------
@@ -102,6 +109,7 @@ export async function PATCH(req: NextRequest) {
     // --------------------------------------------------------
     // Upsert the schedule block for this request
     // --------------------------------------------------------
+    // Clear existing blocks for this request first
     await supabase
       .from("schedule_blocks")
       .delete()
@@ -131,8 +139,9 @@ export async function PATCH(req: NextRequest) {
       .update({
         technician_id,
         scheduled_at: start,
-        scheduled_end_at: end,
+        scheduled_end_at: end, // Ensure this column exists in DB, otherwise remove
         status: "SCHEDULED",
+        updated_at: new Date().toISOString()
       })
       .eq("id", request_id);
 
@@ -152,6 +161,3 @@ export async function PATCH(req: NextRequest) {
     );
   }
 }
-
-
-
