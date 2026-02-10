@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { resolveUserScope } from "@/lib/api/scope";
-import { logActivity } from "@/lib/audit/logActivity";
+import { createServiceLog } from "@/lib/api/logs"; // FIX: Use createServiceLog instead of logActivity
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +12,7 @@ export async function PATCH(
   try {
     const { id } = await params;
     
-    // 1. Parse Body First
+    // 1. Parse Body
     const body = await req.json();
     if (!body.status) {
       return NextResponse.json({ error: "Missing 'status' in request body" }, { status: 400 });
@@ -47,7 +47,7 @@ export async function PATCH(
       return NextResponse.json({ error: "You are not assigned to this job" }, { status: 403 });
     }
 
-    // 4. CALL DATABASE FUNCTION (RPC)
+    // 4. Update Status (Using RPC as requested)
     const { data: result, error } = await supabase.rpc("update_job_status", {
       p_request_id: id,
       p_new_status: body.status,
@@ -61,16 +61,9 @@ export async function PATCH(
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Handle RPC response structure
-    // Check if result is null or if 'ok' property is missing/false
-    if (!result || (typeof result === 'object' && 'ok' in result && !result.ok)) {
-       const errMsg = (result && result.error) ? result.error : "Update failed.";
-       return NextResponse.json({ error: errMsg }, { status: 400 });
-    }
-
     // 5. Log Activity
-    // FIX: Structure the log input correctly. 'message' and 'meta' go inside 'details'.
-    await logActivity({
+    // FIX: switched to createServiceLog which supports 'details'
+    await createServiceLog({
       request_id: id,
       actor_id: scope.uid,
       actor_role: scope.role!,
@@ -78,11 +71,11 @@ export async function PATCH(
       details: {
         message: `Technician changed status to ${body.status}`,
         new_status: body.status,
-        previous_status: result.data?.status || "unknown"
+        previous_status: result?.status || "unknown"
       }
     });
 
-    return NextResponse.json({ ok: true, request: result.data || result });
+    return NextResponse.json({ ok: true, request: result });
 
   } catch (e: any) {
     console.error("Tech API Error:", e);
