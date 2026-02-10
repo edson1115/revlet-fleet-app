@@ -64,7 +64,7 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    // FIX: Safely extract market whether relation returns object or array
+    // Helper: Safely extract market whether relation returns object or array
     const getMarket = (relation: any) => {
       if (Array.isArray(relation)) return relation[0]?.market;
       return relation?.market;
@@ -72,11 +72,12 @@ export async function PATCH(req: NextRequest) {
 
     const reqMarket = getMarket(existing.customer) || getMarket(existing.location) || null;
 
-    // FIX: Cast scope to 'any' to safely access 'markets' property which might be missing from the type definition
+    // Cast scope to 'any' to safely access 'markets' property if it exists at runtime but not in type
     const userScope = scope as any;
     
+    // FIX: Replaced 'scope.isInternal' with '!scope.isCustomer'
     // Check market permissions for internal staff (excluding superadmins)
-    if (scope.isInternal && !scope.isSuperadmin && userScope.markets && reqMarket) {
+    if (!scope.isCustomer && !scope.isSuperadmin && userScope.markets && reqMarket) {
        if (!userScope.markets.includes(reqMarket)) {
           return NextResponse.json({ error: "Market access denied" }, { status: 403 });
        }
@@ -139,7 +140,7 @@ export async function PATCH(req: NextRequest) {
       .update({
         technician_id,
         scheduled_at: start,
-        scheduled_end_at: end, // Ensure this column exists in DB, otherwise remove
+        scheduled_end_at: end,
         status: "SCHEDULED",
         updated_at: new Date().toISOString()
       })
