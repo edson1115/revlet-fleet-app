@@ -1,6 +1,5 @@
-// app/api/portal/metrics/route.ts
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server-helpers";
+import { supabaseServer } from "@/lib/supabase/server"; // FIX: Correct import
 
 export const dynamic = "force-dynamic";
 
@@ -11,32 +10,50 @@ export async function GET() {
 
   if (!uid) return NextResponse.json({});
 
+  // 1. Get Customer ID
+  // Trying both 'profiles' link and direct 'customers' link for safety
+  let customerId = null;
+
+  // Strategy A: Check profiles table (User's provided code)
   const { data: prof } = await supabase
     .from("profiles")
     .select("customer_id")
     .eq("id", uid)
     .maybeSingle();
+  
+  if (prof?.customer_id) {
+    customerId = prof.customer_id;
+  } else {
+    // Strategy B: Fallback to finding customer by email (Standard pattern)
+    const { data: cust } = await supabase
+        .from("customers")
+        .select("id")
+        .eq("email", auth.user?.email)
+        .maybeSingle();
+    customerId = cust?.id;
+  }
 
-  if (!prof?.customer_id) return NextResponse.json({});
+  if (!customerId) return NextResponse.json({});
 
-  const customerId = prof.customer_id;
-
+  // 2. Fetch Requests
   const { data: reqs } = await supabase
     .from("service_requests")
-    .select("service, created_at, scheduled_at, started_at, completed_at")
+    .select("service_title, created_at, scheduled_at, started_at, completed_at") // Note: service_title matches your schema better than 'service'
     .eq("customer_id", customerId)
     .order("created_at", { ascending: false });
 
   if (!reqs) return NextResponse.json({});
 
+  // Helper: Calculate minutes between two ISO strings
   function mins(a: string | null, b: string | null) {
     if (!a || !b) return null;
-    return (new Date(b).getTime() - new Date(a).getTime()) / 1000 / 60;
+    const diff = (new Date(b).getTime() - new Date(a).getTime()) / 1000 / 60;
+    return isNaN(diff) ? null : diff; // FIX: Handle invalid dates (NaN)
   }
 
-  let responseTimes: number[] = [];
-  let dispatchTimes: number[] = [];
-  let completionTimes: number[] = [];
+  const responseTimes: number[] = [];
+  const dispatchTimes: number[] = [];
+  const completionTimes: number[] = [];
   let slaHits = 0;
   let totalCompleted = 0;
 
@@ -54,10 +71,14 @@ export async function GET() {
       completionTimes.push(comp);
       totalCompleted++;
 
-      if (comp <= 24 * 60) slaHits++;
+      if (comp <= 24 * 60) slaHits++; // SLA: 24 hours
 
-      const key = r.service || "General";
-      breakdownMap[key] = breakdownMap[key] || { sum: 0, count: 0 };
+      // Use service_title or fallback
+      const key = r.service_title || "General";
+      
+      if (!breakdownMap[key]) {
+        breakdownMap[key] = { sum: 0, count: 0 };
+      }
       breakdownMap[key].sum += comp;
       breakdownMap[key].count += 1;
     }
@@ -65,24 +86,21 @@ export async function GET() {
 
   const service_breakdown = Object.keys(breakdownMap).map((k) => ({
     service: k,
-    avg_minutes: breakdownMap[k].sum / breakdownMap[k].count,
+    avg_minutes: Math.round(breakdownMap[k].sum / breakdownMap[k].count),
     count: breakdownMap[k].count,
   }));
 
   return NextResponse.json({
     avg_response_minutes:
-      responseTimes.length ? Math.round(responseTimes.reduce((a, b) => a + b) / responseTimes.length) : null,
+      responseTimes.length ? Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length) : 0,
     avg_dispatch_minutes:
-      dispatchTimes.length ? Math.round(dispatchTimes.reduce((a, b) => a + b) / dispatchTimes.length) : null,
+      dispatchTimes.length ? Math.round(dispatchTimes.reduce((a, b) => a + b, 0) / dispatchTimes.length) : 0,
     avg_completion_minutes:
-      completionTimes.length ? Math.round(completionTimes.reduce((a, b) => a + b) / completionTimes.length) : null,
+      completionTimes.length ? Math.round(completionTimes.reduce((a, b) => a + b, 0) / completionTimes.length) : 0,
     sla_compliance:
-      totalCompleted ? Math.round((slaHits / totalCompleted) * 100) : null,
+      totalCompleted ? Math.round((slaHits / totalCompleted) * 100) : 100,
     service_breakdown,
     daily_counts: [],
     vehicle_breakdown: [],
   });
 }
-
-
-
