@@ -24,9 +24,10 @@ export async function GET() {
     // ROLE (fallback UNKNOWN → OFFICE for internal users)
     let role = normalizeRole(user.user_metadata?.role);
 
-    if (!role || role === "UNKNOWN") {
-      role = "OFFICE";
-    }
+    // FIX: Cast role to string to silence the "no overlap" error
+if (!role || (role as string) === "UNKNOWN") {
+  role = "OFFICE";
+}
 
     const ALLOWED = new Set([
       "OFFICE",
