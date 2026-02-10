@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { resolveUserScope } from "@/lib/api/scope";
-import { logActivity } from "@/lib/audit/logActivity"; 
+import { createServiceLog } from "@/lib/api/logs"; // FIX: Use createServiceLog
 import { sendServiceReportEmail } from "@/lib/email/service-report"; 
-import { EmailTemplates } from "@/lib/email/templates"; // 👈 IMPORT THIS
+import { EmailTemplates } from "@/lib/email/templates";
+
+export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   const scope = await resolveUserScope();
@@ -35,7 +37,7 @@ export async function POST(req: Request) {
   const isAssigned = 
     job.technician_id === scope.uid || 
     job.second_technician_id === scope.uid || 
-    ["ADMIN", "SUPERADMIN"].includes(scope.role);
+    ["ADMIN", "SUPERADMIN"].includes(scope.role || "");
 
   if (!isAssigned) {
     return NextResponse.json({ error: "Not assigned" }, { status: 403 });
@@ -45,7 +47,7 @@ export async function POST(req: Request) {
   const updates: any = { status };
   const now = new Date().toISOString();
 
-  // Always save notes if provided (Critical for Reschedule Reasons)
+  // Always save notes if provided
   if (notes !== undefined && notes !== null) {
       updates.technician_notes = notes;
   }
@@ -75,10 +77,11 @@ export async function POST(req: Request) {
 
   // ✅ 4. EMAIL TRIGGER: JOB STARTED
   if (status === "IN_PROGRESS" && updatedJob?.customer?.email) {
-      const vehicleName = `${updatedJob.vehicle?.year} ${updatedJob.vehicle?.model}`;
+      const vehicleName = `${updatedJob.vehicle?.year || ''} ${updatedJob.vehicle?.model || ''}`.trim();
+      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
       
-      // Call internal email API (This checks the Settings Toggle automatically)
-      fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/system/send-email`, {
+      // Call internal email API
+      fetch(`${baseUrl}/api/system/send-email`, {
           method: 'POST',
           body: JSON.stringify({
               to: updatedJob.customer.email,
@@ -107,7 +110,7 @@ export async function POST(req: Request) {
                   .single();
               
               if (currentStock) {
-                  const newQty = currentStock.quantity - part.quantity;
+                  const newQty = (currentStock.quantity || 0) - (part.quantity || 0);
                   await supabase
                       .from("inventory")
                       .update({ quantity: newQty })
@@ -123,14 +126,17 @@ export async function POST(req: Request) {
   }
 
   // 6. Log Activity
-  await logActivity({
+  // FIX: Use createServiceLog and nested details
+  await createServiceLog({
     request_id: id,
     actor_id: scope.uid,
-    actor_role: scope.role,
+    actor_role: scope.role!,
     action: "STATUS_CHANGE",
-    from_value: job.status,
-    to_value: status,
-    message: notes ? `Status: ${status} | Note: ${notes}` : `Status: ${status}`,
+    details: {
+      from_value: job.status,
+      to_value: status,
+      message: notes ? `Status: ${status} | Note: ${notes}` : `Status: ${status}`,
+    }
   });
 
   return NextResponse.json({ ok: true });
