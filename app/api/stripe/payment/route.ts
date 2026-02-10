@@ -1,24 +1,60 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
+import { supabaseServer } from "@/lib/supabase/server";
 
+// FIX: Update apiVersion to match the installed library's expectation
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2024-12-18.acacia", // Use latest API version or "2023-10-16"
+  apiVersion: "2025-12-15.clover" as any, 
 });
 
 export async function POST(req: Request) {
   try {
-    const { amount } = await req.json();
+    const { requestId } = await req.json();
 
-    // 1. Create a PaymentIntent with the specified amount.
-    // Stripe expects amounts in CENTS (e.g., $10.00 = 1000)
+    if (!requestId) {
+      return NextResponse.json({ error: "Missing requestId" }, { status: 400 });
+    }
+
+    const supabase = await supabaseServer();
+
+    // 1. Fetch the request to get invoice details
+    const { data: request, error } = await supabase
+      .from("service_requests")
+      .select("*, customer:customers(*)")
+      .eq("id", requestId)
+      .single();
+
+    if (error || !request) {
+      return NextResponse.json({ error: "Request not found" }, { status: 404 });
+    }
+
+    if (!request.invoice_grand_total || request.invoice_grand_total <= 0) {
+      return NextResponse.json({ error: "Invalid invoice amount" }, { status: 400 });
+    }
+
+    // 2. Create Stripe Payment Intent
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount * 100), 
+      amount: Math.round(request.invoice_grand_total * 100), // Convert to cents
       currency: "usd",
-      automatic_payment_methods: { enabled: true },
+      description: `Service Request #${requestId}`,
+      metadata: {
+        requestId: requestId,
+        customerId: request.customer_id,
+      },
+      automatic_payment_methods: {
+        enabled: true,
+      },
     });
 
-    return NextResponse.json({ clientSecret: paymentIntent.client_secret });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({
+      clientSecret: paymentIntent.client_secret,
+    });
+
+  } catch (err: any) {
+    console.error("Stripe Error:", err);
+    return NextResponse.json(
+      { error: err.message || "Payment initialization failed" },
+      { status: 500 }
+    );
   }
 }
