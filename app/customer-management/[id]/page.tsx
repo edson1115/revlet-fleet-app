@@ -209,7 +209,7 @@ export default function CustomerManagementPage({ params }: any) {
 
         {activeTab === "vehicles" && (
           <VehiclesPanel
-            customer={customer}
+            // FIX: Removed invalid 'customer' prop
             customerId={customerId}
             onOpenLightbox={(imgs, index) => {
               setLightboxImages(imgs);
