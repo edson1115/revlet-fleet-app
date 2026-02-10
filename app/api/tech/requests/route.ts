@@ -1,49 +1,90 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { resolveUserScope } from "@/lib/api/scope";
+import { createServiceLog } from "@/lib/api/logs";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: NextRequest) {
+export async function PATCH(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
-    const supabase = await supabaseServer();
+    const { id } = await params;
+    const body = await req.json();
+
+    if (!id) {
+      return NextResponse.json({ error: "Missing request ID" }, { status: 400 });
+    }
+
     const scope = await resolveUserScope();
-
-    // 1. Auth & Role Check
-    if (!scope.uid || !scope.isTech) {
-      return NextResponse.json(
-        { error: "Forbidden — tech only" },
-        { status: 403 }
-      );
+    if (!scope.uid) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // 2. Fetch Active Jobs (Lead OR Buddy)
-    // FIX: Changed scheduled_start_at to scheduled_at
-    // FIX: Removed 'plate' from root select (it is in vehicle relation)
-    const { data: requests, error } = await supabase
+    const supabase = await supabaseServer();
+
+    // 1. Fetch current request to validate permissions
+    const { data: current, error: fetchErr } = await supabase
       .from("service_requests")
-      .select(`
-        id,
-        status,
-        created_at,
-        service_title,
-        scheduled_at,
-        customer:customers(id, name, address, phone),
-        vehicle:vehicles(id, year, make, model, plate, unit_number),
-        parts:request_parts(id, part_name, part_number, quantity)
-      `)
-      .or(`technician_id.eq.${scope.uid},second_technician_id.eq.${scope.uid}`) // ✅ Buddy Logic
-      .in("status", ["SCHEDULED", "IN_PROGRESS", "WAITING_PARTS"])
-      .order("scheduled_at", { ascending: true });
+      .select("technician_id, status")
+      .eq("id", id)
+      .single();
 
-    if (error) {
-      console.error("Tech requests error:", error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    if (fetchErr || !current) {
+      return NextResponse.json({ error: "Request not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ ok: true, requests: requests || [] });
+    // 2. Permission Check: Only assigned tech or admins can update
+    // (Assuming scope.role is checked, or tech ID match)
+    if (scope.isTech && current.technician_id !== scope.uid) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    // 3. Update the request
+    const updateData: any = {};
+    if (body.status) updateData.status = body.status;
+    if (body.notes) updateData.notes = body.notes;
+    if (body.mileage) updateData.reported_mileage = body.mileage;
+    
+    // Add timestamps based on status
+    if (body.status === "IN_PROGRESS") updateData.started_at = new Date().toISOString();
+    if (body.status === "COMPLETED") updateData.completed_at = new Date().toISOString();
+
+    updateData.updated_at = new Date().toISOString();
+
+    const { data: updated, error: updateErr } = await supabase
+      .from("service_requests")
+      .update(updateData)
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (updateErr) {
+      return NextResponse.json({ error: updateErr.message }, { status: 500 });
+    }
+
+    // 4. Log the action
+    // FIX: Structure 'message' inside 'details' object
+    if (body.status && body.status !== current.status) {
+      await createServiceLog({
+        request_id: id,
+        actor_id: scope.uid,
+        actor_role: scope.role!,
+        action: "STATUS_CHANGE",
+        details: { 
+          message: `Technician changed status to ${body.status}`,
+          previous_status: current.status,
+          new_status: body.status,
+          mileage: body.mileage
+        }
+      });
+    }
+
+    return NextResponse.json({ request: updated });
+
+  } catch (err: any) {
+    console.error("Tech Request Update Error:", err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
