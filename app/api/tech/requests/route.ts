@@ -10,7 +10,7 @@ export async function GET(_req: NextRequest) {
     const scope = await resolveUserScope();
 
     // 1. Auth & Role Check
-    if (!scope.uid || scope.role !== "TECH") {
+    if (!scope.uid || !scope.isTech) {
       return NextResponse.json(
         { error: "Forbidden — tech only" },
         { status: 403 }
@@ -18,6 +18,8 @@ export async function GET(_req: NextRequest) {
     }
 
     // 2. Fetch Active Jobs (Lead OR Buddy)
+    // FIX: Changed scheduled_start_at to scheduled_at
+    // FIX: Removed 'plate' from root select (it is in vehicle relation)
     const { data: requests, error } = await supabase
       .from("service_requests")
       .select(`
@@ -25,15 +27,14 @@ export async function GET(_req: NextRequest) {
         status,
         created_at,
         service_title,
-        scheduled_start_at,
-        plate,
+        scheduled_at,
         customer:customers(id, name, address, phone),
         vehicle:vehicles(id, year, make, model, plate, unit_number),
-        request_parts(id, part_name, part_number, quantity)
+        parts:request_parts(id, part_name, part_number, quantity)
       `)
       .or(`technician_id.eq.${scope.uid},second_technician_id.eq.${scope.uid}`) // ✅ Buddy Logic
       .in("status", ["SCHEDULED", "IN_PROGRESS", "WAITING_PARTS"])
-      .order("scheduled_start_at", { ascending: true });
+      .order("scheduled_at", { ascending: true });
 
     if (error) {
       console.error("Tech requests error:", error);
