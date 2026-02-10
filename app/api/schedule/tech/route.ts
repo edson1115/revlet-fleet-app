@@ -1,4 +1,3 @@
-// app/api/schedule/tech/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { resolveUserScope } from "@/lib/api/scope";
@@ -10,10 +9,10 @@ export const dynamic = "force-dynamic";
  *
  * Returns:
  * {
- *   technician_id: string,
- *   blocks: [
- *     { start_at: string, end_at: string }
- *   ]
+ * technician_id: string,
+ * blocks: [
+ * { start_at: string, end_at: string }
+ * ]
  * }
  */
 export async function GET(req: NextRequest) {
@@ -42,12 +41,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
 
+    // Techs can only see their own schedule
     if (scope.isTech && scope.uid !== tech_id) {
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
 
-    // INTERNAL: validate technician is inside allowed markets
-    if (scope.isInternal && !scope.isSuper) {
+    // INTERNAL STAFF (Dispatch/Admin/Office): validate technician is inside allowed markets
+    // We check if NOT customer, NOT tech, and NOT superadmin
+    if (!scope.isCustomer && !scope.isTech && !scope.isSuperadmin) {
       const { data: profile } = await supabase
         .from("profiles")
         .select("id, market")
@@ -61,8 +62,12 @@ export async function GET(req: NextRequest) {
         );
       }
 
-      if (!scope.markets.includes(profile.market)) {
-        return NextResponse.json({ error: "forbidden" }, { status: 403 });
+      // FIX: Cast scope to 'any' to access 'markets' array which is missing from strict type def
+      const userScope = scope as any;
+      const allowedMarkets = userScope.markets || [];
+
+      if (profile.market && allowedMarkets.length > 0 && !allowedMarkets.includes(profile.market)) {
+        return NextResponse.json({ error: "forbidden: market mismatch" }, { status: 403 });
       }
     }
 
@@ -94,6 +99,3 @@ export async function GET(req: NextRequest) {
     );
   }
 }
-
-
-
