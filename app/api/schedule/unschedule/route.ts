@@ -1,4 +1,3 @@
-// app/api/schedule/unschedule/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { resolveUserScope } from "@/lib/api/scope";
@@ -10,7 +9,7 @@ export const dynamic = "force-dynamic";
  *
  * Body:
  * {
- *   request_id: string
+ * request_id: string
  * }
  *
  * Behavior:
@@ -62,7 +61,11 @@ export async function PATCH(req: NextRequest) {
         return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
 
-    if (scope.isInternal && !scope.isSuper) {
+    // FIX: Cast scope to 'any' to access 'markets' safely
+    const userScope = scope as any;
+
+    // Check market permissions for Office/Admin/Dispatch (Non-Super, Non-Tech)
+    if (!scope.isCustomer && !scope.isTech && !scope.isSuperadmin) {
       // match markets
       const { data: loc } = await supabase
         .from("locations")
@@ -70,8 +73,11 @@ export async function PATCH(req: NextRequest) {
         .eq("id", reqRow.location_id)
         .maybeSingle();
 
-      if (loc && !scope.markets.includes(loc.market)) {
-        return NextResponse.json({ error: "forbidden" }, { status: 403 });
+      // If location has a market and user has markets assigned, check overlap
+      if (loc?.market && userScope.markets && userScope.markets.length > 0) {
+        if (!userScope.markets.includes(loc.market)) {
+          return NextResponse.json({ error: "forbidden: market mismatch" }, { status: 403 });
+        }
       }
     }
 
@@ -125,6 +131,3 @@ export async function PATCH(req: NextRequest) {
     );
   }
 }
-
-
-
