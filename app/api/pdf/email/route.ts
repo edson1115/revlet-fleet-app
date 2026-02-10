@@ -1,4 +1,3 @@
-// app/api/pdf/email/route.ts
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { supabaseServer } from "@/lib/supabase/server";
@@ -9,8 +8,10 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 export async function POST(req: Request) {
   try {
     const { requestId, email } = await req.json();
-    if (!requestId || !email)
+
+    if (!requestId || !email) {
       return NextResponse.json({ error: "Missing requestId or email" }, { status: 400 });
+    }
 
     // Fetch request data
     const supabase = await supabaseServer();
@@ -25,36 +26,43 @@ export async function POST(req: Request) {
       .eq("id", requestId)
       .maybeSingle();
 
-    if (error || !request)
+    if (error || !request) {
       return NextResponse.json({ error: "Request not found" }, { status: 404 });
+    }
 
-    // Generate PDF
+    // Generate PDF (returns Uint8Array)
     const pdfBytes = await generateRequestPDF(request);
 
+    // FIX: Convert Uint8Array to Buffer to access .toString("base64")
+    const pdfBuffer = Buffer.from(pdfBytes);
+    const base64Content = pdfBuffer.toString("base64");
+
     // Send email
-    const send = await resend.emails.send({
-      from: "Revlet <no-reply@revlet.app>",
+    const { data: send, error: sendError } = await resend.emails.send({
+      from: "Revlet <no-reply@revlet.app>", // Ensure this domain is verified in Resend
       to: email,
       subject: `Service Request #${requestId}`,
-      text: "Attached is your service request report.",
+      html: "<p>Attached is your service request report.</p>",
       attachments: [
         {
           filename: `Request-${requestId}.pdf`,
-          content: pdfBytes.toString("base64"),
-          encoding: "base64",
+          content: base64Content,
         },
       ],
     });
 
+    if (sendError) {
+        console.error("Resend Error:", sendError);
+        return NextResponse.json({ error: "Failed to send email via Resend" }, { status: 500 });
+    }
+
     return NextResponse.json({ ok: true, send });
+
   } catch (err: any) {
-    console.error(err);
+    console.error("Email API Error:", err);
     return NextResponse.json(
       { error: err?.message || "Failed to send email" },
       { status: 500 }
     );
   }
 }
-
-
-
