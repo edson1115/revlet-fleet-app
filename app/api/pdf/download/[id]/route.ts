@@ -1,4 +1,3 @@
-// app/api/pdf/download/[id]/route.ts
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { generateRequestPDF } from "@/lib/pdf/generateRequestPDF";
@@ -8,20 +7,20 @@ export const dynamic = "force-dynamic";
 
 export async function GET(
   req: Request,
-  context: { params: { id: string } }
+  props: { params: Promise<{ id: string }> } // Fix: Correct Next.js 15 type
 ) {
   try {
-    const requestId = context.params.id;
+    // Fix: Await params
+    const params = await props.params;
+    const requestId = params.id;
 
     const supabase = await supabaseServer();
+    
+    // Fetch request data (even though your generator might just take ID, 
+    // it's good practice to verify existence first)
     const { data: request, error } = await supabase
       .from("service_requests")
-      .select(`
-        *,
-        customer:customer_id(name),
-        vehicle:vehicle_id(year, make, model, plate, unit_number),
-        location:location_id(name)
-      `)
+      .select("id") // Only selecting ID since your generator takes string
       .eq("id", requestId)
       .maybeSingle();
 
@@ -30,7 +29,8 @@ export async function GET(
     }
 
     // Generate PDF
-    const pdfBytes = await generateRequestPDF(request);
+    // Note: Your provided generator takes (requestId: string), so we pass that.
+    const pdfBytes = await generateRequestPDF(requestId);
 
     // Log download
     await logPDF({
@@ -41,15 +41,17 @@ export async function GET(
       meta: { path: "direct-download" },
     });
 
-    return new NextResponse(pdfBytes, {
+    // Fix: Cast Uint8Array to Buffer for NextResponse to satisfy BodyInit type
+    return new NextResponse(Buffer.from(pdfBytes), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="Request-${requestId}.pdf"`,
       },
     });
+
   } catch (err: any) {
-    console.error(err);
+    console.error("PDF Download Error:", err);
     return NextResponse.json(
       { error: err.message || "Failed to generate PDF" },
       { status: 500 }
