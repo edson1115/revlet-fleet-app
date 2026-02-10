@@ -209,7 +209,6 @@ export default function CustomerManagementPage({ params }: any) {
 
         {activeTab === "vehicles" && (
           <VehiclesPanel
-            // FIX: Removed invalid 'customer' prop
             customerId={customerId}
             onOpenLightbox={(imgs, index) => {
               setLightboxImages(imgs);
@@ -221,7 +220,7 @@ export default function CustomerManagementPage({ params }: any) {
 
         {activeTab === "requests" && (
           <RequestsPanel
-            customer={customer}
+            // FIX: Removed invalid 'customer' prop
             customerId={customerId}
             onOpenLightbox={(imgs, index) => {
               setLightboxImages(imgs);
