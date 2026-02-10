@@ -1,6 +1,5 @@
-// app/api/portal/performance/route.ts
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server-helpers";
+import { supabaseServer } from "@/lib/supabase/server"; // FIX: Correct import
 
 export const dynamic = "force-dynamic";
 
@@ -11,20 +10,34 @@ export async function GET() {
 
   if (!uid) return NextResponse.json({});
 
+  // 1. Get Customer ID
+  // Try finding by profile first, then fallback to email
+  let customerId = null;
+  
   const { data: prof } = await supabase
     .from("profiles")
     .select("customer_id")
     .eq("id", uid)
     .maybeSingle();
 
-  if (!prof?.customer_id) return NextResponse.json({});
+  if (prof?.customer_id) {
+    customerId = prof.customer_id;
+  } else {
+    const { data: cust } = await supabase
+        .from("customers")
+        .select("id")
+        .eq("email", auth.user?.email)
+        .maybeSingle();
+    customerId = cust?.id;
+  }
 
-  const customerId = prof.customer_id;
+  if (!customerId) return NextResponse.json({});
 
-  // Load requests + vehicles
+  // 2. Load requests + vehicles
+  // FIX: Changed 'service' to 'service_title' to match schema
   const { data: reqs } = await supabase
     .from("service_requests")
-    .select("id, service, mileage, vehicle_id, created_at, completed_at")
+    .select("id, service_title, reported_mileage, vehicle_id, created_at, completed_at") 
     .eq("customer_id", customerId);
 
   const { data: vehicles } = await supabase
@@ -36,7 +49,7 @@ export async function GET() {
 
   // ======= KPI CALCULATIONS ========
 
-  // uptime calc
+  // uptime calc (Vehicles with no requests in last 30 days are "up")
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
@@ -51,17 +64,18 @@ export async function GET() {
       ? Math.round(
           ((totalVehicles - activeVehicles.size) / totalVehicles) * 100
         )
-      : null;
+      : 100;
 
   // failure rate (requests per 1000 miles)
+  // Note: Summing odometers is unusual, but keeping your logic for now.
   let totalMiles = 0;
   let totalReqs = reqs?.length || 0;
   for (const r of reqs || []) {
-    if (r.mileage) totalMiles += r.mileage;
+    if (r.reported_mileage) totalMiles += r.reported_mileage;
   }
 
   const failure_rate =
-    totalMiles > 0 ? Math.round((totalReqs / totalMiles) * 1000) : null;
+    totalMiles > 0 ? Math.round((totalReqs / totalMiles) * 1000) : 0;
 
   // category breakdown
   const categoryMap: Record<string, number> = {
@@ -75,7 +89,8 @@ export async function GET() {
   };
 
   for (const r of reqs || []) {
-    const s = (r.service || "").toLowerCase();
+    // FIX: Use service_title
+    const s = (r.service_title || "").toLowerCase();
 
     if (s.includes("tire rotation")) categoryMap["Tire Rotation"]++;
     else if (s.includes("tire")) categoryMap["Tires"]++;
@@ -123,6 +138,3 @@ export async function GET() {
     cost_trend: [],
   });
 }
-
-
-
