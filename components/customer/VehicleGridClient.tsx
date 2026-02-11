@@ -4,9 +4,19 @@ import { useState } from "react";
 import { TeslaVehicleCard } from "@/components/tesla/TeslaVehicleCard";
 import TeslaVehicleDrawer from "@/components/tesla/TeslaVehicleDrawer";
 
-export default function VehicleGridClient({ groups }) {
+// FIX: Define types to prevent implicit 'any' errors
+type Vehicle = any;
+
+type Group = {
+  id: string;
+  name: string;
+  count: number;
+  vehicles: Vehicle[];
+};
+
+export default function VehicleGridClient({ groups }: { groups: Group[] }) {
   const [activeGroup, setActiveGroup] = useState("all");
-  const [selectedVehicle, setSelectedVehicle] = useState(null);
+  const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const total = groups.reduce((sum, g) => sum + g.count, 0);
