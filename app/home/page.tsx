@@ -1,11 +1,10 @@
-// app/home/page.tsx
-import { supabaseServerComponent } from "@/lib/supabase/server";
 import { resolveUserScope } from "@/lib/api/scope";
 
 export default async function HomePage() {
   const scope = await resolveUserScope();
 
-  if (!scope.isSuper) {
+  // FIX: Use isSuperadmin instead of isSuper
+  if (!scope.isSuperadmin) {
     return <div className="p-10 text-red-600">Access denied</div>;
   }
 
@@ -34,6 +33,3 @@ function Card({ title, desc }: { title: string; desc: string }) {
     </div>
   );
 }
-
-
-
