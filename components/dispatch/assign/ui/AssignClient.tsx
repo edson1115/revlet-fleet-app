@@ -3,7 +3,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import TimelineInteractive from "@/components/dispatch/TimelineInteractive";
 // Ensure this import path exists; if not, you might need to adjust it or create the file.
-// Assuming it exists based on previous context.
 import { scheduleRequest } from "@/lib/dispatch/scheduleRequest"; 
 import { supabaseBrowser } from "@/lib/supabase/client"; // Updated to use standard client
 
@@ -134,7 +133,7 @@ export default function AssignClient({
       )
       .subscribe();
 
-    // FIX: Explicitly return void to satisfy React's useEffect cleanup type
+    // Explicit cleanup
     return () => {
       supabase.removeChannel(channel);
     };
@@ -207,8 +206,12 @@ export default function AssignClient({
         <TimelineInteractive
           busyBlocks={busyBlocks}
           onChange={handleTimeRange}
-          // FIX: Pass timeRange as 'current' to match component props
-          current={timeRange || undefined}
+          // FIX: Map start/end to start_at/end_at
+          current={
+            timeRange
+              ? { start_at: timeRange.start, end_at: timeRange.end }
+              : undefined
+          }
         />
       </div>
 
