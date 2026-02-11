@@ -71,12 +71,12 @@ export default function OfficeRequestDetailClient({
   );
 
   /* --------------------------------------------------
-     WALK-IN COMPLETION RULE
-     Office CAN complete if:
-     - No tech
-     - No schedule
-     - Not READY_TO_SCHEDULE
-     - Not already COMPLETED
+      WALK-IN COMPLETION RULE
+      Office CAN complete if:
+      - No tech
+      - No schedule
+      - Not READY_TO_SCHEDULE
+      - Not already COMPLETED
   -------------------------------------------------- */
   const canCompleteWalkIn =
     !request.technician_id &&
@@ -223,21 +223,16 @@ export default function OfficeRequestDetailClient({
       <OfficeFieldsSection request={request} />
 
       {/* SERVICE DEFINITION */}
-      <TeslaSection
-        label={
-          <div className="flex items-center gap-2">
-            <span>Service Definition (Customer-Facing)</span>
-            {serviceLocked && (
-              <span className="text-xs px-2 py-1 rounded-full bg-gray-200 text-gray-700">
-                Locked
-              </span>
-            )}
-          </div>
-        }
-      >
+      {/* FIX: Passed simple string to label to satisfy type definition */}
+      <TeslaSection label="Service Definition (Customer-Facing)">
         {serviceLocked && (
-          <div className="text-xs text-gray-500 mb-2">
-            Service definition is locked once the request is ready to schedule.
+          <div className="mb-4 flex items-center gap-2 p-2 bg-gray-50 rounded-lg border border-gray-100">
+            <span className="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-700 font-bold uppercase tracking-wider">
+              Locked
+            </span>
+            <span className="text-xs text-gray-500">
+              Service definition is locked once the request is ready to schedule.
+            </span>
           </div>
         )}
 
@@ -268,7 +263,7 @@ export default function OfficeRequestDetailClient({
             onClick={saveServiceOverride}
             disabled={serviceLocked || saving}
             className={clsx(
-              "rounded-lg py-2 text-sm font-medium",
+              "rounded-lg py-2 px-4 text-sm font-medium transition-colors",
               serviceLocked
                 ? "bg-gray-300 cursor-not-allowed text-gray-600"
                 : "bg-black text-white hover:bg-gray-900"
