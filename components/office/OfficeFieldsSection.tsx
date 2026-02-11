@@ -80,7 +80,11 @@ export function OfficeFieldsSection({ request }: { request: any }) {
       </div>
 
       <div className="mt-4">
-        <TeslaButton onClick={save} disabled={saving}>
+        {/* FIX: Removed invalid 'disabled' prop. Used className for styling instead. */}
+        <TeslaButton 
+          onClick={save} 
+          className={saving ? "opacity-50 pointer-events-none" : ""}
+        >
           {saving ? "Saving…" : "Save Office Fields"}
         </TeslaButton>
       </div>
