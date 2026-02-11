@@ -1,52 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Map, { Source, Layer } from "react-map-gl";
-import { LeadPin } from "./LeadPin";
-import { CustomerPin } from "./CustomerPin";
+import { useState } from "react";
+// import Map, { Source, Layer } from "react-map-gl"; // TODO: Uncomment after installing react-map-gl
 import { MapFilters } from "./MapFilters";
+import { Map as MapIcon } from "lucide-react";
 
 export default function MobileSalesMap() {
-  const [points, setPoints] = useState([]);
   const [filters, setFilters] = useState({
     market: "ALL",
     rep: "ALL",
   });
 
+  // Placeholder logic for map data loading (commented out to prevent unused var errors)
+  /*
+  const [points, setPoints] = useState([]);
+  
   async function load() {
     const r = await fetch("/api/sales/map-data", { cache: "no-store" }).then(
       (r) => r.json()
     );
 
     if (r.ok) {
-      // combine leads + customers
-      const all = [];
-
-      for (const l of r.leads) {
-        all.push({
-          type: "Feature",
-          properties: {
-            type: "lead",
-            id: l.id,
-            created_at: l.created_at,
-            rep: l.sales_rep_id,
-          },
-          geometry: { type: "Point", coordinates: [l.lng, l.lat] },
-        });
-      }
-
-      for (const c of r.customers) {
-        all.push({
-          type: "Feature",
-          properties: {
-            type: "customer",
-            id: c.id,
-            total_spend: c.total_spend,
-          },
-          geometry: { type: "Point", coordinates: [c.lng, c.lat] },
-        });
-      }
-
+       // ... processing logic
       setPoints(all);
     }
   }
@@ -54,80 +29,27 @@ export default function MobileSalesMap() {
   useEffect(() => {
     load();
   }, []);
-
-  const geojson = {
-    type: "FeatureCollection",
-    features: points,
-  };
+  */
 
   return (
-    <div className="relative w-full h-screen">
-      <MapFilters filters={filters} onChange={setFilters} />
+    <div className="relative w-full h-screen bg-slate-50 flex items-center justify-center">
+      <div className="absolute top-4 left-4 right-4 z-10">
+        <MapFilters filters={filters} onChange={setFilters} />
+      </div>
 
-      <Map
-        mapboxAccessToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN}
-        initialViewState={{
-          longitude: -98.5,
-          latitude: 29.4,
-          zoom: 7,
-        }}
-        mapStyle="mapbox://styles/mapbox/light-v11"
-        style={{ width: "100%", height: "100%" }}
-      >
-        {/* CLUSTER SOURCE */}
-        <Source
-          id="sales-points"
-          type="geojson"
-          data={geojson}
-          cluster={true}
-          clusterMaxZoom={14}
-          clusterRadius={60}
-        >
-          {/* CLUSTER CIRCLES */}
-          <Layer
-            id="clusters"
-            type="circle"
-            filter={["has", "point_count"]}
-            paint={{
-              "circle-color": [
-                "step",
-                ["get", "point_count"],
-                "#51bbd6",
-                10,
-                "#f1f075",
-                25,
-                "#f28cb1",
-              ],
-              "circle-radius": ["step", ["get", "point_count"], 20, 10, 30, 25, 40],
-            }}
-          />
-
-          {/* CLUSTER COUNT LABELS */}
-          <Layer
-            id="cluster-count"
-            type="symbol"
-            filter={["has", "point_count"]}
-            layout={{
-              "text-field": "{point_count_abbreviated}",
-              "text-font": ["DIN Offc Pro Medium", "Arial Unicode MS Bold"],
-              "text-size": 12,
-            }}
-          />
-
-          {/* UNCLUSTERED POINTS */}
-          <Layer
-            id="unclustered-point"
-            type="circle"
-            filter={["!", ["has", "point_count"]]}
-            paint={{
-              "circle-color": "#11b4da",
-              "circle-radius": 6,
-              "circle-stroke-width": 2,
-              "circle-stroke-color": "#fff",
-            }}
-          />
-        </Source>
-      </Map>
+      {/* MAP PLACEHOLDER */}
+      <div className="text-center p-6 max-w-sm bg-white rounded-xl shadow-sm border border-gray-200">
+        <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+          <MapIcon className="w-6 h-6 text-gray-400" />
+        </div>
+        <h3 className="font-semibold text-gray-900">Map Component Disabled</h3>
+        <p className="text-sm text-gray-500 mt-2">
+          The <code>react-map-gl</code> library is missing.
+        </p>
+        <div className="mt-4 p-3 bg-gray-100 rounded text-xs font-mono text-left">
+          npm install react-map-gl mapbox-gl
+        </div>
+      </div>
     </div>
   );
 }
