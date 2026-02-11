@@ -1,34 +1,28 @@
-// lib/supabase/server.ts
-import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
+import { createClient } from "@supabase/supabase-js";
+import { cookies } from "next/headers";
 
-/**
- * Server-side Supabase client
- * Works correctly with Next.js 15 cookie API (NO AWAIT)
- */
-export function supabaseServer() {
-  const cookieStore = cookies(); // ❗ Must NOT be awaited
+// 1. Authenticated Server Client (User Session)
+export async function supabaseServer() {
+  // FIX: Await cookies() for Next.js 15
+  const cookieStore = await cookies();
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
+        getAll() {
+          return cookieStore.getAll();
         },
-        set(name: string, value: string, options: any) {
+        setAll(cookiesToSet) {
           try {
-            cookieStore.set(name, value, options);
-          } catch (err) {
-            console.warn("[supabaseServer] cookie.set ignored:", err);
-          }
-        },
-        remove(name: string, options: any) {
-          try {
-            cookieStore.delete(name, options);
-          } catch (err) {
-            console.warn("[supabaseServer] cookie.delete ignored:", err);
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            );
+          } catch {
+            // The `setAll` method was called from a Server Component.
+            // This can be ignored if you have middleware refreshing user sessions.
           }
         },
       },
@@ -36,5 +30,16 @@ export function supabaseServer() {
   );
 }
 
-
-
+// 2. Service Role Client (Admin Access - No Cookies)
+export function supabaseService() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    }
+  );
+}
