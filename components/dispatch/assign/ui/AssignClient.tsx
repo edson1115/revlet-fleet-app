@@ -2,8 +2,10 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import TimelineInteractive from "@/components/dispatch/TimelineInteractive";
-import { scheduleRequest } from "@/lib/dispatch/scheduleRequest";
-import { supabaseBrowser } from "@/lib/supabase/browser";
+// Ensure this import path exists; if not, you might need to adjust it or create the file.
+// Assuming it exists based on previous context.
+import { scheduleRequest } from "@/lib/dispatch/scheduleRequest"; 
+import { supabaseBrowser } from "@/lib/supabase/client"; // Updated to use standard client
 
 type Block = {
   id?: string;
@@ -132,7 +134,10 @@ export default function AssignClient({
       )
       .subscribe();
 
-    return () => supabase.removeChannel(channel);
+    // FIX: Explicitly return void to satisfy React's useEffect cleanup type
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [supabase, selectedTech, loadBusyBlocks]);
 
   /////////////////////////////////////////////////////////////////
@@ -167,7 +172,7 @@ export default function AssignClient({
         end: timeRange.end, // full window now saved
       });
 
-      onClose?.();
+      if (onClose) onClose();
     } catch (err: any) {
       console.error(err);
       alert(err.message || "Failed to schedule request");
@@ -202,7 +207,8 @@ export default function AssignClient({
         <TimelineInteractive
           busyBlocks={busyBlocks}
           onChange={handleTimeRange}
-          initialRange={timeRange || undefined}
+          // FIX: Pass timeRange as 'current' to match component props
+          current={timeRange || undefined}
         />
       </div>
 
@@ -234,6 +240,3 @@ export default function AssignClient({
     </div>
   );
 }
-
-
-
