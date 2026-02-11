@@ -220,7 +220,6 @@ export default function CustomerManagementPage({ params }: any) {
 
         {activeTab === "requests" && (
           <RequestsPanel
-            // FIX: Removed invalid 'customer' prop
             customerId={customerId}
             onOpenLightbox={(imgs, index) => {
               setLightboxImages(imgs);
@@ -231,7 +230,15 @@ export default function CustomerManagementPage({ params }: any) {
         )}
 
         {activeTab === "recurring" && (
-          <RecurringPanel customerId={customerId} />
+          <RecurringPanel 
+            customerId={customerId}
+            // FIX: Added missing prop
+            onOpenLightbox={(imgs, index) => {
+              setLightboxImages(imgs);
+              setLightboxIndex(index);
+              setLightboxOpen(true);
+            }}
+          />
         )}
 
         {activeTab === "health" && (
