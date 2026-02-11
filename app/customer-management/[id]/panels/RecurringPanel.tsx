@@ -6,7 +6,6 @@ import { TeslaHeroBar } from "@/components/tesla/TeslaHeroBar";
 import { TeslaSection } from "@/components/tesla/TeslaSection";
 import { TeslaDivider } from "@/components/tesla/TeslaDivider";
 import TeslaTimelineCombined from "@/components/tesla/TeslaTimelineCombined";
-import Lightbox from "@/components/common/Lightbox";
 import { TeslaStatusChip } from "@/components/tesla/TeslaStatusChip";
 
 type Request = {
@@ -63,11 +62,15 @@ export default function RequestsPanel({
   // ---------------------------------------------------------------------------
   useEffect(() => {
     (async () => {
-      const res = await fetch(`/api/portal/customer/${customerId}/requests`, {
-        cache: "no-store",
-      });
-      const data = await res.json();
-      setRequests(data.requests || []);
+      try {
+        const res = await fetch(`/api/portal/customer/${customerId}/requests`, {
+          cache: "no-store",
+        });
+        const data = await res.json();
+        setRequests(data.requests || []);
+      } catch (err) {
+        console.error("Failed to load requests", err);
+      }
     })();
   }, [customerId]);
 
@@ -136,8 +139,9 @@ export default function RequestsPanel({
             }
             status={r.status}
             meta={[
-              { label: "Plate", value: r.vehicle?.plate },
-              { label: "VIN", value: r.vehicle?.vin },
+              // FIX: Handle undefined values explicitly to avoid type errors
+              { label: "Plate", value: r.vehicle?.plate ?? null },
+              { label: "VIN", value: r.vehicle?.vin ?? null },
             ]}
           />
 
