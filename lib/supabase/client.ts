@@ -7,6 +7,7 @@ export function supabaseBrowser() {
   let manualAccessToken: string | undefined = undefined;
 
   if (typeof document !== "undefined") {
+    // Look for your specific cookie name
     const match = document.cookie
       .split("; ")
       .find((row) => row.startsWith("sb-revlet-auth-token="));
@@ -14,14 +15,24 @@ export function supabaseBrowser() {
     if (match) {
       const cookieValue = match.split("=")[1];
       try {
-        // Decode and Parse your custom JSON format
+        // Decode and Parse your custom JSON format if applicable
         const decodedValue = decodeURIComponent(cookieValue);
-        const session = JSON.parse(decodedValue);
-        if (session?.access_token) {
-          manualAccessToken = session.access_token;
+        // Attempt to parse as JSON (Supabase often stores session as JSON)
+        try {
+            const session = JSON.parse(decodedValue);
+            if (session?.access_token) {
+              manualAccessToken = session.access_token;
+            } else {
+                 // If JSON but no access_token property, might be the token itself?
+                 // Unlikely for sb- token, but good fallback logic.
+                 manualAccessToken = cookieValue;
+            }
+        } catch {
+             // If not JSON, assume it is the raw token string
+             manualAccessToken = cookieValue;
         }
       } catch (e) {
-        // Fallback: If not JSON, maybe it's just the token string
+        // Fallback
         manualAccessToken = cookieValue;
       }
     }
@@ -46,3 +57,6 @@ export function supabaseBrowser() {
     }
   );
 }
+
+// FIX: Export alias so other components can import 'createClient'
+export const createClient = supabaseBrowser;
