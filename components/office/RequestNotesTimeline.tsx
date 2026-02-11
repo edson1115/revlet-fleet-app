@@ -18,7 +18,7 @@ export function RequestNotesTimeline({ requestId }: { requestId: string }) {
   const [saving, setSaving] = useState(false);
 
   /* =====================================================
-     LOAD NOTES
+      LOAD NOTES
   ===================================================== */
   async function loadNotes() {
     setLoading(true);
@@ -33,7 +33,7 @@ export function RequestNotesTimeline({ requestId }: { requestId: string }) {
 
       if (js.ok && Array.isArray(js.notes)) {
         const ordered = [...js.notes].sort(
-          (a, b) =>
+          (a: any, b: any) =>
             new Date(a.created_at).getTime() -
             new Date(b.created_at).getTime()
         );
@@ -47,7 +47,7 @@ export function RequestNotesTimeline({ requestId }: { requestId: string }) {
   }
 
   /* =====================================================
-     ADD NOTE (OFFICE)
+      ADD NOTE (OFFICE)
   ===================================================== */
   async function addNote() {
     if (!newNote.trim() || saving) return;
@@ -84,6 +84,7 @@ export function RequestNotesTimeline({ requestId }: { requestId: string }) {
 
   useEffect(() => {
     loadNotes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requestId]);
 
   return (
@@ -138,9 +139,10 @@ export function RequestNotesTimeline({ requestId }: { requestId: string }) {
           "
         />
 
+        {/* FIX: Removed 'disabled' prop. Used className for styling. */}
         <TeslaButton
           onClick={addNote}
-          disabled={saving || !newNote.trim()}
+          className={saving || !newNote.trim() ? "opacity-50 pointer-events-none" : ""}
         >
           {saving ? "Saving…" : "Add Note"}
         </TeslaButton>
