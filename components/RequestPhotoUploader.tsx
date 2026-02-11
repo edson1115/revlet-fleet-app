@@ -2,12 +2,14 @@
 
 import { useState, useRef } from "react";
 import { useRequestPhotos } from "@/lib/hooks/useRequestPhotos";
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+// FIX: Use project's standard client
+import { createClient } from "@/lib/supabase/client";
 
 const BUCKET = "request-photos";
 
 export default function RequestPhotoUploader({ requestId }: { requestId: string }) {
-  const supabase = createClientComponentClient();
+  // FIX: Initialize with standard client
+  const supabase = createClient();
   const { uploadPhoto, photos, isLoading } = useRequestPhotos(requestId);
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -35,7 +37,7 @@ export default function RequestPhotoUploader({ requestId }: { requestId: string 
         data: { publicUrl },
       } = supabase.storage.from(BUCKET).getPublicUrl(path);
 
-      // Save into request_photos table
+      // Save into request_photos table via hook
       await uploadPhoto({
         url: publicUrl,
         kind,
@@ -91,7 +93,8 @@ export default function RequestPhotoUploader({ requestId }: { requestId: string 
         <div className="grid grid-cols-3 gap-3">
           {photos.map((p) => (
             <div key={p.id} className="border p-2 rounded shadow-sm bg-gray-50">
-              <img src={p.url} className="w-full rounded" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={p.url} className="w-full rounded" alt="uploaded" />
               <p className="text-xs text-center mt-1">{p.kind ?? "OTHER"}</p>
             </div>
           ))}
@@ -100,6 +103,3 @@ export default function RequestPhotoUploader({ requestId }: { requestId: string 
     </div>
   );
 }
-
-
-
