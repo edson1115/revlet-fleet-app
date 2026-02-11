@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef } from "react";
 
 export default function TimelineInteractive({
   current = null,
@@ -13,9 +13,11 @@ export default function TimelineInteractive({
   onChange?: (range: { start: string; end: string }) => void;
   onDragComplete?: (range: { start: string; end: string }) => void;
 }) {
+  // Selection state
   const [startPos, setStartPos] = useState<number | null>(null);
   const [endPos, setEndPos] = useState<number | null>(null);
 
+  // Drag state
   const [dragging, setDragging] = useState(false);
   const dragOffset = useRef<number>(0);
 
@@ -29,7 +31,9 @@ export default function TimelineInteractive({
     if (!bar) return null;
 
     const rect = bar.getBoundingClientRect();
-    const ratio = (px - rect.left) / rect.width;
+    // Clamp px within bar bounds
+    const clamedPx = Math.max(rect.left, Math.min(px, rect.right));
+    const ratio = (clamedPx - rect.left) / rect.width;
 
     const msStart = new Date().setHours(0, 0, 0, 0);
     const msEnd = msStart + 24 * 60 * 60 * 1000;
@@ -45,56 +49,58 @@ export default function TimelineInteractive({
     const s = new Date(startISO).getTime();
     const e = new Date(endISO).getTime();
 
-    return {
-      left: ((s - dayStart) / (dayEnd - dayStart)) * 100,
-      width: ((e - dayStart) / (dayEnd - dayStart)) * 100 - ((s - dayStart) / (dayEnd - dayStart)) * 100,
-    };
+    const left = ((s - dayStart) / (dayEnd - dayStart)) * 100;
+    const width = ((e - dayStart) / (dayEnd - dayStart)) * 100 - left;
+
+    return { left, width };
   }
 
   /////////////////////////////////////////////////////////
   // Mouse Events
   /////////////////////////////////////////////////////////
-  function handleStart(e: React.MouseEvent) {
+  function handleMouseDown(e: React.MouseEvent) {
     const bar = refBar.current;
     if (!bar) return;
 
-    // Check if user clicked ON the green scheduled block
+    const rect = bar.getBoundingClientRect();
+    const clickX = e.clientX;
+
+    // 1. Check if clicking on the EXISTING block (to drag it)
     if (current) {
-      const block = blockToPercent(current.start_at, current.end_at);
-      const rect = bar.getBoundingClientRect();
+      const { left, width } = blockToPercent(current.start_at, current.end_at);
+      
+      const pxLeft = rect.left + (left / 100) * rect.width;
+      const pxRight = pxLeft + (width / 100) * rect.width;
 
-      const pxLeft = rect.left + (block.left / 100) * rect.width;
-      const pxRight = pxLeft + (block.width / 100) * rect.width;
-
-      if (e.clientX >= pxLeft && e.clientX <= pxRight) {
-        // START DRAG
+      if (clickX >= pxLeft && clickX <= pxRight) {
         setDragging(true);
-        dragOffset.current = e.clientX - pxLeft;
+        dragOffset.current = clickX - pxLeft;
         return;
       }
     }
 
-    // NEW SELECTION
-    setStartPos(e.clientX);
-    setEndPos(null);
+    // 2. Otherwise, start NEW selection
+    setStartPos(clickX);
+    setEndPos(clickX); // Initialize endPos same as start
   }
 
-  function handleDrag(e: React.MouseEvent) {
+  function handleMouseMove(e: React.MouseEvent) {
+    const bar = refBar.current;
+    if (!bar) return;
+
+    // DRAGGING EXISTING BLOCK
     if (dragging && current) {
-      const bar = refBar.current;
-      if (!bar) return;
-
       const rect = bar.getBoundingClientRect();
-      const blockWidth =
-        blockToPercent(current.start_at, current.end_at).width;
+      const { width: widthPercent } = blockToPercent(current.start_at, current.end_at);
 
-      // New left position
-      const newLeftPx = e.clientX - dragOffset.current;
+      // Calculate new start position based on offset
+      let newLeftPx = e.clientX - dragOffset.current;
+      
+      // Boundaries
+      // newLeftPx = Math.max(rect.left, Math.min(newLeftPx, rect.right - (widthPercent / 100) * rect.width));
 
       const startIso = pxToIso(newLeftPx);
-      const endIso = pxToIso(
-        newLeftPx + (blockWidth / 100) * rect.width
-      );
+      const endIso = pxToIso(newLeftPx + (widthPercent / 100) * rect.width);
 
       if (startIso && endIso && onChange) {
         onChange({ start: startIso, end: endIso });
@@ -102,46 +108,67 @@ export default function TimelineInteractive({
       return;
     }
 
+    // CREATING NEW SELECTION
     if (startPos !== null) {
       setEndPos(e.clientX);
     }
   }
 
-  function handleEnd() {
-    if (dragging && onDragComplete && startPos === null) {
-      // Drag complete
-      if (onChange) {
+  function handleMouseUp(e: React.MouseEvent) {
+    // 1. End Dragging
+    if (dragging) {
+      if (onDragComplete && current) {
+        // FIX: Use 'current' prop which holds the latest dragged values
         onDragComplete({
-          start: onChange.start,
-          end: onChange.end,
-        } as any);
+          start: current.start_at,
+          end: current.end_at,
+        });
+      }
+      setDragging(false);
+      return;
+    }
+
+    // 2. End New Selection
+    if (startPos !== null && endPos !== null && onChange) {
+      // Differentiate click vs drag
+      if (Math.abs(startPos - endPos) < 5) {
+        // It was just a click, reset
+        setStartPos(null);
+        setEndPos(null);
+        return;
+      }
+
+      const startPx = Math.min(startPos, endPos);
+      const endPx = Math.max(startPos, endPos);
+      
+      const isoStart = pxToIso(startPx);
+      const isoEnd = pxToIso(endPx);
+
+      if (isoStart && isoEnd) {
+        onChange({ start: isoStart, end: isoEnd });
+        if (onDragComplete) {
+            onDragComplete({ start: isoStart, end: isoEnd });
+        }
       }
     }
 
-    if (startPos !== null && endPos !== null && onChange) {
-      const start = Math.min(startPos, endPos);
-      const end = Math.max(startPos, endPos);
-      const isoStart = pxToIso(start);
-      const isoEnd = pxToIso(end);
-      if (isoStart && isoEnd) onChange({ start: isoStart, end: isoEnd });
-    }
-
-    setDragging(false);
     setStartPos(null);
     setEndPos(null);
   }
 
-  /////////////////////////////////////////////////////////
-  // Render
-  /////////////////////////////////////////////////////////
   return (
     <div className="space-y-2 select-none">
       <div
         ref={refBar}
-        onMouseDown={handleStart}
-        onMouseMove={handleDrag}
-        onMouseUp={handleEnd}
-        className="relative h-16 bg-gray-100 rounded-lg overflow-hidden border border-gray-300 cursor-crosshair"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={() => {
+           if(dragging) handleMouseUp(null as any);
+           setStartPos(null);
+           setEndPos(null);
+        }}
+        className="relative h-16 bg-gray-100 rounded-lg overflow-hidden border border-gray-300 cursor-crosshair touch-none"
       >
         {/* BUSY BLOCKS (gray) */}
         {busyBlocks.map((b, i) => {
@@ -149,8 +176,9 @@ export default function TimelineInteractive({
           return (
             <div
               key={i}
-              className="absolute top-0 h-full bg-gray-400/50 rounded"
+              className="absolute top-0 h-full bg-gray-300/50 border-r border-white/20"
               style={{ left: `${left}%`, width: `${width}%` }}
+              title="Busy"
             />
           );
         })}
@@ -158,37 +186,38 @@ export default function TimelineInteractive({
         {/* CURRENT SCHEDULED BLOCK (green) */}
         {current && (
           <div
-            className="absolute top-0 h-full rounded bg-[#80FF44]/40 border border-[#80FF44]"
+            className="absolute top-0 h-full bg-[#80FF44]/60 border-l-2 border-r-2 border-[#5cb82a] shadow-sm z-10 cursor-move"
             style={{
               left: `${blockToPercent(current.start_at, current.end_at).left}%`,
               width: `${blockToPercent(current.start_at, current.end_at).width}%`,
             }}
-          />
+          >
+             <div className="w-full h-full flex items-center justify-center text-[10px] font-bold text-[#2a5c12] opacity-0 hover:opacity-100 transition-opacity">
+                DRAG
+             </div>
+          </div>
         )}
 
-        {/* NEW SELECTION */}
-        {startPos !== null && endPos !== null && (
+        {/* NEW SELECTION HIGHLIGHT (while dragging to create) */}
+        {startPos !== null && endPos !== null && !dragging && (
           <div
-            className="absolute top-0 h-full bg-green-300/40 rounded"
+            className="absolute top-0 h-full bg-blue-400/30 border border-blue-500 z-20"
             style={{
-              left: `${Math.min(startPos, endPos) -
-                refBar.current!.getBoundingClientRect().left}px`,
+              left: `${Math.min(startPos, endPos) - (refBar.current?.getBoundingClientRect().left || 0)}px`,
               width: `${Math.abs(endPos - startPos)}px`,
             }}
           />
         )}
       </div>
 
-      <div className="flex justify-between text-xs text-gray-500 px-1">
+      {/* Time Labels */}
+      <div className="flex justify-between text-[10px] text-gray-400 px-1 font-mono uppercase tracking-wider">
         <span>12 AM</span>
         <span>6 AM</span>
         <span>12 PM</span>
         <span>6 PM</span>
-        <span>12 AM</span>
+        <span>11:59 PM</span>
       </div>
     </div>
   );
 }
-
-
-
