@@ -4,8 +4,30 @@ import { useEffect, useState } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 import clsx from "clsx";
 
-const IconX = () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>;
-const IconLock = () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>;
+// FIX: Update icons to accept className prop to fix type error
+const IconX = ({ className }: { className?: string }) => (
+  <svg 
+    className={clsx("w-5 h-5", className)} 
+    fill="none" 
+    viewBox="0 0 24 24" 
+    stroke="currentColor" 
+    strokeWidth={2}
+  >
+    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+  </svg>
+);
+
+const IconLock = ({ className }: { className?: string }) => (
+  <svg 
+    className={clsx("w-4 h-4", className)} 
+    fill="none" 
+    viewBox="0 0 24 24" 
+    stroke="currentColor" 
+    strokeWidth={2}
+  >
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+  </svg>
+);
 
 export default function TrophyModal({ userId, onClose }: { userId: string, onClose: () => void }) {
   const [badges, setBadges] = useState<any[]>([]);
@@ -58,43 +80,43 @@ export default function TrophyModal({ userId, onClose }: { userId: string, onClo
           ) : (
              badges.map((badge) => (
                 <div 
-                    key={badge.id} 
-                    className={clsx(
-                        "relative p-4 rounded-2xl border flex flex-col items-center text-center gap-3 transition-all duration-500",
-                        badge.unlocked 
-                            ? "bg-gradient-to-b from-zinc-800 to-zinc-900 border-yellow-500/30 shadow-lg shadow-yellow-900/10" 
-                            : "bg-zinc-900/50 border-zinc-800 opacity-60 grayscale"
-                    )}
+                   key={badge.id} 
+                   className={clsx(
+                       "relative p-4 rounded-2xl border flex flex-col items-center text-center gap-3 transition-all duration-500",
+                       badge.unlocked 
+                           ? "bg-gradient-to-b from-zinc-800 to-zinc-900 border-yellow-500/30 shadow-lg shadow-yellow-900/10" 
+                           : "bg-zinc-900/50 border-zinc-800 opacity-60 grayscale"
+                   )}
                 >
-                    {/* Icon Bubble */}
-                    <div className={clsx(
-                        "w-16 h-16 rounded-full flex items-center justify-center text-3xl shadow-inner",
-                        badge.unlocked ? "bg-black/40" : "bg-black/20"
-                    )}>
-                        {badge.unlocked ? badge.icon : <IconLock className="text-zinc-600" />}
-                    </div>
+                   {/* Icon Bubble */}
+                   <div className={clsx(
+                       "w-16 h-16 rounded-full flex items-center justify-center text-3xl shadow-inner",
+                       badge.unlocked ? "bg-black/40" : "bg-black/20"
+                   )}>
+                       {badge.unlocked ? badge.icon : <IconLock className="text-zinc-600" />}
+                   </div>
 
-                    <div>
-                        <div className={clsx("font-black text-sm uppercase tracking-wide", badge.unlocked ? "text-white" : "text-zinc-500")}>
-                            {badge.name}
-                        </div>
-                        <div className="text-[10px] font-medium text-zinc-500 leading-tight mt-1 px-2">
-                            {badge.description}
-                        </div>
-                    </div>
+                   <div>
+                       <div className={clsx("font-black text-sm uppercase tracking-wide", badge.unlocked ? "text-white" : "text-zinc-500")}>
+                           {badge.name}
+                       </div>
+                       <div className="text-[10px] font-medium text-zinc-500 leading-tight mt-1 px-2">
+                           {badge.description}
+                       </div>
+                   </div>
 
-                    {/* Status Footer */}
-                    <div className="mt-auto pt-3 w-full border-t border-white/5">
-                        {badge.unlocked ? (
-                            <div className="text-[9px] font-bold text-yellow-500 uppercase tracking-widest animate-pulse">
-                                Unlocked {new Date(badge.earned_at).toLocaleDateString()}
-                            </div>
-                        ) : (
-                            <div className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">
-                                Locked • +{badge.xp_bonus} XP
-                            </div>
-                        )}
-                    </div>
+                   {/* Status Footer */}
+                   <div className="mt-auto pt-3 w-full border-t border-white/5">
+                       {badge.unlocked ? (
+                           <div className="text-[9px] font-bold text-yellow-500 uppercase tracking-widest animate-pulse">
+                               Unlocked {new Date(badge.earned_at).toLocaleDateString()}
+                           </div>
+                       ) : (
+                           <div className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">
+                               Locked • +{badge.xp_bonus} XP
+                           </div>
+                       )}
+                   </div>
                 </div>
              ))
           )}
