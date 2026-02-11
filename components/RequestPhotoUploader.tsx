@@ -2,15 +2,15 @@
 
 import { useState, useRef } from "react";
 import { useRequestPhotos } from "@/lib/hooks/useRequestPhotos";
-// FIX: Use project's standard client
 import { createClient } from "@/lib/supabase/client";
 
 const BUCKET = "request-photos";
 
 export default function RequestPhotoUploader({ requestId }: { requestId: string }) {
-  // FIX: Initialize with standard client
   const supabase = createClient();
-  const { uploadPhoto, photos, isLoading } = useRequestPhotos(requestId);
+  // FIX: Destructure 'refresh' instead of 'uploadPhoto' (which doesn't exist)
+  // The hook returns { photos, loading, error, refresh }
+  const { photos, refresh, loading: isLoading } = useRequestPhotos(requestId) as any;
 
   const inputRef = useRef<HTMLInputElement>(null);
   const [kind, setKind] = useState<"BEFORE" | "AFTER" | "OTHER">("BEFORE");
@@ -25,28 +25,37 @@ export default function RequestPhotoUploader({ requestId }: { requestId: string 
       const ext = file.name.split(".").pop();
       const path = `${requestId}/${Date.now()}.${ext}`;
 
-      // Upload to Supabase Storage
-      const { data, error: uploadErr } = await supabase.storage
+      // 1. Upload to Supabase Storage
+      const { error: uploadErr } = await supabase.storage
         .from(BUCKET)
         .upload(path, file);
 
       if (uploadErr) throw uploadErr;
 
-      // Make URL
+      // 2. Get Public URL
       const {
         data: { publicUrl },
       } = supabase.storage.from(BUCKET).getPublicUrl(path);
 
-      // Save into request_photos table via hook
-      await uploadPhoto({
-        url: publicUrl,
-        kind,
-      });
+      // 3. Manually Insert into DB (since hook doesn't have uploadPhoto)
+      const { error: dbError } = await supabase
+        .from("request_photos")
+        .insert({
+          request_id: requestId,
+          url: publicUrl,
+          kind: kind,
+          created_at: new Date().toISOString()
+        });
+
+      if (dbError) throw dbError;
+
+      // 4. Refresh the list
+      if (refresh) refresh();
 
       if (inputRef.current) inputRef.current.value = "";
     } catch (err) {
       console.error("Upload failed", err);
-      alert("Upload failed");
+      alert("Upload failed. Please try again.");
     } finally {
       setUploading(false);
     }
@@ -87,14 +96,14 @@ export default function RequestPhotoUploader({ requestId }: { requestId: string 
 
       {isLoading ? (
         <p className="text-sm text-gray-600">Loading...</p>
-      ) : photos.length === 0 ? (
+      ) : !photos || photos.length === 0 ? (
         <p className="text-sm text-gray-500">No photos yet</p>
       ) : (
         <div className="grid grid-cols-3 gap-3">
-          {photos.map((p) => (
+          {photos.map((p: any) => (
             <div key={p.id} className="border p-2 rounded shadow-sm bg-gray-50">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={p.url} className="w-full rounded" alt="uploaded" />
+              <img src={p.url} className="w-full rounded" alt={p.kind} />
               <p className="text-xs text-center mt-1">{p.kind ?? "OTHER"}</p>
             </div>
           ))}
