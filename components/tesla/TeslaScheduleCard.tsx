@@ -16,10 +16,15 @@ interface TeslaScheduleCardProps {
 }
 
 export default function TeslaScheduleCard(props: TeslaScheduleCardProps) {
-  // Normalize props to support both usage patterns
+  // Normalize props
   const reqId = props.requestId || props.request?.id;
   const start = props.scheduled_start_at || props.request?.scheduled_start_at;
   const end = props.scheduled_end_at || props.request?.scheduled_end_at;
+
+  // Extract technician info safely for AssignClient
+  // We try to get it from the request object if available
+  const technicianId = props.request?.technician_id || props.request?.technician?.id || null;
+  const technicianInitial = props.request?.technician || null;
 
   function fmt(d?: string | null) {
     if (!d) return "—";
@@ -55,7 +60,12 @@ export default function TeslaScheduleCard(props: TeslaScheduleCardProps) {
       </div>
 
       {/* DISPATCH ASSIGNMENT */}
-      <AssignClient requestId={reqId} />
+      <AssignClient 
+        requestId={reqId} 
+        technicianId={technicianId}
+        initial={technicianInitial}
+        onClose={props.onRefresh}
+      />
     </div>
   );
 }
