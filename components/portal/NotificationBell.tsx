@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
-import NotificationDropdown from "./NotificationDropdown";
+import NotificationDropdown from "./NotificationDropdown"; // Ensure this path is correct
 
 export default function NotificationBell() {
   const supabase = supabaseBrowser();
@@ -13,27 +13,35 @@ export default function NotificationBell() {
 
   // load recent activity
   async function load() {
-    const res = await fetch("/api/portal/activity?limit=20", {
-      credentials: "include",
-      cache: "no-store",
-    });
-    const js = await res.json();
-    const list = js.data || [];
+    try {
+      const res = await fetch("/api/portal/activity?limit=20", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const js = await res.json();
+      const list = js.data || [];
 
-    setItems(list);
+      setItems(list);
 
-    // any unseen entries?
-    const unseen = list.filter((i: any) => !i.seen).length;
-    setUnreadCount(unseen);
+      // any unseen entries?
+      const unseen = list.filter((i: any) => !i.seen).length;
+      setUnreadCount(unseen);
+    } catch (e) {
+      console.error("Failed to load notifications", e);
+    }
   }
 
   // mark all as seen
   async function clearUnread() {
     setUnreadCount(0);
-    await fetch("/api/portal/activity/seen", {
-      method: "POST",
-      credentials: "include",
-    });
+    try {
+      await fetch("/api/portal/activity/seen", {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch (e) {
+      console.error("Failed to clear notifications", e);
+    }
   }
 
   useEffect(() => {
@@ -46,11 +54,15 @@ export default function NotificationBell() {
       .on(
         "postgres_changes",
         { schema: "public", table: "activity_feed", event: "*" },
-        load
+        () => load()
       )
       .subscribe();
 
-    return () => supabase.removeChannel(ch);
+    // FIX: Cleanup function must return void, not a Promise
+    return () => {
+      supabase.removeChannel(ch);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function toggle() {
@@ -90,6 +102,3 @@ export default function NotificationBell() {
     </div>
   );
 }
-
-
-
