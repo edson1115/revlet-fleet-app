@@ -1,6 +1,12 @@
 "use client";
 
-export function TeslaVehicleCard({ vehicle, onClick }) {
+export function TeslaVehicleCard({ 
+  vehicle, 
+  onClick 
+}: { 
+  vehicle: any; 
+  onClick?: () => void 
+}) {
   return (
     <div
       onClick={onClick}
