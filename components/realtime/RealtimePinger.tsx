@@ -36,11 +36,11 @@ export default function RealtimePinger({ role, userId }: { role: "OFFICE" | "CUS
         'postgres_changes',
         { event: '*', schema: 'public', table: 'service_requests' },
         (payload) => {
-            const { eventType, new: newRecord, old: oldRecord } = payload;
+            const eventType = payload.eventType;
+            // FIX: Cast to any to prevent TypeScript errors when accessing properties
+            const newRecord = payload.new as any;
+            const oldRecord = payload.old as any;
             
-            // 🔍 DEBUG: See what came in from the DB
-            // console.log("⚡ [Pinger] Event Received:", eventType, newRecord);
-
             // ------------------------------------------
             // 🔔 LOGIC 1: OFFICE / DISPATCH PING
             // ------------------------------------------
@@ -50,7 +50,7 @@ export default function RealtimePinger({ role, userId }: { role: "OFFICE" | "CUS
                     toast.message("🔔 New Request", { description: `${newRecord.service_title || "Service"} requested.` });
                 }
                 
-                if (eventType === "UPDATE" && newRecord.status === "READY_TO_SCHEDULE" && oldRecord.status !== "READY_TO_SCHEDULE") {
+                if (eventType === "UPDATE" && newRecord.status === "READY_TO_SCHEDULE" && oldRecord?.status !== "READY_TO_SCHEDULE") {
                     PLAY_SOUND();
                     toast.success("✅ Approved & Ready", { description: "Ticket is ready for dispatching." });
                 }
@@ -69,7 +69,7 @@ export default function RealtimePinger({ role, userId }: { role: "OFFICE" | "CUS
                 }
 
                 // If we get here, the ID matched!
-                if (eventType === "UPDATE" && newRecord.status !== oldRecord.status) {
+                if (eventType === "UPDATE" && newRecord.status !== oldRecord?.status) {
                     
                     PLAY_SOUND(); // 🎵 Try to play sound
                     
@@ -87,9 +87,9 @@ export default function RealtimePinger({ role, userId }: { role: "OFFICE" | "CUS
                             duration: 10000,
                         });
                     } else if (newRecord.status === "APPROVED_AND_SCHEDULING") {
-                         toast.success("✅ Request Approved", {
-                            description: "Dispatch is now scheduling your tech."
-                         });
+                          toast.success("✅ Request Approved", {
+                             description: "Dispatch is now scheduling your tech."
+                          });
                     } else {
                         toast.info(`Status Update: ${statusPretty}`);
                     }
@@ -102,7 +102,7 @@ export default function RealtimePinger({ role, userId }: { role: "OFFICE" | "CUS
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [role, userId]);
+  }, [role, userId, supabase]);
 
   return null; 
 }
