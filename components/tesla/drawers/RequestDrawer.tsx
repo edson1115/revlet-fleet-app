@@ -4,7 +4,15 @@ import { useEffect } from "react";
 import { TeslaTimeline } from "../TeslaTimeline";
 import { TeslaStatusBadge } from "../TeslaStatusBadge";
 
-export function RequestDrawer({ open, onClose, request }) {
+export function RequestDrawer({ 
+  open, 
+  onClose, 
+  request 
+}: { 
+  open: boolean; 
+  onClose: () => void; 
+  request: any; 
+}) {
   useEffect(() => {
     document.body.style.overflow = open ? "hidden" : "auto";
   }, [open]);
