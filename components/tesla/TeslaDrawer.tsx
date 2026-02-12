@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { TeslaStatusChip } from "./TeslaStatusChip";
-import TeslaTimeline from "./TeslaTimeline";
+import { TeslaTimeline } from "./TeslaTimeline";
 import TeslaScheduleCard from "./TeslaScheduleCard";
 import TeslaTechAssignCard from "./TeslaTechAssignCard";
 import { TeslaPartsCard } from "./TeslaPartsCard";
