@@ -49,7 +49,7 @@ export default function TeslaVehicleDrawer({
   const [providers, setProviders] = useState<any[]>([]);
   const [uploading, setUploading] = useState(false);
 
-  // Editable form (kept stable in hook order)
+  // Editable form
   const [form, setForm] = useState({
     year: "",
     make: "",
@@ -74,7 +74,7 @@ export default function TeslaVehicleDrawer({
       unit_number: vehicle.unit_number ?? "",
       provider_company_id: vehicle.provider_company_id ?? "",
     });
-  }, [vehicle?.id]); // re-sync when switching vehicles
+  }, [vehicle?.id]);
 
   // ------------------------------
   // Load FMC providers
@@ -108,7 +108,7 @@ export default function TeslaVehicleDrawer({
   }, [open, vehicle?.id]);
 
   // ------------------------------
-  // Health photo list (derive fresh each render)
+  // Health photo list
   // ------------------------------
   const healthPhotos: string[] = [
     vehicle?.health_photo_1 || "",
@@ -117,7 +117,7 @@ export default function TeslaVehicleDrawer({
   ].filter(Boolean) as string[];
 
   // ------------------------------
-  // Save edits (inline)
+  // Save edits
   // ------------------------------
   const saveEdits = useCallback(async () => {
     if (!vehicle?.id) return;
@@ -141,7 +141,7 @@ export default function TeslaVehicleDrawer({
   }, [vehicle?.id, form]);
 
   // ------------------------------
-  // Refresh vehicle (pull latest)
+  // Refresh vehicle
   // ------------------------------
   const refreshVehicle = useCallback(async () => {
     if (!vehicle?.id) return;
@@ -226,7 +226,7 @@ export default function TeslaVehicleDrawer({
   }, [open, onClose]);
 
   // ------------------------------
-  // Framer motion variants (Tesla gravity)
+  // Framer motion variants
   // ------------------------------
   const backdropVariants = {
     hidden: { opacity: 0 },
@@ -234,26 +234,25 @@ export default function TeslaVehicleDrawer({
     exit: { opacity: 0 },
   };
 
-  // Overshoot spring to mimic Tesla’s “gravity” feel
   const panelVariants = {
     hidden: { x: "100%" },
     visible: {
       x: 0,
       transition: {
-        type: "spring" as const, // FIX: Added "as const"
+        type: "spring" as const,
         stiffness: 600,
         damping: 40,
         mass: 0.8,
-        // small overshoot feel
         restDelta: 0.5,
       },
     },
     exit: {
       x: "100%",
       transition: { 
-        type: "tween" as const, // FIX: Added "as const"
+        type: "tween" as const, 
         duration: 0.22, 
-        ease: [0.4, 0, 1, 1] 
+        // FIX: Cast array to tuple [number, number, number, number] for Framer Motion types
+        ease: [0.4, 0, 1, 1] as [number, number, number, number] 
       },
     },
   };
@@ -272,7 +271,6 @@ export default function TeslaVehicleDrawer({
         variants={backdropVariants}
         onClick={onClose}
       >
-        {/* Stop click-through on the panel itself */}
         <motion.div
           role="document"
           onClick={(e) => e.stopPropagation()}
@@ -287,20 +285,12 @@ export default function TeslaVehicleDrawer({
               </h2>
 
               <div className="text-sm mt-1 text-gray-600 space-y-1">
-                <div>
-                  <strong>Unit:</strong> {vehicle.unit_number || "—"}
-                </div>
-                <div>
-                  <strong>Plate:</strong> {vehicle.plate || "—"}
-                </div>
-                <div>
-                  <strong>VIN:</strong> {vehicle.vin || "—"}
-                </div>
+                <div><strong>Unit:</strong> {vehicle.unit_number || "—"}</div>
+                <div><strong>Plate:</strong> {vehicle.plate || "—"}</div>
+                <div><strong>VIN:</strong> {vehicle.vin || "—"}</div>
                 <div>
                   <strong>Mileage:</strong>{" "}
-                  {vehicle.mileage_override ??
-                    vehicle.last_reported_mileage ??
-                    "—"}
+                  {vehicle.mileage_override ?? vehicle.last_reported_mileage ?? "—"}
                 </div>
               </div>
             </div>
@@ -325,60 +315,23 @@ export default function TeslaVehicleDrawer({
           {editOpen && (
             <div className="p-4 mb-8 bg-gray-50 border rounded-xl space-y-4 animate-fade-in">
               <h3 className="text-lg font-semibold">Edit Vehicle</h3>
+              <Field label="Year" value={form.year} onChange={(e: any) => setForm({ ...form, year: e.target.value })} />
+              <Field label="Make" value={form.make} onChange={(e: any) => setForm({ ...form, make: e.target.value })} />
+              <Field label="Model" value={form.model} onChange={(e: any) => setForm({ ...form, model: e.target.value })} />
+              <Field label="Plate" value={form.plate} onChange={(e: any) => setForm({ ...form, plate: e.target.value })} />
+              <Field label="Unit Number" value={form.unit_number} onChange={(e: any) => setForm({ ...form, unit_number: e.target.value })} />
+              <Field label="VIN" value={form.vin} onChange={(e: any) => setForm({ ...form, vin: e.target.value })} />
 
-              <Field
-                label="Year"
-                value={form.year}
-                onChange={(e: any) => setForm({ ...form, year: e.target.value })}
-              />
-              <Field
-                label="Make"
-                value={form.make}
-                onChange={(e: any) => setForm({ ...form, make: e.target.value })}
-              />
-              <Field
-                label="Model"
-                value={form.model}
-                onChange={(e: any) => setForm({ ...form, model: e.target.value })}
-              />
-              <Field
-                label="Plate"
-                value={form.plate}
-                onChange={(e: any) => setForm({ ...form, plate: e.target.value })}
-              />
-              <Field
-                label="Unit Number"
-                value={form.unit_number}
-                onChange={(e: any) =>
-                  setForm({ ...form, unit_number: e.target.value })
-                }
-              />
-              <Field
-                label="VIN"
-                value={form.vin}
-                onChange={(e: any) => setForm({ ...form, vin: e.target.value })}
-              />
-
-              {/* Provider (FMC) */}
               <div>
-                <label className="text-sm font-medium">
-                  Fleet Management Company (FMC)
-                </label>
+                <label className="text-sm font-medium">Fleet Management Company (FMC)</label>
                 <select
                   className="w-full border rounded-lg px-3 py-2 mt-1"
                   value={form.provider_company_id}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      provider_company_id: e.target.value,
-                    })
-                  }
+                  onChange={(e) => setForm({ ...form, provider_company_id: e.target.value })}
                 >
                   <option value="">None</option>
                   {providers.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
+                    <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
                 </select>
               </div>
@@ -393,19 +346,12 @@ export default function TeslaVehicleDrawer({
             </div>
           )}
 
-          {/* VEHICLE HEALTH (3 slots + uploader) */}
+          {/* VEHICLE HEALTH */}
           <div className="mb-8">
             <h3 className="text-lg font-semibold mb-3">Vehicle Health</h3>
-
             <div className="grid grid-cols-3 gap-3 mb-4">
               {[1, 2, 3].map((slot) => {
-                const src =
-                  slot === 1
-                    ? vehicle.health_photo_1
-                    : slot === 2
-                    ? vehicle.health_photo_2
-                    : vehicle.health_photo_3;
-
+                const src = slot === 1 ? vehicle.health_photo_1 : slot === 2 ? vehicle.health_photo_2 : vehicle.health_photo_3;
                 return (
                   <div key={slot} className="relative group">
                     {src ? (
@@ -428,7 +374,6 @@ export default function TeslaVehicleDrawer({
                         + Add
                       </button>
                     )}
-
                     {src && (
                       <button
                         type="button"
@@ -442,10 +387,7 @@ export default function TeslaVehicleDrawer({
                 );
               })}
             </div>
-
-            {uploading && (
-              <div className="text-sm text-gray-500">Uploading photo…</div>
-            )}
+            {uploading && <div className="text-sm text-gray-500">Uploading photo…</div>}
           </div>
 
           {/* ACTION BUTTONS */}
@@ -476,30 +418,10 @@ export default function TeslaVehicleDrawer({
           {aiScan && (
             <div className="mb-8 p-4 rounded-xl bg-gray-50 border space-y-3 animate-fade-in">
               <h3 className="font-semibold text-lg">AI Scan Results</h3>
-
               <div className="text-sm text-gray-700">{aiScan.summary}</div>
-
-              {aiScan.detected_issues?.length > 0 && (
-                <SectionList
-                  title="Detected Issues"
-                  items={aiScan.detected_issues}
-                />
-              )}
-
-              {aiScan.maintenance_recommendations?.length > 0 && (
-                <SectionList
-                  title="Maintenance Recommendations"
-                  items={aiScan.maintenance_recommendations}
-                />
-              )}
-
-              {aiScan.parts_suggestions?.length > 0 && (
-                <SectionList
-                  title="Parts Suggestions"
-                  items={aiScan.parts_suggestions}
-                />
-              )}
-
+              {aiScan.detected_issues?.length > 0 && <SectionList title="Detected Issues" items={aiScan.detected_issues} />}
+              {aiScan.maintenance_recommendations?.length > 0 && <SectionList title="Maintenance Recommendations" items={aiScan.maintenance_recommendations} />}
+              {aiScan.parts_suggestions?.length > 0 && <SectionList title="Parts Suggestions" items={aiScan.parts_suggestions} />}
               {aiScan.next_service_miles && (
                 <div className="text-sm text-gray-800">
                   <strong>Next Service:</strong> {aiScan.next_service_miles}
@@ -511,15 +433,8 @@ export default function TeslaVehicleDrawer({
           {/* RECENT SERVICES */}
           <div className="mb-4">
             <h3 className="text-lg font-semibold mb-3">Recent Services</h3>
-
-            {loadingReq && (
-              <div className="text-sm text-gray-500">Loading…</div>
-            )}
-
-            {!loadingReq && requests.length === 0 && (
-              <div className="text-sm text-gray-400">No service history.</div>
-            )}
-
+            {loadingReq && <div className="text-sm text-gray-500">Loading…</div>}
+            {!loadingReq && requests.length === 0 && <div className="text-sm text-gray-400">No service history.</div>}
             <div className="space-y-3">
               {requests.map((r: any) => (
                 <Link
@@ -527,30 +442,23 @@ export default function TeslaVehicleDrawer({
                   href={`/customer/requests/${r.id}`}
                   className="block border rounded-lg p-3 hover:bg-gray-50 transition"
                 >
-                  <div className="font-medium text-gray-800">
-                    {r.service_type || "General Service"}
-                  </div>
-
+                  <div className="font-medium text-gray-800">{r.service_type || "General Service"}</div>
                   <div className="text-sm text-gray-500 flex justify-between mt-1">
                     <span>{new Date(r.created_at).toLocaleDateString()}</span>
-                    <span className="px-2 py-0.5 rounded-full text-xs bg-gray-200">
-                      {r.status}
-                    </span>
+                    <span className="px-2 py-0.5 rounded-full text-xs bg-gray-200">{r.status}</span>
                   </div>
                 </Link>
               ))}
             </div>
           </div>
 
-          {/* AI SCAN MODAL */}
+          {/* MODALS */}
           <TeslaAIScanModal
             open={scanOpen}
             vehicleId={vehicle.id}
             onClose={() => setScanOpen(false)}
             onResult={(data) => setAiScan(data)}
           />
-
-          {/* FULL PHOTO VIEWER */}
           {viewerOpen && (
             <TeslaPhotoViewer
               photos={healthPhotos}
@@ -564,27 +472,11 @@ export default function TeslaVehicleDrawer({
   );
 }
 
-/* -------------------------------------------------------
-   Helper Components
-------------------------------------------------------- */
-
-function Field({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: any;
-  onChange: any;
-}) {
+function Field({ label, value, onChange }: { label: string; value: any; onChange: any }) {
   return (
     <div className="space-y-1">
       <label className="text-sm font-medium">{label}</label>
-      <input
-        value={value}
-        onChange={onChange}
-        className="w-full border rounded-lg px-3 py-2"
-      />
+      <input value={value} onChange={onChange} className="w-full border rounded-lg px-3 py-2" />
     </div>
   );
 }
@@ -594,9 +486,7 @@ function SectionList({ title, items }: { title: string; items: string[] }) {
     <div>
       <h4 className="font-medium">{title}</h4>
       <ul className="list-disc ml-6 text-sm text-gray-700">
-        {items.map((i: any, idx: number) => (
-          <li key={idx}>{i}</li>
-        ))}
+        {items.map((i: any, idx: number) => <li key={idx}>{i}</li>)}
       </ul>
     </div>
   );
