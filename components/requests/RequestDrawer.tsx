@@ -1,4 +1,3 @@
-// components/request/RequestDrawer.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -163,10 +162,11 @@ export default function RequestDrawer({
               <RequestPartsPanel requestId={id} />
 
               {/* NOTES */}
+              {/* FIX: Use nullish coalescing to ensure notes are never undefined */}
               <RequestNotesPanel
                 id={id}
-                notes={row.notes}
-                dispatchNotes={row.dispatch_notes}
+                notes={row.notes ?? null}
+                dispatchNotes={row.dispatch_notes ?? null}
                 refresh={refresh}
               />
 
