@@ -1,6 +1,6 @@
 "use client";
 
-export function TeslaAdminCustomerRow({ customer }) {
+export function TeslaAdminCustomerRow({ customer }: { customer: any }) {
   return (
     <div className="p-4 hover:bg-gray-50 transition-all cursor-pointer">
       <div className="flex justify-between items-center">
