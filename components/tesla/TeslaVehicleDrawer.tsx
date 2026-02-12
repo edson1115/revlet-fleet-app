@@ -240,7 +240,7 @@ export default function TeslaVehicleDrawer({
     visible: {
       x: 0,
       transition: {
-        type: "spring",
+        type: "spring" as const, // FIX: Added "as const"
         stiffness: 600,
         damping: 40,
         mass: 0.8,
@@ -250,7 +250,11 @@ export default function TeslaVehicleDrawer({
     },
     exit: {
       x: "100%",
-      transition: { type: "tween", duration: 0.22, ease: [0.4, 0, 1, 1] },
+      transition: { 
+        type: "tween" as const, // FIX: Added "as const"
+        duration: 0.22, 
+        ease: [0.4, 0, 1, 1] 
+      },
     },
   };
 
@@ -325,34 +329,34 @@ export default function TeslaVehicleDrawer({
               <Field
                 label="Year"
                 value={form.year}
-                onChange={(e) => setForm({ ...form, year: e.target.value })}
+                onChange={(e: any) => setForm({ ...form, year: e.target.value })}
               />
               <Field
                 label="Make"
                 value={form.make}
-                onChange={(e) => setForm({ ...form, make: e.target.value })}
+                onChange={(e: any) => setForm({ ...form, make: e.target.value })}
               />
               <Field
                 label="Model"
                 value={form.model}
-                onChange={(e) => setForm({ ...form, model: e.target.value })}
+                onChange={(e: any) => setForm({ ...form, model: e.target.value })}
               />
               <Field
                 label="Plate"
                 value={form.plate}
-                onChange={(e) => setForm({ ...form, plate: e.target.value })}
+                onChange={(e: any) => setForm({ ...form, plate: e.target.value })}
               />
               <Field
                 label="Unit Number"
                 value={form.unit_number}
-                onChange={(e) =>
+                onChange={(e: any) =>
                   setForm({ ...form, unit_number: e.target.value })
                 }
               />
               <Field
                 label="VIN"
                 value={form.vin}
-                onChange={(e) => setForm({ ...form, vin: e.target.value })}
+                onChange={(e: any) => setForm({ ...form, vin: e.target.value })}
               />
 
               {/* Provider (FMC) */}
