@@ -3,15 +3,24 @@
 import React from "react";
 import AssignClient from "@/components/dispatch/assign/ui/AssignClient";
 
-export default function TeslaScheduleCard({
-  scheduled_start_at,
-  scheduled_end_at,
-  requestId,
-}: {
+interface TeslaScheduleCardProps {
+  // Pattern A (Direct props)
   scheduled_start_at?: string | null;
   scheduled_end_at?: string | null;
-  requestId: string;
-}) {
+  requestId?: string;
+
+  // Pattern B (Object prop from TeslaDrawer)
+  request?: any;
+  techs?: any[];
+  onRefresh?: () => void;
+}
+
+export default function TeslaScheduleCard(props: TeslaScheduleCardProps) {
+  // Normalize props to support both usage patterns
+  const reqId = props.requestId || props.request?.id;
+  const start = props.scheduled_start_at || props.request?.scheduled_start_at;
+  const end = props.scheduled_end_at || props.request?.scheduled_end_at;
+
   function fmt(d?: string | null) {
     if (!d) return "—";
     return new Date(d).toLocaleString([], {
@@ -21,6 +30,8 @@ export default function TeslaScheduleCard({
       minute: "2-digit",
     });
   }
+
+  if (!reqId) return null;
 
   return (
     <div className="rounded-2xl border bg-white p-6 space-y-4">
@@ -34,17 +45,17 @@ export default function TeslaScheduleCard({
       <div className="grid grid-cols-2 gap-4 text-sm">
         <div>
           <div className="text-gray-500">Start</div>
-          <div className="font-medium">{fmt(scheduled_start_at)}</div>
+          <div className="font-medium">{fmt(start)}</div>
         </div>
 
         <div>
           <div className="text-gray-500">End</div>
-          <div className="font-medium">{fmt(scheduled_end_at)}</div>
+          <div className="font-medium">{fmt(end)}</div>
         </div>
       </div>
 
       {/* DISPATCH ASSIGNMENT */}
-      <AssignClient requestId={requestId} />
+      <AssignClient requestId={reqId} />
     </div>
   );
 }
