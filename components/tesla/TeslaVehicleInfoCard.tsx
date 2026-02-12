@@ -1,6 +1,6 @@
 "use client";
 
-export default function TeslaVehicleInfoCard({ vehicle }) {
+export default function TeslaVehicleInfoCard({ vehicle }: { vehicle: any }) {
   if (!vehicle) return null;
 
   return (
