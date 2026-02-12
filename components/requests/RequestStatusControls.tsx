@@ -3,29 +3,46 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+// Define flexible props to handle different usage patterns
+interface RequestStatusControlsProps {
+  // Pattern A (used by RequestDrawer)
+  id?: string;
+  status?: string;
+  refresh?: () => Promise<void> | void;
+
+  // Pattern B (Standard object)
+  request?: { id: string; status: string };
+  onUpdate?: () => void;
+}
+
 export default function RequestStatusControls({
+  id,
+  status,
+  refresh,
   request,
   onUpdate,
-}: {
-  request: any;
-  onUpdate?: () => void;
-}) {
+}: RequestStatusControlsProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
 
+  // Normalize props
+  const requestId = id || request?.id;
+  const currentStatus = status || request?.status;
+  const handleUpdate = refresh || onUpdate;
+
   async function handleStatusChange(newStatus: string) {
-    if (loading) return;
+    if (loading || !requestId) return;
     setLoading(true);
 
     try {
-      const res = await fetch(`/api/requests/${request.id}/status`, {
+      const res = await fetch(`/api/requests/${requestId}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
       });
 
       if (res.ok) {
-        if (onUpdate) onUpdate();
+        if (handleUpdate) await handleUpdate();
         router.refresh();
       } else {
         alert("Failed to update status");
@@ -45,11 +62,11 @@ export default function RequestStatusControls({
         <div className="flex items-center justify-between bg-white p-3 rounded-lg border">
           <span className="text-sm text-gray-500">Current Status</span>
           <span className="text-sm font-bold bg-black text-white px-3 py-1 rounded-full text-xs">
-            {request?.status || "UNKNOWN"}
+            {currentStatus || "UNKNOWN"}
           </span>
         </div>
 
-        {/* Basic Controls Placeholder - expandable later */}
+        {/* Placeholder for future controls */}
         <div className="text-xs text-gray-400 text-center mt-2">
           Status is managed by automated workflows.
         </div>
