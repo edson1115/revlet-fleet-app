@@ -9,7 +9,7 @@ import TeslaInput from "@/components/tesla/TeslaInput";
 import TeslaButton from "@/components/tesla/TeslaButton";
 import TeslaSelect from "@/components/tesla/TeslaSelect";
 
-// AI hooks (kept intact)
+// AI hooks
 import { useAIProblemDetect } from "@/hooks/useAIProblemDetect";
 import { useAISummary } from "@/hooks/useAISummary";
 import { useAIParts } from "@/hooks/useAIParts";
@@ -35,7 +35,7 @@ export default function RequestCreateForm({
   const [serviceType, setServiceType] = useState("");
   const [mileage, setMileage] = useState("");
   const [notes, setNotes] = useState("");
-  const [photos, setPhotos] = useState<File[]>([]);
+  const [photos, setPhotos] = useState<File[]>([]); // This expects File[] based on your code
 
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [loadingVehicles, setLoadingVehicles] = useState(true);
@@ -191,6 +191,7 @@ export default function RequestCreateForm({
 
       {/* PHOTOS */}
       <TeslaSection label="Upload Photos">
+        {/* Ensure TeslaPhotoUploader accepts these props. Assuming it matches previous context */}
         <TeslaPhotoUploader files={photos} setFiles={setPhotos} />
       </TeslaSection>
 
@@ -202,7 +203,13 @@ export default function RequestCreateForm({
 
       {createdRequestId && (
         <TeslaSection label="Next Steps">
-          <TeslaButton onClick={handleRunAI} disabled={aiRunning}>
+          {/* FIX: Removed 'disabled' prop. Implemented disabled behavior via onClick and className. */}
+          <TeslaButton 
+            onClick={() => {
+              if (!aiRunning) handleRunAI();
+            }} 
+            className={aiRunning ? "opacity-50 pointer-events-none" : ""}
+          >
             {aiRunning ? "Running AI…" : "Run AI Analysis"}
           </TeslaButton>
 
