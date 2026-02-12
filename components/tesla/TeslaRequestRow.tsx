@@ -2,7 +2,7 @@
 
 import { TeslaStatusBadge } from "./TeslaStatusBadge";
 
-export function TeslaRequestRow({ req, onClick }) {
+export function TeslaRequestRow({ req, onClick }: { req: any; onClick?: () => void }) {
   return (
     <div
       onClick={() => onClick?.()}
