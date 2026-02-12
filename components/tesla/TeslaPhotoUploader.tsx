@@ -9,10 +9,11 @@ export default function TeslaPhotoUploader({
   files: File[];
   setFiles: (f: File[]) => void;
 }) {
-  const inputRef = useRef<any>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   function handleSelect(e: any) {
-    const selected = Array.from(e.target.files || []);
+    // FIX: Cast the array to File[] so TypeScript knows these are Files
+    const selected = Array.from(e.target.files || []) as File[];
     setFiles([...files, ...selected]);
   }
 
@@ -50,6 +51,7 @@ export default function TeslaPhotoUploader({
             <img
               src={URL.createObjectURL(f)}
               className="rounded-xl object-cover h-24 w-full"
+              alt="Preview"
             />
             <button
               type="button"
