@@ -22,7 +22,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={{ show }}>
       {children}
-      <Toaster />
+      {/* FIX: Passing an empty fragment to satisfy the 'children' requirement 
+         if the Toaster component was accidentally typed to require them.
+      */}
+      <Toaster>{null}</Toaster>
     </ToastContext.Provider>
   );
 }
