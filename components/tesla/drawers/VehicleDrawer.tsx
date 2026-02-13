@@ -2,7 +2,15 @@
 
 import { useEffect } from "react";
 
-export function VehicleDrawer({ open, onClose, vehicle }) {
+export function VehicleDrawer({ 
+  open, 
+  onClose, 
+  vehicle 
+}: { 
+  open: boolean; 
+  onClose: () => void; 
+  vehicle: any; 
+}) {
   useEffect(() => {
     document.body.style.overflow = open ? "hidden" : "auto";
   }, [open]);
