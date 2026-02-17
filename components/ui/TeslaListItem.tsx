@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { ChevronRight } from "lucide-react";
-import { StatusChip } from "@/components/ui/StatusChip";
+import StatusChip from "@/components/ui/StatusChip";
 
 interface TeslaListItemProps {
   title: string;
