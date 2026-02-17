@@ -3,9 +3,11 @@ import { Resend } from "resend";
 import { supabaseServer } from "@/lib/supabase/server";
 import { generateRequestPDF } from "@/lib/pdf/generateRequestPDF";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 export async function POST(req: Request) {
+  // FIX: Initialize Resend inside the handler. 
+  // This prevents Next.js from crashing during build-time static analysis.
+  const resend = new Resend(process.env.RESEND_API_KEY);
+
   try {
     const { requestId, email } = await req.json();
 
@@ -33,13 +35,13 @@ export async function POST(req: Request) {
     // Generate PDF (returns Uint8Array)
     const pdfBytes = await generateRequestPDF(request);
 
-    // FIX: Convert Uint8Array to Buffer to access .toString("base64")
+    // Convert Uint8Array to Buffer to access .toString("base64")
     const pdfBuffer = Buffer.from(pdfBytes);
     const base64Content = pdfBuffer.toString("base64");
 
     // Send email
     const { data: send, error: sendError } = await resend.emails.send({
-      from: "Revlet <no-reply@revlet.app>", // Ensure this domain is verified in Resend
+      from: "Revlet <no-reply@revlet.app>", 
       to: email,
       subject: `Service Request #${requestId}`,
       html: "<p>Attached is your service request report.</p>",
