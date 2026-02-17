@@ -2,12 +2,12 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { supabaseServer } from "@/lib/supabase/server";
 
-// FIX: Update apiVersion to match the installed library's expectation
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2025-12-15.clover" as any, 
-});
-
 export async function POST(req: Request) {
+  // FIX: Initialize Stripe inside the handler to prevent build-time crashes.
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+    apiVersion: "2025-12-15.clover" as any, 
+  });
+
   try {
     const { requestId } = await req.json();
 
