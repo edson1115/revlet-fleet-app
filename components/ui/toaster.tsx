@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import * as ToastPrimitives from "@radix-ui/react-toast";
 import {
   Toast,
-  ToastProvider,
   ToastViewport,
 } from "@/components/ui/toast";
 
@@ -26,7 +26,7 @@ export function Toaster() {
   }, []);
 
   return (
-    <ToastProvider>
+    <ToastPrimitives.Provider>
       {toasts.map(({ id, description }) => (
         <Toast key={id}>
           <div className="text-sm font-medium">
@@ -35,6 +35,6 @@ export function Toaster() {
         </Toast>
       ))}
       <ToastViewport />
-    </ToastProvider>
+    </ToastPrimitives.Provider>
   );
 }
