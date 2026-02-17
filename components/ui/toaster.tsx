@@ -1,11 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import * as ToastPrimitives from "@radix-ui/react-toast";
-import {
-  Toast,
-  ToastViewport,
-} from "@/components/ui/toast";
+import { Toast } from "@/components/ui/toast";
 
 export function Toaster() {
   const [toasts, setToasts] = useState<{ id: number; description: string }[]>([]);
@@ -16,6 +12,7 @@ export function Toaster() {
       const id = Date.now();
       setToasts((prev) => [...prev, { id, description: msg }]);
 
+      // Auto-hide after 3 seconds
       setTimeout(() => {
         setToasts((prev) => prev.filter((t) => t.id !== id));
       }, 3000);
@@ -26,15 +23,13 @@ export function Toaster() {
   }, []);
 
   return (
-    <ToastPrimitives.Provider>
+    // Fixed: Using a simple div container since your Toast is custom CSS
+    <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
       {toasts.map(({ id, description }) => (
-        <Toast key={id}>
-          <div className="text-sm font-medium">
-            {description}
-          </div>
-        </Toast>
+        <div key={id} className="pointer-events-auto animate-in fade-in slide-in-from-bottom-2">
+          <Toast description={description} />
+        </div>
       ))}
-      <ToastViewport />
-    </ToastPrimitives.Provider>
+    </div>
   );
 }
