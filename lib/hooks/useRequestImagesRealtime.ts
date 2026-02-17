@@ -1,10 +1,14 @@
 "use client";
 
-import { useEffect } from "react";
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+import { useEffect, useMemo } from "react";
+import { createBrowserClient } from "@supabase/ssr";
 
 export function useRequestImagesRealtime(requestId: string, onChange: () => void) {
-  const supabase = createClientComponentClient();
+  // Initialize the browser client
+  const supabase = useMemo(() => createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  ), []);
 
   useEffect(() => {
     if (!requestId) return;
@@ -26,8 +30,5 @@ export function useRequestImagesRealtime(requestId: string, onChange: () => void
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [requestId]);
+  }, [requestId, onChange, supabase]);
 }
-
-
-
