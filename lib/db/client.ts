@@ -2,8 +2,9 @@
 import { cookies } from "next/headers";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 
-export function supabaseServer() {
-  const cookieStore = cookies();
+export async function supabaseServer() {
+  // FIX: Await cookies() for Next.js 15 compatibility
+  const cookieStore = await cookies();
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,15 +15,20 @@ export function supabaseServer() {
           return cookieStore.get(name)?.value;
         },
         set(name: string, value: string, options: CookieOptions) {
-          cookieStore.set(name, value, options);
+          try {
+            cookieStore.set(name, value, options);
+          } catch (error) {
+            // Handle cases where set is called in Server Components
+          }
         },
         remove(name: string, options: CookieOptions) {
-          cookieStore.set(name, "", { ...options, maxAge: 0 });
+          try {
+            cookieStore.set(name, "", { ...options, maxAge: 0 });
+          } catch (error) {
+            // Handle cases where remove is called in Server Components
+          }
         },
       },
     }
   );
 }
-
-
-
