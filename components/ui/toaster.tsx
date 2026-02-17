@@ -3,14 +3,12 @@
 import { useEffect, useState } from "react";
 import {
   Toast,
-  ToastDescription,
   ToastProvider,
-  ToastTitle,
   ToastViewport,
 } from "@/components/ui/toast";
 
 export function Toaster() {
-  const [toasts, setToasts] = useState<{ id: number; title?: string; description: string }[]>([]);
+  const [toasts, setToasts] = useState<{ id: number; description: string }[]>([]);
 
   useEffect(() => {
     const handleToast = (e: any) => {
@@ -18,7 +16,6 @@ export function Toaster() {
       const id = Date.now();
       setToasts((prev) => [...prev, { id, description: msg }]);
 
-      // Auto-remove after 3 seconds
       setTimeout(() => {
         setToasts((prev) => prev.filter((t) => t.id !== id));
       }, 3000);
@@ -30,13 +27,10 @@ export function Toaster() {
 
   return (
     <ToastProvider>
-      {toasts.map(({ id, title, description }) => (
+      {toasts.map(({ id, description }) => (
         <Toast key={id}>
-          <div className="grid gap-1">
-            {title && <ToastTitle>{title}</ToastTitle>}
-            {description && (
-              <ToastDescription>{description}</ToastDescription>
-            )}
+          <div className="text-sm font-medium">
+            {description}
           </div>
         </Toast>
       ))}
