@@ -1,8 +1,9 @@
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
-export function supabaseServerComponent() {
-  const cookieStore = cookies(); // ❗ SYNC
+export async function supabaseServerComponent() {
+  // FIX: Await cookies() for Next.js 15
+  const cookieStore = await cookies();
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
