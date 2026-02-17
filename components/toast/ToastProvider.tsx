@@ -14,7 +14,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   function show(msg: string) {
     setMessage(msg);
-    // small hack: trigger shadcn toaster
+    // Trigger shadcn toaster
     const event = new CustomEvent("revlet-toast", { detail: msg });
     window.dispatchEvent(event);
   }
@@ -22,10 +22,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={{ show }}>
       {children}
-      {/* FIX: Passing an empty fragment to satisfy the 'children' requirement 
-         if the Toaster component was accidentally typed to require them.
-      */}
-      <Toaster>{null}</Toaster>
+      {/* Reverted to self-closing tag to match Shadcn's IntrinsicAttributes */}
+      <Toaster />
     </ToastContext.Provider>
   );
 }
