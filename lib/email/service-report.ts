@@ -45,14 +45,21 @@ export async function sendServiceReportEmail(requestId: string) {
 
   // 4. SEND IT 🚀
   try {
-    const data = await resend.emails.send({
-      from: 'Revlet <updates@yourdomain.com>', // Or 'onboarding@resend.dev' for testing
+    const { data, error: resendError } = await resend.emails.send({
+      from: 'Revlet <updates@yourdomain.com>', 
       to: [request.customer.email],
       subject: subject,
       html: emailHtml,
     });
-    console.log("✅ Email Sent ID:", data.id);
+
+    if (resendError) {
+      console.error("❌ Resend Error:", resendError);
+      return;
+    }
+
+    if (data) {
+      console.log("✅ Email Sent ID:", data.id);
+    }
   } catch (err) {
-    console.error("❌ Resend Error:", err);
+    console.error("❌ Unexpected Error:", err);
   }
-}
