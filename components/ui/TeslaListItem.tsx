@@ -51,7 +51,7 @@ export default function TeslaListItem({
       </div>
 
       <div className="flex items-center gap-3">
-        {status && <StatusChip status={status} />}
+        {status && <StatusChip status={status as any} />}
 
         {rightIcon && (
           <ChevronRight
