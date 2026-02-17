@@ -1,10 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 import { Resend } from 'resend';
 
-// Initialize Resend with your API Key
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 export async function sendServiceReportEmail(requestId: string) {
+  // FIX: Initialize Resend inside the function to avoid build-time crashes 
+  // when process.env.RESEND_API_KEY is not yet available.
+  const resend = new Resend(process.env.RESEND_API_KEY);
+
   // 1. Setup Admin Client
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -63,4 +64,4 @@ export async function sendServiceReportEmail(requestId: string) {
   } catch (err) {
     console.error("❌ Unexpected Error:", err);
   }
-} // <--- Added the missing closing bracket here
+}
