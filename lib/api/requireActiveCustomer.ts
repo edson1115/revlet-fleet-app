@@ -1,5 +1,5 @@
 export async function requireActiveCustomer(
-  supabase,
+  supabase: any,
   customerId: string
 ) {
   const { data } = await supabase
