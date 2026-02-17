@@ -1,9 +1,12 @@
+// lib/pdf/serviceRequestPDF.ts
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
-export async function buildServiceRequestPDF({ request, photos }) {
+export async function buildServiceRequestPDF({ request, photos }: { request: any; photos: any[] }) {
   const pdf = await PDFDocument.create();
   const page = pdf.addPage([612, 792]); // Letter
   const font = await pdf.embedFont(StandardFonts.Helvetica);
+  
+  // ... rest of your existing code
 
   let y = 750;
 
