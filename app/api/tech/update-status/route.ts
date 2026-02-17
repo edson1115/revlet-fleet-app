@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { resolveUserScope } from "@/lib/api/scope";
-import { createServiceLog } from "@/lib/api/logs"; // FIX: Use createServiceLog
+import { createServiceLog } from "@/lib/api/logs"; 
 import { sendServiceReportEmail } from "@/lib/email/service-report"; 
 import { EmailTemplates } from "@/lib/email/templates";
 
@@ -21,6 +21,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Missing fields" }, { status: 400 });
   }
 
+  // Next.js 15: supabaseServer is now async due to cookies()
   const supabase = await supabaseServer();
 
   // 1. Verify Ownership
@@ -44,10 +45,10 @@ export async function POST(req: Request) {
   }
 
   // 2. Prepare Updates
-  const updates: any = { status };
   const now = new Date().toISOString();
+  // Using Record to avoid 'any' where possible
+  const updates: Record<string, any> = { status };
 
-  // Always save notes if provided
   if (notes !== undefined && notes !== null) {
       updates.technician_notes = notes;
   }
@@ -59,7 +60,7 @@ export async function POST(req: Request) {
     updates.completed_by_role = scope.role;
   }
 
-  // 3. Perform Status Update (AND Fetch Data for Emailing)
+  // 3. Perform Status Update
   const { data: updatedJob, error: updateError } = await supabase
     .from("service_requests")
     .update(updates)
@@ -80,9 +81,10 @@ export async function POST(req: Request) {
       const vehicleName = `${updatedJob.vehicle?.year || ''} ${updatedJob.vehicle?.model || ''}`.trim();
       const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
       
-      // Call internal email API
+      // Fire and forget email trigger
       fetch(`${baseUrl}/api/system/send-email`, {
           method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
               to: updatedJob.customer.email,
               subject: `Service Started: ${vehicleName}`,
@@ -100,7 +102,6 @@ export async function POST(req: Request) {
           .eq("request_id", id)
           .not("inventory_id", "is", null); 
 
-      // B. Decrement loop
       if (partsUsed && partsUsed.length > 0) {
           for (const part of partsUsed) {
               const { data: currentStock } = await supabase
@@ -115,22 +116,19 @@ export async function POST(req: Request) {
                       .from("inventory")
                       .update({ quantity: newQty })
                       .eq("id", part.inventory_id);
-                  
-                  console.log(`📦 Inventory Sync: Item ${part.inventory_id} reduced by ${part.quantity}. New Balance: ${newQty}`);
               }
           }
       }
 
-      // C. Send Service Report Email (Fire & Forget)
+      // C. Send Service Report Email
       sendServiceReportEmail(id).catch(err => console.error("Service Report trigger failed:", err));
   }
 
   // 6. Log Activity
-  // FIX: Use createServiceLog and nested details
   await createServiceLog({
     request_id: id,
     actor_id: scope.uid,
-    actor_role: scope.role!,
+    actor_role: scope.role || "TECHNICIAN",
     action: "STATUS_CHANGE",
     details: {
       from_value: job.status,
