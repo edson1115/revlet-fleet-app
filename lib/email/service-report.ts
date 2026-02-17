@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { Resend } from 'resend';
 
-// Initialize Resend with your API Key (Get one at resend.com)
+// Initialize Resend with your API Key
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 export async function sendServiceReportEmail(requestId: string) {
@@ -34,7 +34,7 @@ export async function sendServiceReportEmail(requestId: string) {
     <div style="font-family: sans-serif; color: #333;">
       <h1>Revlet Service Report</h1>
       <p><strong>Customer:</strong> ${request.customer.name}</p>
-      <p><strong>Vehicle:</strong> ${request.vehicle.year} ${request.vehicle.model} (${request.plate})</p>
+      <p><strong>Vehicle:</strong> ${request.vehicle.year} ${request.vehicle.model} (${request.vehicle.plate})</p>
       <hr />
       <h3>Technician Notes</h3>
       <p style="white-space: pre-wrap;">${request.technician_notes || "No notes."}</p>
@@ -63,3 +63,4 @@ export async function sendServiceReportEmail(requestId: string) {
   } catch (err) {
     console.error("❌ Unexpected Error:", err);
   }
+} // <--- Added the missing closing bracket here
