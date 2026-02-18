@@ -1,12 +1,13 @@
 import { Resend } from 'resend';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
-// ✅ Default Shop Name (Change this to your actual Business Name)
+// ✅ Default Shop Name
 const DEFAULT_SHOP_NAME = "Big O Tires Mobile Services";
 
 export async function sendApprovalEmail(email: string, name: string, shopName: string = DEFAULT_SHOP_NAME) {
   if (!email) return;
+
+  // ✅ FIX: Initialize Resend inside the function to prevent build-time crashes
+  const resend = new Resend(process.env.RESEND_API_KEY);
   
   try {
     const { data, error } = await resend.emails.send({
