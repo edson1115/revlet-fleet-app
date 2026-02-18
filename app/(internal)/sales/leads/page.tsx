@@ -7,6 +7,9 @@ import clsx from "clsx";
 import Link from "next/link";
 import { format, isToday, isYesterday, isThisWeek, parseISO } from "date-fns";
 
+// ✅ FIX: Force dynamic rendering to prevent build-time prerendering crashes
+export const dynamic = "force-dynamic";
+
 export default function SalesPipeline() {
   const router = useRouter();
   const [allLeads, setAllLeads] = useState<any[]>([]);
@@ -15,17 +18,20 @@ export default function SalesPipeline() {
   // VIEW MODE: 'PIPELINE' (Active Deals) vs 'HISTORY' (Time Log)
   const [viewMode, setViewMode] = useState<'PIPELINE' | 'HISTORY'>('PIPELINE');
 
-  // ✅ FIX: Wrap in useMemo with fallbacks to prevent crash during build-time prerendering
+  // ✅ FIX: Use fallbacks and check environment variables before initialization
   const supabase = useMemo(() => {
-    return createBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL || "",
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
-    );
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    
+    // Return the client only if keys are present; otherwise, return null to avoid library crashes
+    if (!url || !key) return null;
+
+    return createBrowserClient(url, key);
   }, []);
 
   useEffect(() => {
-    // Only attempt fetch if we actually have a URL (safety check for build)
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return;
+    // Safety guard: exit if the client couldn't initialize (usually during build steps)
+    if (!supabase) return;
 
     const fetchLeads = async () => {
         const { data: { session } } = await supabase.auth.getSession();
@@ -43,10 +49,10 @@ export default function SalesPipeline() {
     fetchLeads();
   }, [router, supabase]);
 
-  // --- 1. PIPELINE LOGIC ---
+  // --- 1. PIPELINE LOGIC (Active Only, Score Based) ---
   const pipelineLeads = allLeads.filter(l => l.customer_status !== 'WON' && l.customer_status !== 'LOST');
   
-  // --- 2. HISTORY LOGIC ---
+  // --- 2. HISTORY LOGIC (Time Grouping) ---
   const historyGroups = {
       today: allLeads.filter(l => isToday(parseISO(l.created_at))),
       yesterday: allLeads.filter(l => isYesterday(parseISO(l.created_at))),
@@ -54,7 +60,7 @@ export default function SalesPipeline() {
       older: allLeads.filter(l => !isThisWeek(parseISO(l.created_at)))
   };
 
-  // --- 3. AI STRATEGY ENGINE ---
+  // --- 3. AI STRATEGY ENGINE 🧠 ---
   const generateStrategy = () => {
       const weeklyVolume = historyGroups.thisWeek.length + historyGroups.today.length + historyGroups.yesterday.length;
       const highInterestCount = allLeads.filter(l => (l.tags || []).includes("High Interest")).length;
