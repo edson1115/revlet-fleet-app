@@ -5,6 +5,9 @@
 import { useEffect, useState, useMemo } from "react";
 import { useLocationScope } from "@/lib/useLocationScope";
 
+// ✅ FIX: Force dynamic rendering to bypass build-time Context errors
+export const dynamic = "force-dynamic";
+
 type Row = {
   id: string;
   status: string;
@@ -29,7 +32,7 @@ async function fetchJSON<T>(url: string) {
 }
 
 export default function ReportsCompletedPage() {
-  // FIX: remove locationLabel
+  // useLocationScope will now safely run at runtime in the browser
   const { locationId } = useLocationScope();
 
   const [rows, setRows] = useState<Row[]>([]);
@@ -128,6 +131,3 @@ export default function ReportsCompletedPage() {
     </div>
   );
 }
-
-
-
