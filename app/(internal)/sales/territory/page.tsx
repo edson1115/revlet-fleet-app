@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
 import Link from "next/link";
 import clsx from "clsx";
+
+// ✅ FIX: Force dynamic rendering to prevent build-time prerendering crashes
+export const dynamic = "force-dynamic";
 
 export default function TerritoryPage() {
   const router = useRouter();
@@ -12,12 +15,18 @@ export default function TerritoryPage() {
   const [loading, setLoading] = useState(true);
   const [activeZone, setActiveZone] = useState<string>("ALL");
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  // ✅ FIX: Wrap in useMemo with fallbacks for the build step
+  const supabase = useMemo(() => {
+    return createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
+    );
+  }, []);
 
   useEffect(() => {
+    // Safety check: Exit if we are in the build phase without variables
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return;
+
     const fetchLeads = async () => {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) return router.push("/login");
@@ -32,13 +41,11 @@ export default function TerritoryPage() {
         setLoading(false);
     };
     fetchLeads();
-  }, [router]);
+  }, [router, supabase]);
 
-  // 🧠 ZONE LOGIC: Group leads by City (Simple text match from address)
+  // 🧠 ZONE LOGIC
   const zones: Record<string, number> = {};
   leads.forEach(l => {
-      // Mocking city extraction: assumes address format "123 Main, City, ST"
-      // If no address, mark as "Unmapped"
       const city = l.address ? l.address.split(',')[1]?.trim() || "Unmapped" : "Unmapped";
       zones[city] = (zones[city] || 0) + 1;
   });
