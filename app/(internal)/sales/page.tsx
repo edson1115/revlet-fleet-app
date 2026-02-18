@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
+
+// ✅ FIX: Force dynamic rendering to prevent build-time prerendering crashes
+export const dynamic = "force-dynamic";
 
 export default function SalesDashboard() {
   const router = useRouter();
@@ -14,12 +17,18 @@ export default function SalesDashboard() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  // ✅ FIX: Wrap in useMemo with fallbacks for the build step
+  const supabase = useMemo(() => {
+    return createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
+    );
+  }, []);
 
   useEffect(() => {
+    // Safety check: Exit if we are in the build phase without variables
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return;
+
     const init = async () => {
         // 1. Get Session
         const { data: { session } } = await supabase.auth.getSession();
@@ -85,7 +94,7 @@ export default function SalesDashboard() {
         setLoading(false);
     };
     init();
-  }, [router]);
+  }, [router, supabase]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -174,7 +183,6 @@ export default function SalesDashboard() {
                     </div>
                  </Link>
                  
-                 {/* 🛠️ THIS BUTTON IS NOW CONNECTED */}
                  <Link href="/sales/territory" className="bg-white/5 border border-white/10 rounded-3xl p-4 flex items-center gap-3 hover:bg-white/10 transition active:scale-[0.98]">
                     <div className="w-8 h-8 rounded-full bg-orange-500/20 text-orange-400 flex items-center justify-center text-sm">🗺️</div>
                     <div>
