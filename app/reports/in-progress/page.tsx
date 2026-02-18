@@ -5,6 +5,9 @@ import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useLocationScope } from "@/lib/useLocationScope";
 
+// ✅ FIX: Force dynamic rendering to bypass build-time Context errors (useLocationScope)
+export const dynamic = "force-dynamic";
+
 type Row = {
   id: string;
   status: string;
@@ -59,6 +62,7 @@ function elapsed(start?: string | null) {
 }
 
 export default function InProgressPage() {
+  // This hook will now safely run at runtime in the browser
   const { locationId } = useLocationScope();
 
   const [rows, setRows] = useState<Row[]>([]);
@@ -267,6 +271,3 @@ export default function InProgressPage() {
     </div>
   );
 }
-
-
-
