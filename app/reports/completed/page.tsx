@@ -1,13 +1,11 @@
 // app/reports/completed/page.tsx
-
+export const dynamic = "force-dynamic"; // ✅ Moved to the absolute top
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
 import { useLocationScope } from "@/lib/useLocationScope";
 
-// ✅ FIX: Force dynamic rendering to bypass build-time Context errors
-export const dynamic = "force-dynamic";
-
+// Rest of the file remains exactly as you had it...
 type Row = {
   id: string;
   status: string;
@@ -32,7 +30,6 @@ async function fetchJSON<T>(url: string) {
 }
 
 export default function ReportsCompletedPage() {
-  // useLocationScope will now safely run at runtime in the browser
   const { locationId } = useLocationScope();
 
   const [rows, setRows] = useState<Row[]>([]);

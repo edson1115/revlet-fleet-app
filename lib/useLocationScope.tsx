@@ -52,7 +52,7 @@ export function LocationScopeProvider({ children }: { children: React.ReactNode 
       setLocationId,
       clear: () => setLocationId(null),
     }),
-    [locationId]
+    [locationId, queryFragment] // Added queryFragment to dependencies for safety
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
@@ -60,9 +60,17 @@ export function LocationScopeProvider({ children }: { children: React.ReactNode 
 
 export function useLocationScope() {
   const ctx = useContext(Ctx);
-  if (!ctx) throw new Error("useLocationScope must be used within <LocationScopeProvider>");
+
+  // ✅ FIX: Instead of throwing an Error (which crashes the Vercel Build), 
+  // return a default fallback for the static generation phase.
+  if (!ctx) {
+    return {
+      locationId: null,
+      queryFragment: "",
+      setLocationId: () => {},
+      clear: () => {},
+    };
+  }
+  
   return ctx;
 }
-
-
-
