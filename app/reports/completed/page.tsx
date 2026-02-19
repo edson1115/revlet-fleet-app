@@ -1,6 +1,6 @@
-// app/reports/completed/page.tsx
-export const dynamic = "force-dynamic"; // ✅ Moved to the absolute top
-"use client";
+"use client"; // ✅ MUST BE FIRST
+
+export const dynamic = "force-dynamic";
 
 import { useEffect, useState, useMemo } from "react";
 import { useLocationScope } from "@/lib/useLocationScope";
