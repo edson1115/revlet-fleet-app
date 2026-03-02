@@ -7,9 +7,9 @@ export async function proxy(req: NextRequest) {
     request: { headers: req.headers },
   });
 
-  // 1. THE HARD CIRCUIT BREAKER
-  // If the user is already on an admin page, STOP immediately and let it load.
-  // This prevents the infinite redirect loop.
+  // 1. THE ULTIMATE CIRCUIT BREAKER
+  // If you are already trying to access an admin page, let it through immediately.
+  // This stops the infinite redirect loop.
   if (path.startsWith('/admin')) {
     return response;
   }
@@ -32,24 +32,23 @@ export async function proxy(req: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser();
 
-  // 2. SKIP STATIC ASSETS
+  // 2. SKIP ASSETS
   if (path.includes(".") || path.startsWith("/_next") || path.startsWith("/api")) {
     return response;
   }
 
-  // 3. ROLE-BASED REDIRECT
-  const role = (user?.user_metadata?.role || "CUSTOMER").toUpperCase();
-
+  // 3. AUTHENTICATED REDIRECT
   if (user && (path === "/" || path === "/login")) {
+    const role = (user?.user_metadata?.role || "CUSTOMER").toUpperCase();
     const home = (role === "SUPERADMIN" || role === "ADMIN") ? "/admin/dashboard" : "/customer";
     
-    // Type-cast to any to satisfy the Vercel build compiler
+    // Type-cast to any for Vercel build compliance
     if ((path as any) !== home) {
       return NextResponse.redirect(new URL(home, req.url));
     }
   }
 
-  // 4. AUTH PROTECTION
+  // 4. PUBLIC PATH PROTECTION
   const PUBLIC_PATHS = ["/", "/tour", "/login", "/signup", "/auth"];
   if (!user && !PUBLIC_PATHS.some(p => path === p || path.startsWith(p))) {
     return NextResponse.redirect(new URL("/login", req.url));
