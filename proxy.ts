@@ -1,15 +1,14 @@
 import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   let response = NextResponse.next({
     request: { headers: req.headers },
   });
 
   const path = req.nextUrl.pathname;
 
-  // 1. THE ULTIMATE CIRCUIT BREAKER (From your Proxy)
-  // If we are already in the admin section, let the request through immediately.
+  // 1. CIRCUIT BREAKER
   if (path.startsWith('/admin')) {
     return response;
   }
@@ -32,15 +31,15 @@ export async function middleware(req: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser();
 
-  // 2. EXTRACT ROLE (Matches your confirmed SUPERADMIN status)
+  // 2. EXTRACT ROLE
   const role = (user?.user_metadata?.role || "CUSTOMER").toUpperCase();
 
-  // 3. AUTHENTICATED BYPASS (Loop Prevention)
+  // 3. AUTHENTICATED BYPASS (Fixed for TypeScript)
   if (user && (path === "/login" || path === "/")) {
     const home = (role === "SUPERADMIN" || role === "ADMIN") ? "/admin/dashboard" : "/customer";
     
-    // GUARD: Only redirect if you are NOT already at the destination
-    if (path !== home) {
+    // Use a string cast to satisfy the TypeScript compiler
+    if ((path as string) !== home) {
       return NextResponse.redirect(new URL(home, req.url));
     }
     return response;
@@ -70,7 +69,7 @@ export async function middleware(req: NextRequest) {
     
     if (!isAllowed) {
       const fallback = (role === "SUPERADMIN" || role === "ADMIN") ? "/admin/dashboard" : "/login";
-      if (path !== fallback) {
+      if ((path as string) !== fallback) {
         return NextResponse.redirect(new URL(fallback, req.url));
       }
     }
