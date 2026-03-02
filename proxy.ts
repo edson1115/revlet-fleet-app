@@ -3,16 +3,17 @@ import { type NextRequest, NextResponse } from "next/server";
 
 export async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
+  
+  // 1. THE ABSOLUTE CIRCUIT BREAKER
+  // If the path starts with /admin, we bypass the proxy entirely.
+  // This stops the 307 redirect loop.
+  if (path.startsWith('/admin')) {
+    return NextResponse.next();
+  }
+
   let response = NextResponse.next({
     request: { headers: req.headers },
   });
-
-  // 1. THE ULTIMATE CIRCUIT BREAKER
-  // If you are already trying to access an admin page, let it through immediately.
-  // This stops the infinite redirect loop.
-  if (path.startsWith('/admin')) {
-    return response;
-  }
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -42,7 +43,7 @@ export async function proxy(req: NextRequest) {
     const role = (user?.user_metadata?.role || "CUSTOMER").toUpperCase();
     const home = (role === "SUPERADMIN" || role === "ADMIN") ? "/admin/dashboard" : "/customer";
     
-    // Type-cast to any for Vercel build compliance
+    // Type-cast to any to satisfy the Vercel compiler
     if ((path as any) !== home) {
       return NextResponse.redirect(new URL(home, req.url));
     }
