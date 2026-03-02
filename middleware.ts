@@ -6,6 +6,14 @@ export async function middleware(req: NextRequest) {
     request: { headers: req.headers },
   });
 
+  const path = req.nextUrl.pathname;
+
+  // 1. THE ULTIMATE CIRCUIT BREAKER (From your Proxy)
+  // If we are already in the admin section, let the request through immediately.
+  if (path.startsWith('/admin')) {
+    return response;
+  }
+
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -13,21 +21,21 @@ export async function middleware(req: NextRequest) {
       cookies: {
         getAll() { return req.cookies.getAll(); },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) => req.cookies.set(name, value));
-          response = NextResponse.next({ request: { headers: req.headers } });
-          cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
+          cookiesToSet.forEach(({ name, value, options }) => {
+            req.cookies.set(name, value);
+            response.cookies.set(name, value, options);
+          });
         },
       },
     }
   );
 
   const { data: { user } } = await supabase.auth.getUser();
-  const path = req.nextUrl.pathname;
 
-  // 1. EXTRACT ROLE (Matches your confirmed SUPERADMIN status)
+  // 2. EXTRACT ROLE (Matches your confirmed SUPERADMIN status)
   const role = (user?.user_metadata?.role || "CUSTOMER").toUpperCase();
 
-  // 2. AUTHENTICATED BYPASS (Loop Prevention)
+  // 3. AUTHENTICATED BYPASS (Loop Prevention)
   if (user && (path === "/login" || path === "/")) {
     const home = (role === "SUPERADMIN" || role === "ADMIN") ? "/admin/dashboard" : "/customer";
     
@@ -35,17 +43,19 @@ export async function middleware(req: NextRequest) {
     if (path !== home) {
       return NextResponse.redirect(new URL(home, req.url));
     }
+    return response;
   }
 
-  // 3. PUBLIC PATHS
-  const isPublicPath = ["/", "/login", "/signup", "/auth"].some(p => path === p || path.startsWith(p));
-  if (!user && !isPublicPath) {
+  // 4. PUBLIC PATHS
+  const PUBLIC_PATHS = ["/", "/tour", "/login", "/signup", "/auth"];
+  const isPublicPath = PUBLIC_PATHS.some(p => path === p || path.startsWith(p));
+  
+  if (!user && !isPublicPath && !path.includes(".")) {
     return NextResponse.redirect(new URL("/login", req.url));
   }
 
-  // 4. ROLE-BASED PERMISSIONS
+  // 5. ROLE-BASED PERMISSIONS
   const ROLE_ROUTES: Record<string, string[]> = {
-    // Wildcard access for SUPERADMIN to ensure you are never blocked
     SUPERADMIN: ["/admin", "/office", "/dispatch", "/tech", "/customer", "/sales"],
     ADMIN:      ["/admin", "/office", "/dispatch", "/sales"],
     CUSTOMER:   ["/customer"],
@@ -60,8 +70,6 @@ export async function middleware(req: NextRequest) {
     
     if (!isAllowed) {
       const fallback = (role === "SUPERADMIN" || role === "ADMIN") ? "/admin/dashboard" : "/login";
-      
-      // GUARD: Prevent recursive fallbacks
       if (path !== fallback) {
         return NextResponse.redirect(new URL(fallback, req.url));
       }
