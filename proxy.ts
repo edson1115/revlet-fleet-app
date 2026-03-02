@@ -7,8 +7,8 @@ export async function proxy(req: NextRequest) {
     request: { headers: req.headers },
   });
 
-  // 1. THE CIRCUIT BREAKER
-  // If we are already in the admin section, stop processing and allow the request.
+  // 1. THE CIRCUIT BREAKER (Must be first)
+  // If we are already headed to ANY admin sub-page, STOP and allow the request.
   if (path.startsWith('/admin')) {
     return response;
   }
