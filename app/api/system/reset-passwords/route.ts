@@ -16,7 +16,7 @@ export async function GET() {
     { email: "dispatch@test.com", role: "DISPATCHER" },
     { email: "tech@test.com", role: "TECH" },
     { email: "admin@test.com", role: "ADMIN" },
-    { email: "edson.bigotires@gmail.com", role: "SUPERADMIN" }
+    { email: "edson.cortes@bigo.com", role: "SUPERADMIN" }
   ];
 
   const results = [];

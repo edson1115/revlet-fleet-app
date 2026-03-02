@@ -24,13 +24,17 @@ export async function middleware(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   const path = req.nextUrl.pathname;
 
-  // 1. EXTRACT ROLE (Case-insensitive)
+  // 1. EXTRACT ROLE (Matches your confirmed SUPERADMIN status)
   const role = (user?.user_metadata?.role || "CUSTOMER").toUpperCase();
 
-  // 2. AUTHENTICATED BYPASS (Stop the Login Loop)
+  // 2. AUTHENTICATED BYPASS (Loop Prevention)
   if (user && (path === "/login" || path === "/")) {
     const home = (role === "SUPERADMIN" || role === "ADMIN") ? "/admin/dashboard" : "/customer";
-    return NextResponse.redirect(new URL(home, req.url));
+    
+    // GUARD: Only redirect if you are NOT already at the destination
+    if (path !== home) {
+      return NextResponse.redirect(new URL(home, req.url));
+    }
   }
 
   // 3. PUBLIC PATHS
@@ -41,6 +45,7 @@ export async function middleware(req: NextRequest) {
 
   // 4. ROLE-BASED PERMISSIONS
   const ROLE_ROUTES: Record<string, string[]> = {
+    // Wildcard access for SUPERADMIN to ensure you are never blocked
     SUPERADMIN: ["/admin", "/office", "/dispatch", "/tech", "/customer", "/sales"],
     ADMIN:      ["/admin", "/office", "/dispatch", "/sales"],
     CUSTOMER:   ["/customer"],
@@ -54,9 +59,12 @@ export async function middleware(req: NextRequest) {
     const isAllowed = ROLE_ROUTES[role]?.some((prefix) => path.startsWith(prefix));
     
     if (!isAllowed) {
-      // If an Admin accidentally hits /customer, send them back to Admin dashboard
       const fallback = (role === "SUPERADMIN" || role === "ADMIN") ? "/admin/dashboard" : "/login";
-      return NextResponse.redirect(new URL(fallback, req.url));
+      
+      // GUARD: Prevent recursive fallbacks
+      if (path !== fallback) {
+        return NextResponse.redirect(new URL(fallback, req.url));
+      }
     }
   }
 
