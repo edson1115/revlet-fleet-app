@@ -18,20 +18,20 @@ export async function POST(req: Request) {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value;
+          getAll() {
+            return cookieStore.getAll();
           },
-          set(name: string, value: string, options: any) {
-            cookieStore.set({ name, value, ...options });
-          },
-          remove(name: string, options: any) {
-            cookieStore.delete({ name, ...options });
+          setAll(cookiesToSet) {
+            try {
+              cookiesToSet.forEach(({ name, value, options }) => {
+                cookieStore.set(name, value, options);
+              });
+            } catch {}
           },
         },
       }
     );
 
-    // 🔥 THIS CREATES A REAL SESSION + COOKIE
     const { data, error } = await supabase.auth.setSession({
       access_token,
       refresh_token,
@@ -63,6 +63,7 @@ export async function POST(req: Request) {
         redirectUrl = "/office";
         break;
       case "DISPATCH":
+      case "DISPATCHER":
         redirectUrl = "/dispatch";
         break;
       case "TECH":

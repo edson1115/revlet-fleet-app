@@ -11,7 +11,8 @@ export default async function AdminLayout({
 }) {
   const cookieStore = await cookies();
 
-  // 1. INITIALIZE SUPABASE (Standard SSR handles Vercel cookies automatically)
+  // 1. INITIALIZE SUPABASE
+  // Using the standard SSR client ensures Vercel cookies are read correctly.
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -23,14 +24,16 @@ export default async function AdminLayout({
     }
   );
 
-  // 2. SECURE USER CHECK (No manual token parsing needed)
+  // 2. CHECK AUTH STATE
+  // getUser() is the only secure way to verify the session on the server.
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {
     return redirect("/login");
   }
 
-  // 3. FETCH PROFILE (Matches your SUPERADMIN role)
+  // 3. FETCH PROFILE & ROLE
+  // Your database shows 'SUPERADMIN' for edson.cortes@bigo.com.
   const { data: profile } = await supabase
     .from("profiles")
     .select("role")
@@ -39,11 +42,12 @@ export default async function AdminLayout({
 
   const userRole = (profile?.role || "").toUpperCase();
   
-  // 4. LAUNCH ROLE LOGIC (Covers your 'SUPERADMIN' status)
-  const isAdmin = ["SUPERADMIN", "SUPER_ADMIN", "ADMIN", "OFFICE", "DISPATCHER"].includes(userRole);
+  // 4. ROLE LOGIC (Must match 'SUPERADMIN' exactly as seen in your DB)
+  const adminRoles = ["SUPERADMIN", "SUPER_ADMIN", "ADMIN", "OFFICE", "DISPATCHER"];
+  const isAdmin = adminRoles.includes(userRole);
 
   if (!isAdmin) {
-    // If you are logged in but not an admin, send to login to re-auth
+    // If authenticated but not an admin, force a clean login state
     return redirect("/login");
   }
 
